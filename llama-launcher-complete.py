@@ -31,6 +31,7 @@ from modules.profiles import get_model_profile, load_profiles, save_profiles
 from modules.probes import quick_no_think_test, show_status
 from modules.runner_tmux import get_running_model, get_running_servers, run_script
 from modules.script_builder import generate_script
+from modules.system_info import collect_system_info
 
 
 # ─── 설정 ──────────────────────────────────────────────
@@ -308,6 +309,26 @@ def run_existing_script(script_path: str) -> None:
     run_script(script_path, model_name=model_name)
 
 
+def show_system_info() -> None:
+    info = collect_system_info(use_cache=True)
+
+    print("\n  ── 시스템 정보 ──")
+    print(f"  kernel: {info.kernel or 'unknown'}")
+    print(f"  arch: {info.arch or 'unknown'}")
+    print(f"  gpu_vendor_guess: {info.gpu_vendor_guess or 'unknown'}")
+    print(f"  gpu_devices: {', '.join(info.gpu_devices) if info.gpu_devices else 'unknown'}")
+    print(f"  rocm_available: {info.rocm_available}")
+    print(f"  rocm_summary: {info.rocm_summary or 'unknown'}")
+    print(f"  vulkan_available: {info.vulkan_available}")
+    print(f"  vulkan_summary: {info.vulkan_summary or 'unknown'}")
+    if info.warnings:
+        print("  warnings:")
+        for warning in info.warnings:
+            print(f"    - {warning}")
+    else:
+        print("  warnings: none")
+
+
 # ─── 메인 루프 ─────────────────────────────────────────
 
 def main() -> None:
@@ -345,6 +366,7 @@ def main() -> None:
         print("\n  [A] 설정 변경")
         print(f"  [S] 스크립트 관리{script_info}")
         print("  [H] 서버 상태 확인")
+        print("  [I] 시스템 정보")
         print("  [T] no-thinking 채팅 테스트")
         print("  [R] 모델 목록 새로고침")
         print("  [Q] 종료\n")
@@ -370,6 +392,11 @@ def main() -> None:
 
         if upper == "H":
             show_status(cfg, get_running_servers())
+            pause()
+            continue
+
+        if upper == "I":
+            show_system_info()
             pause()
             continue
 
