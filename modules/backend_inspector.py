@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -10,17 +11,28 @@ from modules.backends import BACKENDS
 
 
 DISCOVERY_ROOTS = [
-    "~/src",
-    "~/.local/bin",
-    "/usr/local/bin",
-    "/usr/bin",
-    "/opt",
+    "~",
 ]
 DENY_ROOTS = {
     "/proc",
     "/sys",
     "/dev",
     "/run",
+    "/var",
+    "/tmp",
+    "/lost+found",
+}
+INSPECTION_DENY_ROOTS = {
+    "/proc",
+    "/sys",
+    "/dev",
+    "/run",
+}
+OPTIONAL_DISCOVERY_PARENTS = {
+    "/mnt",
+    "/mount",
+    "/media",
+    "/opt",
 }
 CANDIDATE_NAMES = {
     "llama-server",
@@ -33,6 +45,30 @@ EXPECTED_FEATURES = {
     "chat_template_kwargs",
     "alias",
 }
+
+
+@dataclass(frozen=True)
+class DiscoveryFuel:
+    max_depth: int = 5
+    max_seconds: float = 5.0
+    max_dirs: int = 500
+    max_files: int = 2000
+    max_candidates: int = 20
+
+
+@dataclass
+class DiscoveryResult:
+    candidates: list[str] = field(default_factory=list)
+    status: str = "ok"
+    reason: str | None = None
+    scanned_dirs: int = 0
+    scanned_files: int = 0
+    skipped_dirs: list[str] = field(default_factory=list)
+    elapsed_seconds: float = 0.0
+    warnings: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass
@@ -58,60 +94,162 @@ class BackendInspection:
 
 
 def discovery_roots() -> list[Path]:
-    roots: list[Path] = []
-    for root in DISCOVERY_ROOTS:
-        path = Path(root).expanduser()
-        if _is_denied(path):
-            continue
-        roots.append(path)
-    return roots
+    return default_safe_roots()
+
+
+def is_root_user() -> bool:
+    return hasattr(os, "geteuid") and os.geteuid() == 0
+
+
+def display_path(path: str | Path) -> str:
+    target = Path(path).expanduser()
+    home = Path.home()
+    try:
+        rel = target.resolve().relative_to(home.resolve())
+    except (OSError, ValueError):
+        return str(target)
+    rel_s = str(rel)
+    return "$HOME" if rel_s == "." else f"$HOME/{rel_s}"
+
+
+def default_safe_roots() -> list[Path]:
+    if is_root_user():
+        return []
+    home = Path.home()
+    return [] if is_denied_path(home) else [home]
+
+
+def optional_discovery_parents() -> list[Path]:
+    parents: list[Path] = []
+    for parent in sorted(OPTIONAL_DISCOVERY_PARENTS):
+        path = Path(parent)
+        if path.exists() and not is_denied_path(path):
+            parents.append(path)
+    return parents
+
+
+def is_denied_path(path: str | Path) -> bool:
+    return _is_denied(Path(path))
+
+
+def discovery_choices() -> dict[str, Any]:
+    return {
+        "safe_roots": [display_path(path) for path in default_safe_roots()],
+        "optional_parents": [display_path(path) for path in optional_discovery_parents()],
+        "denied_roots": sorted(DENY_ROOTS),
+        "warnings": [
+            "root 권한은 편의 기능이 아니라 폭약입니다.",
+            "backend discovery는 일반 사용자 계정에서만 실행됩니다.",
+        ] if is_root_user() else [],
+    }
 
 
 def discover_llama_server_candidates(
-    roots: list[str | Path] | None = None,
-    max_depth: int = 5,
-) -> list[Path]:
-    candidates: list[Path] = []
+    root: str | Path,
+    fuel: DiscoveryFuel | None = None,
+) -> DiscoveryResult:
+    started = time.monotonic()
+    fuel = fuel or DiscoveryFuel()
+    result = DiscoveryResult()
+
+    if is_root_user():
+        result.status = "denied"
+        result.reason = "root discovery denied"
+        result.warnings.extend([
+            "root 권한은 편의 기능이 아니라 폭약입니다.",
+            "backend discovery는 일반 사용자 계정에서만 실행됩니다.",
+        ])
+        result.elapsed_seconds = time.monotonic() - started
+        return result
+
+    root_path = Path(root).expanduser()
+    if _is_denied(root_path):
+        result.status = "skipped"
+        result.reason = "path is denied"
+        result.skipped_dirs.append(display_path(root_path))
+        result.elapsed_seconds = time.monotonic() - started
+        return result
+
+    if not root_path.exists():
+        result.status = "skipped"
+        result.reason = "path does not exist"
+        result.skipped_dirs.append(display_path(root_path))
+        result.elapsed_seconds = time.monotonic() - started
+        return result
+
     seen: set[str] = set()
-    search_roots = [Path(p).expanduser() for p in roots] if roots is not None else discovery_roots()
 
-    for root in search_roots:
-        if _is_denied(root) or not root.exists():
+    if root_path.is_file():
+        result.scanned_files += 1
+        if root_path.name in CANDIDATE_NAMES:
+            _append_candidate(result.candidates, seen, root_path)
+        result.elapsed_seconds = time.monotonic() - started
+        return result
+
+    if not root_path.is_dir():
+        result.status = "skipped"
+        result.reason = "path is neither file nor directory"
+        result.elapsed_seconds = time.monotonic() - started
+        return result
+
+    stack: list[tuple[Path, int]] = [(root_path, 0)]
+    while stack:
+        limit_reason = _fuel_limit_reason(result, fuel, started)
+        if limit_reason:
+            result.status = "stopped"
+            result.reason = limit_reason
+            break
+
+        current, depth = stack.pop()
+        if _is_denied(current):
+            result.skipped_dirs.append(display_path(current))
+            continue
+        if current.is_symlink():
+            result.skipped_dirs.append(f"{display_path(current)} (symlink)")
             continue
 
-        if root.is_file() and root.name in CANDIDATE_NAMES:
-            _append_candidate(candidates, seen, root)
+        result.scanned_dirs += 1
+        try:
+            entries = list(current.iterdir())
+        except OSError as e:
+            result.skipped_dirs.append(display_path(current))
+            result.warnings.append(f"skipped {display_path(current)}: {e}")
             continue
 
-        if not root.is_dir():
-            continue
+        for entry in entries:
+            limit_reason = _fuel_limit_reason(result, fuel, started)
+            if limit_reason:
+                result.status = "stopped"
+                result.reason = limit_reason
+                break
 
-        root_depth = len(root.resolve().parts)
-        stack = [root]
-        while stack:
-            current = stack.pop()
-            if _is_denied(current):
-                continue
-            try:
-                entries = list(current.iterdir())
-            except OSError:
-                continue
-
-            for entry in entries:
-                if _is_denied(entry):
-                    continue
-                if entry.is_file() and entry.name in CANDIDATE_NAMES:
-                    _append_candidate(candidates, seen, entry)
-                    continue
+            if _is_denied(entry):
                 if entry.is_dir():
-                    try:
-                        depth = len(entry.resolve().parts) - root_depth
-                    except OSError:
-                        continue
-                    if depth <= max_depth:
-                        stack.append(entry)
+                    result.skipped_dirs.append(display_path(entry))
+                continue
+            if entry.is_symlink():
+                if not entry.exists():
+                    result.warnings.append(f"skipped broken symlink: {display_path(entry)}")
+                continue
 
-    return sorted(candidates, key=lambda p: str(p))
+            try:
+                if entry.is_file():
+                    result.scanned_files += 1
+                    if entry.name in CANDIDATE_NAMES:
+                        _append_candidate(result.candidates, seen, entry)
+                    continue
+                if entry.is_dir() and depth < fuel.max_depth:
+                    stack.append((entry, depth + 1))
+            except OSError as e:
+                result.warnings.append(f"skipped {display_path(entry)}: {e}")
+                continue
+
+        if result.status == "stopped":
+            break
+
+    result.candidates.sort()
+    result.elapsed_seconds = time.monotonic() - started
+    return result
 
 
 def inspect_backend_binary(path: str | Path) -> BackendInspection:
@@ -120,7 +258,7 @@ def inspect_backend_binary(path: str | Path) -> BackendInspection:
     evidence: list[str] = []
     raw: dict[str, str] = {}
 
-    if _is_denied(target):
+    if _is_under_roots(target, INSPECTION_DENY_ROOTS):
         warnings.append("path is under a denied discovery root")
         result = BackendInspection(
             path=str(target),
@@ -366,7 +504,7 @@ def label_from_score(result: BackendInspection) -> str:
     return "시동도 안 걸리는 폐차"
 
 
-def _append_candidate(candidates: list[Path], seen: set[str], path: Path) -> None:
+def _append_candidate(candidates: list[str], seen: set[str], path: Path) -> None:
     try:
         key = str(path.resolve())
     except OSError:
@@ -374,15 +512,31 @@ def _append_candidate(candidates: list[Path], seen: set[str], path: Path) -> Non
     if key in seen:
         return
     seen.add(key)
-    candidates.append(path)
+    candidates.append(key)
+
+
+def _fuel_limit_reason(result: DiscoveryResult, fuel: DiscoveryFuel, started: float) -> str | None:
+    if time.monotonic() - started > fuel.max_seconds:
+        return "max_seconds exceeded"
+    if result.scanned_dirs >= fuel.max_dirs:
+        return "max_dirs exceeded"
+    if result.scanned_files >= fuel.max_files:
+        return "max_files exceeded"
+    if len(result.candidates) >= fuel.max_candidates:
+        return "max_candidates exceeded"
+    return None
 
 
 def _is_denied(path: Path) -> bool:
+    return _is_under_roots(path, DENY_ROOTS)
+
+
+def _is_under_roots(path: Path, roots: set[str]) -> bool:
     try:
         resolved = path.expanduser().resolve()
     except OSError:
         resolved = path.expanduser().absolute()
-    return any(str(resolved) == root or str(resolved).startswith(root + os.sep) for root in DENY_ROOTS)
+    return any(str(resolved) == root or str(resolved).startswith(root + os.sep) for root in roots)
 
 
 def _run_summary(args: list[str], timeout: int) -> str:
