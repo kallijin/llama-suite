@@ -10,6 +10,9 @@ from typing import Any
 
 
 CONFIG_PATH = Path(os.path.expanduser("~/.hermes/llama-launcher.json"))
+KV_CACHE_SAFETY_EXTRA_ARGS = ["--cache-type-k", "q8_0", "--cache-type-v", "q8_0", "--flash-attn"]
+KV_CACHE_VALUE_OPTIONS = {"--cache-type-k", "--cache-type-v"}
+KV_CACHE_FLAG_OPTIONS = {"--flash-attn"}
 
 # llama.cpp 디렉터리에서 실행할 수도 있고, 절대경로로도 쓸 수 있게 후보를 넉넉히 둔다.
 LLAMA_SERVER_CANDIDATES = [
@@ -87,7 +90,8 @@ def default_config() -> dict[str, Any]:
         "reasoning": "off",            # off | auto | on
         "reasoning_budget": 0,         # 0 = 즉시 thinking 종료
         "enable_thinking": False,      # chat_template_kwargs용
-        "extra_args": [],
+        # 긴 ctx 로컬 실행에서는 KV cache 압축을 기본 안전장치로 둔다.
+        "extra_args": KV_CACHE_SAFETY_EXTRA_ARGS.copy(),
     }
 
 
@@ -101,6 +105,7 @@ def load_config() -> dict[str, Any]:
                 cfg.update(saved)
         except Exception as e:
             print(f"  ⚠️  설정 파일 읽기 실패: {e}")
+    cfg["extra_args"] = ensure_kv_cache_safety_args(cfg.get("extra_args"))
     return cfg
 
 
@@ -114,10 +119,63 @@ def normalize_extra_args(value: Any) -> list[str]:
     if value is None:
         return []
     if isinstance(value, list):
-        return [str(x) for x in value if str(x).strip()]
+        return dedupe_extra_args([str(x) for x in value if str(x).strip()])
     if isinstance(value, str):
         try:
-            return shlex.split(value)
+            return dedupe_extra_args(shlex.split(value))
         except ValueError:
-            return value.split()
+            return dedupe_extra_args(value.split())
     return []
+
+
+def extra_arg_has_option(args: list[str], option: str) -> bool:
+    return any(arg == option or arg.startswith(f"{option}=") for arg in args)
+
+
+def extra_arg_option_name(arg: str) -> str | None:
+    name = arg.split("=", 1)[0]
+    if name in KV_CACHE_VALUE_OPTIONS or name in KV_CACHE_FLAG_OPTIONS:
+        return name
+    return None
+
+
+def dedupe_extra_args(args: list[str]) -> list[str]:
+    result: list[str] = []
+    seen_safety_options: set[str] = set()
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        option = extra_arg_option_name(arg)
+        if option in KV_CACHE_VALUE_OPTIONS:
+            if option in seen_safety_options:
+                i += 2 if arg == option and i + 1 < len(args) else 1
+                continue
+            seen_safety_options.add(option)
+            result.append(arg)
+            if arg == option and i + 1 < len(args):
+                result.append(args[i + 1])
+                i += 2
+            else:
+                i += 1
+            continue
+        if option in KV_CACHE_FLAG_OPTIONS:
+            if option not in seen_safety_options:
+                seen_safety_options.add(option)
+                result.append(arg)
+            i += 1
+            continue
+        result.append(arg)
+        i += 1
+    return result
+
+
+def ensure_kv_cache_safety_args(value: Any) -> list[str]:
+    args = normalize_extra_args(value)
+    defaults: list[str] = []
+    if not extra_arg_has_option(args, "--cache-type-k"):
+        defaults.extend(["--cache-type-k", "q8_0"])
+    if not extra_arg_has_option(args, "--cache-type-v"):
+        defaults.extend(["--cache-type-v", "q8_0"])
+    if not extra_arg_has_option(args, "--flash-attn"):
+        defaults.append("--flash-attn")
+    return dedupe_extra_args(defaults + args)
