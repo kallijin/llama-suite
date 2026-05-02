@@ -16,15 +16,12 @@ from __future__ import annotations
 import os
 import shlex
 import sys
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from modules.config_store import (
     detect_tailscale_ip,
     expand_path,
-    find_default_llama_bin,
-    is_executable_file,
     load_config,
     normalize_extra_args,
     save_config,
@@ -33,6 +30,7 @@ from modules.model_scan import get_model_list
 from modules.profiles import get_model_profile, load_profiles, save_profiles
 from modules.probes import quick_no_think_test, show_status
 from modules.runner_tmux import get_running_model, get_running_servers, run_script
+from modules.script_builder import generate_script
 
 
 # ─── 설정 ──────────────────────────────────────────────
@@ -297,95 +295,6 @@ def manage_scripts() -> None:
 
 
 # ─── 스크립트 생성 및 실행 ──────────────────────────────
-
-def resolve_llama_bin(cfg: dict[str, Any]) -> str:
-    bin_path = str(cfg.get("llama_bin") or find_default_llama_bin())
-    if not os.path.isabs(os.path.expanduser(bin_path)):
-        candidate = os.path.abspath(os.path.join(os.getcwd(), bin_path))
-        if is_executable_file(candidate):
-            return candidate
-
-    expanded = expand_path(bin_path)
-    if is_executable_file(expanded):
-        return expanded
-
-    fallback = find_default_llama_bin()
-    return fallback
-
-
-def generate_script(model_name: str, model_path: str, cfg: dict[str, Any]) -> tuple[str, str]:
-    SCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
-
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_name = safe_script_name(model_name)
-    script_name = f"{safe_name}_{ts}.sh"
-    script_path = SCRIPTS_DIR / script_name
-
-    bin_path = resolve_llama_bin(cfg)
-    model_id = Path(model_path).name if cfg.get("alias_by_file", True) else model_name
-    extra_args = normalize_extra_args(cfg.get("extra_args", []))
-    extra_args_shell = " ".join(shlex.quote(x) for x in extra_args)
-
-    enable_thinking = "true" if bool(cfg.get("enable_thinking", False)) else "false"
-    reasoning = str(cfg.get("reasoning", "off"))
-    reasoning_budget = int(cfg.get("reasoning_budget", 0))
-
-    cmd_lines = [
-        '    -m "$MODEL_PATH" \\',
-        '    --host "$HOST" \\',
-        '    --port "$PORT" \\',
-        '    --ctx-size "$CTX_SIZE" \\',
-    ]
-
-    if cfg.get("jinja", True):
-        cmd_lines.append('    --jinja \\')
-
-    if cfg.get("alias_by_file", True):
-        cmd_lines.append('    --alias "$MODEL_ID" \\')
-
-    # Qwen thinking-only 응답 방지용. reasoning=auto/on으로 바꾸면 사용자가 의도한 대로 따라간다.
-    if reasoning in {"off", "auto", "on"}:
-        cmd_lines.append('    --reasoning "$REASONING_MODE" \\')
-    cmd_lines.append('    --reasoning-budget "$REASONING_BUDGET" \\')
-    cmd_lines.append('    --chat-template-kwargs "$CHAT_TEMPLATE_KWARGS" \\')
-    cmd_lines.append('    "${EXTRA_ARGS[@]}"')
-
-    cmd_block = "\n".join(cmd_lines)
-
-    script_content = f"""#!/usr/bin/env bash
-# 🦙 LLAMA.CPP 실행 스크립트
-# 생성: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-# 생성기: llama-launcher.py
-
-set -euo pipefail
-
-SERVER_BIN={shlex.quote(bin_path)}
-MODEL={shlex.quote(model_name)}
-MODEL_ID={shlex.quote(model_id)}
-MODEL_PATH={shlex.quote(model_path)}
-HOST={shlex.quote(str(cfg['host']))}
-PORT={int(cfg['port'])}
-CTX_SIZE={int(cfg['ctx_size'])}
-REASONING_MODE={shlex.quote(reasoning)}
-REASONING_BUDGET={reasoning_budget}
-CHAT_TEMPLATE_KWARGS='{{"enable_thinking":{enable_thinking}}}'
-EXTRA_ARGS=({extra_args_shell})
-
-echo "🚀 Starting $MODEL"
-echo "   model id : $MODEL_ID"
-echo "   endpoint : http://$HOST:$PORT/v1"
-echo "   ctx      : $CTX_SIZE"
-echo "   reasoning: $REASONING_MODE, budget=$REASONING_BUDGET, template=$CHAT_TEMPLATE_KWARGS"
-echo
-
-exec "$SERVER_BIN" \\
-{cmd_block}
-"""
-
-    script_path.write_text(script_content)
-    script_path.chmod(0o755)
-    return script_name, str(script_path)
-
 
 def run_existing_script(script_path: str) -> None:
     model_name = read_script_field(script_path, "MODEL") or Path(script_path).stem
