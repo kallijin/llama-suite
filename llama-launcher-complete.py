@@ -26,6 +26,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from modules.model_scan import get_model_list
+
 
 # ─── 설정 ──────────────────────────────────────────────
 
@@ -243,47 +245,6 @@ def kill_running_servers() -> None:
             os.kill(pid, signal.SIGKILL)
         except OSError:
             pass
-
-
-# ─── 모델 탐색 ─────────────────────────────────────────
-
-def get_model_list() -> dict[str, str]:
-    """MODELS_DIR 아래의 GGUF 파일들을 재귀적으로 찾아 표시명 → 경로 dict로 반환."""
-    root = Path(MODELS_DIR)
-    models: dict[str, str] = {}
-    if not root.is_dir():
-        return models
-
-    ggufs = sorted(root.rglob("*.gguf"))
-    used_names: set[str] = set()
-
-    for gguf in ggufs:
-        try:
-            rel = gguf.relative_to(root)
-        except ValueError:
-            rel = gguf
-
-        # 폴더 안에 같은 이름의 gguf가 하나면 폴더명을 모델명으로 쓴다.
-        parent = gguf.parent
-        siblings = list(parent.glob("*.gguf"))
-        if len(siblings) == 1:
-            display = parent.name
-        else:
-            display = str(rel)
-
-        # 중복 표시명 방지
-        base_display = display
-        if display in used_names:
-            display = str(rel)
-        n = 2
-        while display in used_names:
-            display = f"{base_display} #{n}"
-            n += 1
-
-        used_names.add(display)
-        models[display] = str(gguf)
-
-    return dict(sorted(models.items(), key=lambda kv: kv[0].lower()))
 
 
 # ─── 설정 변경 ─────────────────────────────────────────
@@ -759,7 +720,7 @@ def main() -> None:
     cfg = load_config()
     save_config(cfg)  # 새 필드가 생겼으면 즉시 반영
 
-    models = get_model_list()
+    models = get_model_list(MODELS_DIR)
     if not models:
         print(f"\n⚠️  {MODELS_DIR} 에서 GGUF 파일을 찾을 수 없습니다.")
         sys.exit(1)
@@ -824,7 +785,7 @@ def main() -> None:
             continue
 
         if upper == "R":
-            models = get_model_list()
+            models = get_model_list(MODELS_DIR)
             print("  ✅ 목록 새로고침!")
             pause()
             continue
