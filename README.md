@@ -136,7 +136,4 @@ EXAONE 4.0 32B Q4_K_M
 - direct tool-call: pass
 - Hermes terminal tool: fail / text imitation
 - chatml template: fail / <|im_end|> leak
-'''
-text
-'''text
-'''text
+```
