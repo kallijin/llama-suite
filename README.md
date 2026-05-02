@@ -5,6 +5,39 @@
 
 ---
 
+## 현재 상태
+
+`llama-suite`는 현재 private experimental toolkit이다.
+
+아직 public release가 아니며, 일반 사용자를 위한 설치/배포/호환성 보장을 하지 않는다.
+v0.4-scope-freeze 이후에는 새 기능보다 안정화, 검증, 문서 정리를 우선한다.
+
+### Implemented
+
+- 로컬 launcher 기본 흐름
+- 모듈 분리 구조
+- llama.cpp backend 탐지/검사 계열
+- 모델/시스템 정보 확인 메뉴
+- 일부 probe와 실행 보조 루틴
+- 아이디어 parking lot과 scope freeze 기록
+
+### Planned
+
+- 구현된 기능의 재현성 검증
+- README/IDEAS 기준 정리
+- root 실행 경고 흐름의 재현 확인
+- 모델 프로필과 probe 결과 기록 방식 안정화
+
+### Parked
+
+- 대용량 모델 디렉터리 자동 탐색
+- 네트워크/시스템 설정 자동 추정
+- 외부 agent 실행 연동
+- 유니코드/다국어 정리
+- public release 준비
+
+---
+
 ## 목적
 
 `llama-suite`는 로컬 LLM 운용을 위한 작고 투박하지만 강한 도구 상자다.
