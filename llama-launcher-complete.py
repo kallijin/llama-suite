@@ -30,7 +30,7 @@ from modules.model_scan import get_model_list
 from modules.profiles import get_model_profile, load_profiles, save_profiles
 from modules.probes import quick_no_think_test, show_status
 from modules.runner_tmux import get_running_model, get_running_servers, run_script
-from modules.script_builder import generate_script
+from modules.script_builder import generate_script, resolve_ctx_size
 from modules.system_info import collect_system_info
 
 
@@ -447,10 +447,11 @@ def main() -> None:
 
         result = get_latest_script(model_name)
         existing_script, existing_name = (result if result else (None, None))
+        effective_ctx_size = resolve_ctx_size(model_name, model_path, cfg)
 
         print(f"\n  📦 모델 : {model_name}")
         print(f"  📄 경로 : {model_path}")
-        print(f"  ⚙️  설정 : ctx={cfg['ctx_size']}, {cfg['host']}:{cfg['port']}")
+        print(f"  ⚙️  설정 : ctx={effective_ctx_size} (global={cfg['ctx_size']}), {cfg['host']}:{cfg['port']}")
         print(
             f"  🧾 profile: ctx={profile.get('stable_ctx_size') or 'unknown'}, "
             f"backend={profile.get('recommended_backend') or 'unknown'}, "

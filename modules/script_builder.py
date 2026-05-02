@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shlex
 from datetime import datetime
 from pathlib import Path
@@ -13,6 +14,10 @@ from modules.config_store import (
 
 
 DEFAULT_SCRIPTS_DIR = Path(os.path.expanduser("~/.hermes/llama-scripts"))
+MODEL_SIZE_CTX_RULES = [
+    (20.0, 28.0, 92000),
+    (30.0, 36.0, 80000),
+]
 
 
 def safe_generated_script_name(text: str, limit: int = 64) -> str:
@@ -31,6 +36,26 @@ def resolve_llama_bin(cfg: dict[str, Any]) -> str:
     return resolve_backend_server_bin(backend, cfg.get("llama_bin"))
 
 
+def detect_model_size_billion(model_name: str, model_path: str) -> float | None:
+    text = f"{model_name} {Path(model_path).name} {Path(model_path).parent.name}"
+    matches = re.findall(r"(?<![A-Za-z0-9])(\d+(?:\.\d+)?)\s*[Bb](?![A-Za-z0-9])", text)
+    if not matches:
+        return None
+    try:
+        return max(float(x) for x in matches)
+    except ValueError:
+        return None
+
+
+def resolve_ctx_size(model_name: str, model_path: str, cfg: dict[str, Any]) -> int:
+    model_size = detect_model_size_billion(model_name, model_path)
+    if model_size is not None:
+        for min_size, max_size, ctx_size in MODEL_SIZE_CTX_RULES:
+            if min_size <= model_size <= max_size:
+                return ctx_size
+    return int(cfg["ctx_size"])
+
+
 def generate_script(
     model_name: str,
     model_path: str,
@@ -47,6 +72,7 @@ def generate_script(
 
     bin_path = resolve_llama_bin(cfg)
     model_id = Path(model_path).name if cfg.get("alias_by_file", True) else model_name
+    ctx_size = resolve_ctx_size(model_name, model_path, cfg)
     extra_args = normalize_extra_args(cfg.get("extra_args", []))
     extra_args_shell = " ".join(shlex.quote(x) for x in extra_args)
 
@@ -89,7 +115,7 @@ MODEL_ID={shlex.quote(model_id)}
 MODEL_PATH={shlex.quote(model_path)}
 HOST={shlex.quote(str(cfg['host']))}
 PORT={int(cfg['port'])}
-CTX_SIZE={int(cfg['ctx_size'])}
+CTX_SIZE={ctx_size}
 REASONING_MODE={shlex.quote(reasoning)}
 REASONING_BUDGET={reasoning_budget}
 CHAT_TEMPLATE_KWARGS='{{"enable_thinking":{enable_thinking}}}'

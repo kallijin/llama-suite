@@ -1,5 +1,109 @@
 # llama-suite Operations Log
 
+## Operating Record Routine
+
+Use this routine after code generation, insertion, or modification when the change affects launcher behavior, model startup safety, or runtime configuration.
+
+1. Check current state:
+   - `git status -sb`
+   - `git log --oneline --decorate -5`
+2. Inspect the intended diff:
+   - `git diff -- <changed files>`
+3. Verify before committing:
+   - `python3 -m py_compile llama-launcher-complete.py modules/*.py`
+   - `git diff --check`
+   - `bash scripts/smoke-check.sh`
+4. Create timestamped backups before committing:
+   - `~/git-backups/llama-suite-$STAMP-$HEADSHORT-<topic>-wip.diff`
+   - `~/git-backups/llama-suite-$STAMP-$HEADSHORT-<topic>-staged.diff`
+   - `~/git-backups/llama-suite-$STAMP-$HEADSHORT-<topic>-status.txt`
+   - `~/git-backups/llama-suite-$STAMP-$HEADSHORT-before-<topic>.bundle`
+5. Record the operational reason and outcome in this file.
+6. Commit with a focused message and push when the change is ready.
+
+This keeps three recoverable layers:
+
+- git history for accepted changes
+- timestamped local backup files for pre-commit reconstruction
+- this operations log for why the change happened and what was observed at runtime
+
+## 2026-05-03 00:14 KST - Model-size ctx defaults and backup trace
+
+### Context
+
+- Global `ctx_size` had been set to `92000`.
+- Model 8, `supergemma4-26b-uncensored-fast-v2-Q4_K_M`, ran successfully at `ctx-size 92000`.
+- Model 5, `HyperCLOVAX-SEED-Think-32B-heretic2.Q4_K_M`, also launched at `ctx-size 92000`, but VRAM usage exceeded the practical 80% safety target.
+
+Observed for model 5 at `ctx-size 92000`:
+
+```text
+PID 21176
+--ctx-size 92000
+--cache-type-k q8_0 --cache-type-v q8_0 --flash-attn on
+GPU0: 16901660672 / 17095983104 bytes, about 99%
+GPU1: 15737131008 / 17095983104 bytes, about 92%
+```
+
+The server reached:
+
+```text
+main: server is listening on http://100.68.40.87:8080
+srv  update_slots: all slots are idle
+```
+
+But the VRAM level was above the agreed 80% stability line.
+
+### Change
+
+Added model-size-based default context selection for generated scripts:
+
+```text
+20B through 28B -> ctx 92000
+30B through 36B -> ctx 80000
+other sizes     -> existing global ctx_size
+```
+
+Implementation:
+
+- `modules/script_builder.py`
+  - added model-size detection from model name, GGUF filename, and parent directory
+  - added `resolve_ctx_size()`
+  - generated scripts now write the resolved effective `CTX_SIZE`
+- `llama-launcher-complete.py`
+  - model confirmation now displays effective ctx and global ctx together
+
+Verification sample:
+
+```text
+5 HyperCLOVAX-SEED-Think-32B-heretic2.Q4_K_M
+  size: 32.0
+  ctx: 80000
+  CTX_SIZE=80000
+
+8 supergemma4-26b-uncensored-fast-v2-Q4_K_M
+  size: 26.0
+  ctx: 92000
+  CTX_SIZE=92000
+```
+
+### Backup For This Uncommitted Change
+
+Created before adding this log entry:
+
+```text
+/home/kalijin/git-backups/llama-suite-2026-05-03-001452-b8c2acb-model-size-ctx-wip.diff
+/home/kalijin/git-backups/llama-suite-2026-05-03-001452-b8c2acb-model-size-ctx-staged.diff
+/home/kalijin/git-backups/llama-suite-2026-05-03-001452-b8c2acb-model-size-ctx-status.txt
+/home/kalijin/git-backups/llama-suite-2026-05-03-001452-b8c2acb-before-model-size-ctx-doc.bundle
+```
+
+Important distinction:
+
+- The bundle records repository refs at commit `b8c2acb` before this model-size ctx change is committed.
+- The `model-size-ctx-wip.diff` file records the actual uncommitted code change.
+- After this log entry is committed, git history becomes the authoritative record for the accepted change.
+
 ## 2026-05-02 23:53 KST - Model 8 launch rescue and flash-attn value fix
 
 ### Summary
