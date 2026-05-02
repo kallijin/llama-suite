@@ -26,7 +26,7 @@
 - v0.4-scope-freeze 이후 기준에 맞춰 README와 IDEAS의 현재 상태, 구현됨/예정/보류 구분, public release 여부를 명확히 정리한다.
 - 이미 구현된 메뉴와 모듈이 현재 로컬 환경에서 실행 가능한지 확인하고, 결과만 문서나 기록으로 남긴다.
 - root 상태에서 제한 메뉴 접근 시 경고 메시지가 너무 빨리 지나가는 문제는 먼저 재현 여부를 확인한다. 재현 확인 전에는 바로 고치지 않는다.
-- py_compile, git status, git diff처럼 코드 변경 없이 가능한 검증 명령을 수행한다.
+- py_compile, git status, git diff처럼 코드 변경 없이 가능한 검증 명령을 수행한다. 일부는 `scripts/smoke-check.sh`로 실현했다.
 
 ### Next
 곧 필요하지만 설계가 먼저 필요한 것.

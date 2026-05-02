@@ -28,6 +28,16 @@ v0.4-scope-freeze 이후에는 새 기능보다 안정화, 검증, 문서 정리
 - root 실행 경고 흐름의 재현 확인
 - 모델 프로필과 probe 결과 기록 방식 안정화
 
+### Verification
+
+안정화용 빠른 확인은 repo root에서 다음 명령으로 실행한다.
+
+```sh
+bash scripts/smoke-check.sh
+```
+
+이 검사는 모델을 실행하지 않고 git 상태, 최근 로그, Python compile, 주요 파일/디렉터리 존재, 주요 모듈 import만 확인한다.
+
 ### Parked
 
 - 대용량 모델 디렉터리 자동 탐색
