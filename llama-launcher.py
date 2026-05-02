@@ -55,16 +55,20 @@ def get_model_list():
 
 
 def load_config():
-    if os.path.exists(CONFIG_PATH):
-        with open(CONFIG_PATH) as f:
-            return json.load(f)
-    return {
+    defaults = {
         "ctx_size": 4096,
         "host": "127.0.0.1",
         "port": 8080,
         "last_model": None,
         "llama_bin": LLAMA_SERVER_BIN,
+        "kv_cache_type": "q8_0",
     }
+    if os.path.exists(CONFIG_PATH):
+        with open(CONFIG_PATH) as f:
+            saved = json.load(f)
+        if isinstance(saved, dict):
+            defaults.update(saved)
+    return defaults
 
 
 def save_config(cfg):
@@ -81,7 +85,7 @@ def print_header():
 def change_settings(cfg):
     """설정 변경 메뉴"""
     print("\n  ── 설정 변경 ──")
-    print(f"  현재: ctx={cfg['ctx_size']}, host={cfg['host']}:{cfg['port']}\n")
+    print(f"  현재: ctx={cfg['ctx_size']}, kv={cfg.get('kv_cache_type', 'q8_0')}, host={cfg['host']}:{cfg['port']}\n")
 
     presets = ["2k", "4k", "8k", "16k", "32k", "62k", "95k", "120k"]
     preset_map = {p: int(p.replace("k", "000")) for p in presets}
@@ -116,6 +120,12 @@ def change_settings(cfg):
     val = input(f"  llama-server 경로 [{cfg.get('llama_bin', LLAMA_SERVER_BIN)}] > ").strip()
     if val:
         cfg["llama_bin"] = val
+
+    val = input(f"  KV cache type f16/q8_0/q4_0/off [{cfg.get('kv_cache_type', 'q8_0')}] > ").strip().lower()
+    if val == "off":
+        cfg["kv_cache_type"] = ""
+    elif val in {"f16", "q8_0", "q4_0"}:
+        cfg["kv_cache_type"] = val
 
     save_config(cfg)
     print("  ✅ 설정 저장됨!")
@@ -278,6 +288,13 @@ def generate_script(model_name, model_path, cfg):
             if os.path.exists(alt):
                 bin_path = alt
 
+    kv_cache_type = str(cfg.get("kv_cache_type", "q8_0")).strip()
+    cache_args = ""
+    if kv_cache_type:
+        cache_args = f"""    --cache-type-k "$KV_CACHE_TYPE" \\
+    --cache-type-v "$KV_CACHE_TYPE" \\
+"""
+
     script_content = f"""#!/bin/bash
 # 🦙 LLAMA.CPP 실행 스크립트
 # 생성: {datetime.now().strftime('%Y-%m-%d %H:%M')}
@@ -286,6 +303,7 @@ PATH="{model_path}"
 HOST="{cfg['host']}"
 PORT={cfg['port']}
 CTX_SIZE={cfg['ctx_size']}
+KV_CACHE_TYPE="{kv_cache_type}"
 
 echo "🚀 Starting $MODEL ..."
 {bin_path} \\
@@ -293,6 +311,7 @@ echo "🚀 Starting $MODEL ..."
     --host "$HOST" \\
     --port "$PORT" \\
     --ctx-size "$CTX_SIZE" \\
+{cache_args}\
     --jinja
 
 # PID 저장 (종료 시 활용)

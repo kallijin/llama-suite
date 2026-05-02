@@ -28,7 +28,7 @@ from modules.config_store import (
 )
 from modules.model_scan import get_model_list
 from modules.profiles import get_model_profile, load_profiles, save_profiles
-from modules.probes import quick_no_think_test, show_status
+from modules.probes import quick_agent_readiness_test, show_status
 from modules.runner_tmux import get_running_model, get_running_servers, run_script
 from modules.script_builder import generate_script
 from modules.system_info import collect_system_info
@@ -69,6 +69,7 @@ def change_settings(cfg: dict[str, Any]) -> dict[str, Any]:
     print(
         f"  현재: ctx={cfg['ctx_size']}, "
         f"host={cfg['host']}:{cfg['port']}, "
+        f"kv={cfg.get('kv_cache_type', 'q8_0')}, "
         f"reasoning={cfg.get('reasoning', 'off')}, "
         f"budget={cfg.get('reasoning_budget', 0)}"
     )
@@ -122,6 +123,14 @@ def change_settings(cfg: dict[str, Any]) -> dict[str, Any]:
     val = input(f"  llama-server 경로 [{cfg.get('llama_bin')}] > ").strip()
     if val:
         cfg["llama_bin"] = expand_path(val)
+
+    print("\n  ── KV cache 설정 ──")
+    print("  긴 context에서 VRAM 압박을 줄이려면 q8_0 추천.")
+    val = input(f"  KV cache type f16/q8_0/q4_0/off [{cfg.get('kv_cache_type', 'q8_0')}] > ").strip().lower()
+    if val == "off":
+        cfg["kv_cache_type"] = ""
+    elif val in {"f16", "q8_0", "q4_0"}:
+        cfg["kv_cache_type"] = val
 
     print("\n  ── Thinking / Reasoning 설정 ──")
     print("  Hermes용 Qwen thinking-only 응답을 막으려면 기본값 그대로 두는 걸 추천.")
@@ -217,6 +226,8 @@ def script_is_modern(path: str) -> bool:
         return False
     required = [
         "MODEL_PATH=",
+        "--cache-type-k",
+        "--cache-type-v",
         "--reasoning",
         "--reasoning-budget",
         "--chat-template-kwargs",
@@ -344,7 +355,10 @@ def main() -> None:
         print_header()
         print(f"  모델 디렉터리: {MODELS_DIR}")
         print(f"  endpoint 설정: http://{cfg['host']}:{cfg['port']}/v1")
-        print(f"  ctx={cfg['ctx_size']}, reasoning={cfg.get('reasoning')}, budget={cfg.get('reasoning_budget')}")
+        print(
+            f"  ctx={cfg['ctx_size']}, kv={cfg.get('kv_cache_type', 'q8_0')}, "
+            f"reasoning={cfg.get('reasoning')}, budget={cfg.get('reasoning_budget')}"
+        )
         print(f"  모델 목록 ({len(models)}개)\n")
 
         running = get_running_model()
@@ -367,7 +381,7 @@ def main() -> None:
         print(f"  [S] 스크립트 관리{script_info}")
         print("  [H] 서버 상태 확인")
         print("  [I] 시스템 정보")
-        print("  [T] no-thinking 채팅 테스트")
+        print("  [T] 에이전트 적합성 테스트 (no-thinking/tools)")
         print("  [R] 모델 목록 새로고침")
         print("  [Q] 종료\n")
 
@@ -401,7 +415,7 @@ def main() -> None:
             continue
 
         if upper == "T":
-            quick_no_think_test(cfg)
+            quick_agent_readiness_test(cfg)
             pause()
             continue
 
@@ -450,7 +464,7 @@ def main() -> None:
 
         print(f"\n  📦 모델 : {model_name}")
         print(f"  📄 경로 : {model_path}")
-        print(f"  ⚙️  설정 : ctx={cfg['ctx_size']}, {cfg['host']}:{cfg['port']}")
+        print(f"  ⚙️  설정 : ctx={cfg['ctx_size']}, kv={cfg.get('kv_cache_type', 'q8_0')}, {cfg['host']}:{cfg['port']}")
         print(
             f"  🧾 profile: ctx={profile.get('stable_ctx_size') or 'unknown'}, "
             f"backend={profile.get('recommended_backend') or 'unknown'}, "

@@ -80,6 +80,7 @@ def default_config() -> dict[str, Any]:
         "port": 8080,
         "last_model": None,
         "llama_bin": find_default_llama_bin(),
+        "kv_cache_type": "q8_0",
 
         # Qwen / reasoning 계열 모델이 reasoning_content만 뱉는 문제를 막기 위한 기본값.
         "jinja": True,

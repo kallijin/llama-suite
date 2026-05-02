@@ -53,6 +53,7 @@ def generate_script(
     enable_thinking = "true" if bool(cfg.get("enable_thinking", False)) else "false"
     reasoning = str(cfg.get("reasoning", "off"))
     reasoning_budget = int(cfg.get("reasoning_budget", 0))
+    kv_cache_type = str(cfg.get("kv_cache_type", "q8_0")).strip()
 
     cmd_lines = [
         '    -m "$MODEL_PATH" \\',
@@ -60,6 +61,10 @@ def generate_script(
         '    --port "$PORT" \\',
         '    --ctx-size "$CTX_SIZE" \\',
     ]
+
+    if kv_cache_type:
+        cmd_lines.append('    --cache-type-k "$KV_CACHE_TYPE" \\')
+        cmd_lines.append('    --cache-type-v "$KV_CACHE_TYPE" \\')
 
     if cfg.get("jinja", True):
         cmd_lines.append('    --jinja \\')
@@ -90,6 +95,7 @@ MODEL_PATH={shlex.quote(model_path)}
 HOST={shlex.quote(str(cfg['host']))}
 PORT={int(cfg['port'])}
 CTX_SIZE={int(cfg['ctx_size'])}
+KV_CACHE_TYPE={shlex.quote(kv_cache_type)}
 REASONING_MODE={shlex.quote(reasoning)}
 REASONING_BUDGET={reasoning_budget}
 CHAT_TEMPLATE_KWARGS='{{"enable_thinking":{enable_thinking}}}'
@@ -99,6 +105,7 @@ echo "🚀 Starting $MODEL"
 echo "   model id : $MODEL_ID"
 echo "   endpoint : http://$HOST:$PORT/v1"
 echo "   ctx      : $CTX_SIZE"
+echo "   kv cache : $KV_CACHE_TYPE"
 echo "   reasoning: $REASONING_MODE, budget=$REASONING_BUDGET, template=$CHAT_TEMPLATE_KWARGS"
 echo
 

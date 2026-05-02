@@ -3,6 +3,10 @@
 **Author:** kalijim  
 **Co-author / Assistant:** ChatGPT, kalijin의 아우
 
+[English version](README.en.md)
+
+[Change log](CHANGELOG.md)
+
 ---
 
 ## 현재 상태
