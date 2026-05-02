@@ -29,6 +29,7 @@ CANDIDATE_NAMES = {
 EXPECTED_FEATURES = {
     "jinja",
     "reasoning",
+    "reasoning_budget",
     "chat_template_kwargs",
     "alias",
 }
@@ -48,9 +49,12 @@ class BackendInspection:
     evidence: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     raw: dict[str, str] = field(default_factory=dict)
+    probe_text: str = ""
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        data.pop("probe_text", None)
+        return data
 
 
 def discovery_roots() -> list[Path]:
@@ -154,15 +158,17 @@ def inspect_backend_binary(path: str | Path) -> BackendInspection:
 
     raw["file"] = summarize_file(target)
     raw["ldd"] = summarize_ldd(target)
-    raw["help"] = summarize_help(target) if executable else ""
+    full_help = _run_full([str(target), "--help"], timeout=3) if executable else ""
+    raw["help"] = _summarize_full_output(full_help)
     raw["version"] = summarize_version(target) if executable else ""
+    probe_text = _combined_text(raw) + "\n" + full_help.lower()
 
-    _add_static_evidence(target, raw, evidence, warnings)
-    backend_guess = guess_backend(raw, str(target))
-    supported_features = detect_supported_features(raw)
-    missing_features = detect_missing_features(raw)
+    _add_static_evidence(target, raw, evidence, warnings, probe_text=probe_text)
+    backend_guess = guess_backend(raw, str(target), probe_text=probe_text)
+    supported_features = detect_supported_features(raw, probe_text=probe_text)
+    missing_features = detect_missing_features(raw, probe_text=probe_text)
 
-    if "cuda" in _combined_text(raw) and backend_guess != "cuda":
+    if "cuda" in probe_text and backend_guess != "cuda":
         warnings.append(
             "cuda-like strings can appear in GGML/HIP builds; backend was not judged as CUDA from that alone"
         )
@@ -180,6 +186,7 @@ def inspect_backend_binary(path: str | Path) -> BackendInspection:
         evidence=evidence,
         warnings=warnings,
         raw=raw,
+        probe_text=probe_text,
     )
     result.score = score_inspection(result)
     result.human_label = label_from_score(result)
@@ -225,8 +232,8 @@ def summarize_ldd(path: Path, timeout: int = 3) -> str:
     return _run_summary(["ldd", str(path)], timeout=timeout)
 
 
-def guess_backend(raw: dict[str, str], path: str) -> str | None:
-    text = _combined_text(raw)
+def guess_backend(raw: dict[str, str], path: str, probe_text: str | None = None) -> str | None:
+    text = probe_text if probe_text is not None else _combined_text(raw)
     path_l = path.lower()
 
     rocm_hits = _count_hits(
@@ -239,7 +246,7 @@ def guess_backend(raw: dict[str, str], path: str) -> str | None:
     )
     vulkan_hits = _count_hits(text + "\n" + path_l, ["libvulkan", "vulkan"])
 
-    if "exaone" in text or "exaone" in path_l:
+    if "exaone" in path_l:
         return "exaone_fork"
     if rocm_hits:
         return "rocm"
@@ -254,14 +261,16 @@ def guess_backend(raw: dict[str, str], path: str) -> str | None:
     return None
 
 
-def detect_supported_features(raw: dict[str, str]) -> list[str]:
-    text = _combined_text(raw)
+def detect_supported_features(raw: dict[str, str], probe_text: str | None = None) -> list[str]:
+    text = probe_text if probe_text is not None else _combined_text(raw)
     features: set[str] = set()
 
     if "--jinja" in text:
         features.add("jinja")
     if "--reasoning" in text:
         features.add("reasoning")
+    if "--reasoning-budget" in text:
+        features.add("reasoning_budget")
     if "--chat-template-kwargs" in text:
         features.add("chat_template_kwargs")
     if "--alias" in text:
@@ -273,7 +282,7 @@ def detect_supported_features(raw: dict[str, str]) -> list[str]:
     if "rerank" in text or "reranking" in text:
         features.add("reranking")
 
-    backend = guess_backend(raw, "")
+    backend = guess_backend(raw, "", probe_text=probe_text)
     if backend in {"rocm", "vulkan", "cuda", "cpu"}:
         features.add(backend)
     if backend == "exaone_fork":
@@ -282,8 +291,8 @@ def detect_supported_features(raw: dict[str, str]) -> list[str]:
     return sorted(features)
 
 
-def detect_missing_features(raw: dict[str, str]) -> list[str]:
-    supported = set(detect_supported_features(raw))
+def detect_missing_features(raw: dict[str, str], probe_text: str | None = None) -> list[str]:
+    supported = set(detect_supported_features(raw, probe_text=probe_text))
     return sorted(EXPECTED_FEATURES - supported)
 
 
@@ -300,6 +309,7 @@ def score_inspection(result: BackendInspection) -> int:
     ldd_text = raw.get("ldd", "").lower()
     help_text = raw.get("help", "").lower()
     version_text = raw.get("version", "").lower()
+    probe_text = result.probe_text or _combined_text(raw)
 
     if "elf" in file_text or "executable" in file_text:
         score += 10
@@ -309,12 +319,12 @@ def score_inspection(result: BackendInspection) -> int:
         score += 15
     if version_text and "error:" not in version_text and "timeout" not in version_text:
         score += 5
-    if "llama" in _combined_text(raw):
+    if "llama" in probe_text:
         score += 10
     if result.backend_guess in {"rocm", "vulkan", "cuda", "cpu", "exaone_fork"}:
         score += 10
 
-    for feature in ("jinja", "reasoning", "chat_template_kwargs", "alias"):
+    for feature in ("jinja", "reasoning", "reasoning_budget", "chat_template_kwargs", "alias"):
         if feature in result.supported_features:
             score += 5
 
@@ -329,6 +339,8 @@ def score_inspection(result: BackendInspection) -> int:
     if "chat_template_kwargs" in result.missing_features:
         score -= 5
     if "reasoning" in result.missing_features:
+        score -= 3
+    if "reasoning_budget" in result.missing_features:
         score -= 3
     if result.backend_guess == "cuda" and ("rocm" in result.path.lower() or "hip" in result.path.lower()):
         score -= 10
@@ -374,6 +386,10 @@ def _is_denied(path: Path) -> bool:
 
 
 def _run_summary(args: list[str], timeout: int) -> str:
+    return _summarize_full_output(_run_full(args, timeout=timeout))
+
+
+def _run_full(args: list[str], timeout: int) -> str:
     try:
         result = subprocess.run(
             args,
@@ -389,11 +405,14 @@ def _run_summary(args: list[str], timeout: int) -> str:
         return f"error: {type(e).__name__}: {e}"
 
     output = "\n".join(x for x in [result.stdout, result.stderr] if x)
-    summary = _trim_lines(output)
     if result.returncode != 0:
         prefix = f"exit {result.returncode}"
-        return f"{prefix}\n{summary}" if summary else prefix
-    return summary
+        return f"{prefix}\n{output}" if output else prefix
+    return output
+
+
+def _summarize_full_output(text: str) -> str:
+    return _trim_lines(text)
 
 
 def _trim_lines(text: str, max_lines: int = 80, max_chars: int = 6000) -> str:
@@ -420,8 +439,9 @@ def _add_static_evidence(
     raw: dict[str, str],
     evidence: list[str],
     warnings: list[str],
+    probe_text: str | None = None,
 ) -> None:
-    text = _combined_text(raw)
+    text = probe_text if probe_text is not None else _combined_text(raw)
     path_l = str(path).lower()
 
     if "llama" in path_l:
