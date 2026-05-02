@@ -27,6 +27,83 @@ This keeps three recoverable layers:
 - timestamped local backup files for pre-commit reconstruction
 - this operations log for why the change happened and what was observed at runtime
 
+## 2026-05-03 01:01 KST - Rust-portability baseline and policy checker
+
+### Why This Backup Was Made
+
+The launcher is still being finished in Python, but the intended long-term direction is to make the stable policy layer easy to port to Rust.
+
+Before adding any portability scaffolding, a clean snapshot was taken at:
+
+```text
+commit: eb81973 record vram headroom checkpoint
+time: 2026-05-03 01:01:30 KST
+```
+
+Backup files:
+
+```text
+/home/kalijin/git-backups/llama-suite-2026-05-03-010130-eb81973-before-rust-portability-wip.diff
+/home/kalijin/git-backups/llama-suite-2026-05-03-010130-eb81973-before-rust-portability-staged.diff
+/home/kalijin/git-backups/llama-suite-2026-05-03-010130-eb81973-before-rust-portability-status.txt
+/home/kalijin/git-backups/llama-suite-2026-05-03-010130-eb81973-before-rust-portability.bundle
+```
+
+The `wip.diff`, `staged.diff`, and `status.txt` files should be empty or clean because this was a baseline snapshot before the policy checker change.
+
+### Change
+
+Added a Rust-porting contract check:
+
+```text
+scripts/policy-check.py
+```
+
+The checker locks down pure policy behavior that should be ported first:
+
+- model-size detection from model name/path
+- model-size-based ctx selection
+- q8 KV and `--flash-attn on` safety args
+- duplicate safety option removal
+- repair of bare `--flash-attn` without swallowing the following option
+- control/ESC character detection for unsafe paths
+
+`scripts/smoke-check.sh` now runs:
+
+```sh
+python3 scripts/policy-check.py
+```
+
+This gives a future Rust port a simple contract:
+
+```text
+same inputs -> same policy outputs
+```
+
+### Rust Porting Order
+
+Port these pure functions before UI or tmux code:
+
+```text
+detect_model_size_billion
+resolve_ctx_size
+normalize_extra_args
+ensure_kv_cache_safety_args
+has_control_char
+validate_llama_bin
+safe_generated_script_name
+```
+
+Leave these as integration work after the policy layer is stable:
+
+```text
+tmux execution
+rocm-smi parsing
+interactive menus
+profile persistence
+script file writes
+```
+
 ## 2026-05-03 00:14 KST - Model-size ctx defaults and backup trace
 
 ### Context
