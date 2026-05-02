@@ -104,6 +104,82 @@ Important distinction:
 - The `model-size-ctx-wip.diff` file records the actual uncommitted code change.
 - After this log entry is committed, git history becomes the authoritative record for the accepted change.
 
+## 2026-05-03 00:29 KST - 4번 35B model at ctx 80k and VRAM headroom checkpoint
+
+### Current State
+
+- Current git commit:
+  - `b299842 default context by model size`
+- Working tree before this log entry:
+  - clean
+- Active model:
+  - `Huihui-Qwen3.5-35B-A3B-Claude-4.6-Opus-abliterated.Q4_K_M`
+- Active PID:
+  - `24431`
+- Active command includes:
+  - `--ctx-size 80000`
+  - `--cache-type-k q8_0`
+  - `--cache-type-v q8_0`
+  - `--flash-attn on`
+
+### VRAM Reading
+
+Measured at `2026-05-03 00:29:46 KST`:
+
+```text
+GPU0 total: 17095983104 bytes
+GPU0 used : 13696634880 bytes
+GPU0 rocm-smi allocated: 80%
+
+GPU1 total: 17095983104 bytes
+GPU1 used : 11939102720 bytes
+GPU1 rocm-smi allocated: 69%
+```
+
+Interpretation:
+
+- The important metric for this workflow is VRAM occupancy, not instantaneous GPU load.
+- GPU0 is exactly on the chosen 80% operating line.
+- GPU1 has materially more room.
+- For this class of desktop + local LLM operation, the GPU with the highest VRAM occupancy is the limiting device.
+
+### Headroom Reasoning
+
+For a two-GPU setup with about 32 GiB combined VRAM:
+
+```text
+80% used  -> about 20% free  -> about 6.4 GiB combined headroom
+96% used  -> about 4% free   -> about 1.28 GiB combined headroom
+```
+
+Operational lesson from the earlier failure window:
+
+- The system previously survived roughly four hours of web browsing, model swapping, and heavy interactive work around `96%` VRAM occupancy.
+- That means it was operating with only about `1.3 GiB` combined headroom, or roughly `640 MiB` per 16 GiB GPU.
+- The 80% target is therefore not timid. It is about five times more headroom than the earlier near-failure state.
+
+### Resulting Rule Of Thumb
+
+```text
+<= 80% VRAM: preferred operating line
+80-85% VRAM: edge of acceptable short testing
+85-90% VRAM: risky
+90%+ VRAM: not suitable for long desktop use
+```
+
+Current 4번 35B model at ctx 80k:
+
+```text
+GPU0: 80%
+GPU1: 69%
+```
+
+Conclusion:
+
+- `35B @ ctx 80k` is a working upper-limit profile on this machine.
+- It is suitable for observation and limited use.
+- It should not be pushed higher while Xorg, browser, or other graphical workloads remain active.
+
 ## 2026-05-02 23:53 KST - Model 8 launch rescue and flash-attn value fix
 
 ### Summary
