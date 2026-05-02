@@ -40,6 +40,24 @@ def is_executable_file(path: str) -> bool:
     return os.path.isfile(path) and os.access(path, os.X_OK)
 
 
+def has_control_char(text: str) -> bool:
+    return any(ord(c) < 32 or ord(c) == 127 for c in text)
+
+
+def validate_llama_bin(path: Any) -> str:
+    if not isinstance(path, str) or not path.strip():
+        raise ValueError("llama_bin 경로가 비어 있습니다.")
+    if has_control_char(path):
+        raise ValueError("llama_bin 경로에 control/ESC 문자가 포함되어 있습니다.")
+
+    expanded = expand_path(path)
+    if not os.path.isfile(expanded):
+        raise ValueError(f"llama_bin 파일이 없습니다: {expanded}")
+    if not os.access(expanded, os.X_OK):
+        raise ValueError(f"llama_bin 실행 권한이 없습니다: {expanded}")
+    return expanded
+
+
 def find_default_llama_bin() -> str:
     for candidate in LLAMA_SERVER_CANDIDATES:
         if candidate == "llama-server":
@@ -110,6 +128,7 @@ def load_config() -> dict[str, Any]:
 
 
 def save_config(cfg: dict[str, Any]) -> None:
+    cfg["llama_bin"] = validate_llama_bin(cfg.get("llama_bin"))
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     with CONFIG_PATH.open("w") as f:
         json.dump(cfg, f, indent=2, ensure_ascii=False)
