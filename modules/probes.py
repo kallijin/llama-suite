@@ -11,6 +11,12 @@ def http_get_json(url: str, timeout: int = 5) -> Any:
 
 def show_status(cfg: dict[str, Any], running_servers: list[str]) -> None:
     print("\n  ── 서버 상태 ──")
+    print("  모델 교체 직후에는 준비까지 30초~5분 이상 걸릴 수 있습니다.")
+    print("  모델 크기, ctx-size, VRAM 여유, backend 상태에 따라 시간이 달라집니다.")
+    print("  이때 503은 서버 사망이 아니라 loading/busy 상태일 수 있습니다.")
+    print()
+    print("  기다리는 게 속 터지면 술담배만 쳐드시지 마시고 시스템에 투자하세요.")
+    print("  로컬 AI는 결국 VRAM, RAM, 냉각, 스토리지로 굴러갑니다.")
 
     lines = running_servers
     if not lines:
