@@ -10,9 +10,8 @@ from typing import Any
 
 
 CONFIG_PATH = Path(os.path.expanduser("~/.hermes/llama-launcher.json"))
-KV_CACHE_SAFETY_EXTRA_ARGS = ["--cache-type-k", "q8_0", "--cache-type-v", "q8_0", "--flash-attn"]
-KV_CACHE_VALUE_OPTIONS = {"--cache-type-k", "--cache-type-v"}
-KV_CACHE_FLAG_OPTIONS = {"--flash-attn"}
+KV_CACHE_SAFETY_EXTRA_ARGS = ["--cache-type-k", "q8_0", "--cache-type-v", "q8_0", "--flash-attn", "on"]
+KV_CACHE_VALUE_OPTIONS = {"--cache-type-k", "--cache-type-v", "--flash-attn"}
 
 # llama.cpp 디렉터리에서 실행할 수도 있고, 절대경로로도 쓸 수 있게 후보를 넉넉히 둔다.
 LLAMA_SERVER_CANDIDATES = [
@@ -151,9 +150,18 @@ def extra_arg_has_option(args: list[str], option: str) -> bool:
     return any(arg == option or arg.startswith(f"{option}=") for arg in args)
 
 
+def extra_arg_has_value_option(args: list[str], option: str) -> bool:
+    for i, arg in enumerate(args):
+        if arg.startswith(f"{option}="):
+            return bool(arg.split("=", 1)[1])
+        if arg == option:
+            return i + 1 < len(args) and not args[i + 1].startswith("-")
+    return False
+
+
 def extra_arg_option_name(arg: str) -> str | None:
     name = arg.split("=", 1)[0]
-    if name in KV_CACHE_VALUE_OPTIONS or name in KV_CACHE_FLAG_OPTIONS:
+    if name in KV_CACHE_VALUE_OPTIONS:
         return name
     return None
 
@@ -167,21 +175,15 @@ def dedupe_extra_args(args: list[str]) -> list[str]:
         option = extra_arg_option_name(arg)
         if option in KV_CACHE_VALUE_OPTIONS:
             if option in seen_safety_options:
-                i += 2 if arg == option and i + 1 < len(args) else 1
+                i += 2 if arg == option and i + 1 < len(args) and not args[i + 1].startswith("-") else 1
                 continue
             seen_safety_options.add(option)
             result.append(arg)
-            if arg == option and i + 1 < len(args):
+            if arg == option and i + 1 < len(args) and not args[i + 1].startswith("-"):
                 result.append(args[i + 1])
                 i += 2
             else:
                 i += 1
-            continue
-        if option in KV_CACHE_FLAG_OPTIONS:
-            if option not in seen_safety_options:
-                seen_safety_options.add(option)
-                result.append(arg)
-            i += 1
             continue
         result.append(arg)
         i += 1
@@ -191,10 +193,10 @@ def dedupe_extra_args(args: list[str]) -> list[str]:
 def ensure_kv_cache_safety_args(value: Any) -> list[str]:
     args = normalize_extra_args(value)
     defaults: list[str] = []
-    if not extra_arg_has_option(args, "--cache-type-k"):
+    if not extra_arg_has_value_option(args, "--cache-type-k"):
         defaults.extend(["--cache-type-k", "q8_0"])
-    if not extra_arg_has_option(args, "--cache-type-v"):
+    if not extra_arg_has_value_option(args, "--cache-type-v"):
         defaults.extend(["--cache-type-v", "q8_0"])
-    if not extra_arg_has_option(args, "--flash-attn"):
-        defaults.append("--flash-attn")
+    if not extra_arg_has_value_option(args, "--flash-attn"):
+        defaults.extend(["--flash-attn", "on"])
     return dedupe_extra_args(defaults + args)

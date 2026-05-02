@@ -3,6 +3,8 @@
 **Author:** kalijim  
 **Co-author / Assistant:** ChatGPT, kalijin의 아우
 
+[Operations log](OPERATIONS.md)
+
 ---
 
 ## 현재 상태
