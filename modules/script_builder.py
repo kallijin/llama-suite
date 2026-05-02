@@ -6,10 +6,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from modules.backends import get_backend, resolve_backend_server_bin
 from modules.config_store import (
-    expand_path,
-    find_default_llama_bin,
-    is_executable_file,
     normalize_extra_args,
 )
 
@@ -29,18 +27,8 @@ def safe_generated_script_name(text: str, limit: int = 64) -> str:
 
 
 def resolve_llama_bin(cfg: dict[str, Any]) -> str:
-    bin_path = str(cfg.get("llama_bin") or find_default_llama_bin())
-    if not os.path.isabs(os.path.expanduser(bin_path)):
-        candidate = os.path.abspath(os.path.join(os.getcwd(), bin_path))
-        if is_executable_file(candidate):
-            return candidate
-
-    expanded = expand_path(bin_path)
-    if is_executable_file(expanded):
-        return expanded
-
-    fallback = find_default_llama_bin()
-    return fallback
+    backend = get_backend(cfg.get("backend"))
+    return resolve_backend_server_bin(backend, cfg.get("llama_bin"))
 
 
 def generate_script(
