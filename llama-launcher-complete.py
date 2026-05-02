@@ -30,6 +30,7 @@ from modules.config_store import (
     save_config,
 )
 from modules.model_scan import get_model_list
+from modules.profiles import get_model_profile, load_profiles, save_profiles
 from modules.probes import quick_no_think_test, show_status
 from modules.runner_tmux import get_running_model, get_running_servers, run_script
 
@@ -504,12 +505,21 @@ def main() -> None:
         cfg["last_model"] = model_name
         save_config(cfg)
 
+        profiles = load_profiles()
+        profile = get_model_profile(profiles, model_name, model_path)
+        save_profiles(profiles)
+
         result = get_latest_script(model_name)
         existing_script, existing_name = (result if result else (None, None))
 
         print(f"\n  📦 모델 : {model_name}")
         print(f"  📄 경로 : {model_path}")
         print(f"  ⚙️  설정 : ctx={cfg['ctx_size']}, {cfg['host']}:{cfg['port']}")
+        print(
+            f"  🧾 profile: ctx={profile.get('stable_ctx_size') or 'unknown'}, "
+            f"backend={profile.get('recommended_backend') or 'unknown'}, "
+            f"tool={profile.get('hermes_tool_call', {}).get('status') or 'unknown'}"
+        )
         print(
             f"  🧠 reasoning={cfg.get('reasoning')}, "
             f"budget={cfg.get('reasoning_budget')}, "
