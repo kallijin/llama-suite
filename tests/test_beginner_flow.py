@@ -7,7 +7,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from modules.config_store import ensure_kv_cache_safety_args
-from modules.script_builder import generated_script_name, parse_generated_script
+from modules.script_builder import command_preview, generated_script_name, parse_generated_script
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,6 +35,7 @@ class BeginnerFlowTests(unittest.TestCase):
             "reasoning_budget": 0,
             "enable_thinking": False,
             "extra_args": ensure_kv_cache_safety_args([]),
+            "custom_args": [],
         }
 
     def test_script_name_contains_snapshot_fields(self) -> None:
@@ -71,6 +72,23 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(snapshot["cfg"]["ctx_size"], 80000)
         self.assertEqual(snapshot["cfg"]["reasoning"], "off")
 
+    def test_generated_script_preserves_custom_args(self) -> None:
+        from modules.script_builder import generate_script
+
+        with TemporaryDirectory() as directory:
+            cfg = self.sample_cfg("/bin/echo")
+            cfg["custom_args"] = ["--no-warmup"]
+            _script_name, script_path = generate_script(
+                "Dummy-7B",
+                "/models/Dummy-7B/model.gguf",
+                cfg,
+                scripts_dir=directory,
+            )
+            snapshot = parse_generated_script(script_path)
+
+        self.assertEqual(snapshot["cfg"]["custom_args"], ["--no-warmup"])
+        self.assertIn("--no-warmup", command_preview("Dummy-7B", "/models/Dummy-7B/model.gguf", cfg))
+
     def test_final_preview_includes_command_and_human_summary(self) -> None:
         launcher = load_launcher_module()
         draft = self.sample_cfg("/bin/echo")
@@ -88,7 +106,45 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("[2] 실행 요약", text)
         self.assertIn("현재 실행할 모델은 model.gguf 입니다.", text)
         self.assertIn("이번 실행에는 현재 화면에 보이는 임시 설정이 사용됩니다.", text)
-        self.assertIn("[현재 설정 저장]", text)
+        self.assertIn("[W] 현재 설정 저장", text)
+
+    def test_custom_arg_conflict_is_reported_in_preview(self) -> None:
+        launcher = load_launcher_module()
+        draft = self.sample_cfg("/bin/echo")
+        draft.update(
+            {
+                "model_name": "Dummy-7B",
+                "model_path": "/models/Dummy-7B/model.gguf",
+                "custom_args": ["--cache-type-k", "tbq3_0"],
+            }
+        )
+
+        text = launcher.final_preview_text(draft)
+
+        self.assertIn("사용자 추가 파라미터가 구조화 설정과 충돌", text)
+        self.assertIn("--cache-type-k", text)
+        self.assertIn("[K] 파라미터", text)
+
+    def test_parameter_overview_shows_sources_and_explanations(self) -> None:
+        launcher = load_launcher_module()
+        draft = self.sample_cfg("/bin/echo")
+        draft["param_sources"] = {
+            "ctx_size": "모델 크기 기반 자동 선택",
+            "cache_type_k": "llama-suite 안정성 기본값",
+        }
+
+        from io import StringIO
+        import contextlib
+
+        stdout = StringIO()
+        with contextlib.redirect_stdout(stdout):
+            launcher.show_parameter_overview(draft)
+        text = stdout.getvalue()
+
+        self.assertIn("Context Size:", text)
+        self.assertIn("출처: 모델 크기 기반 자동 선택", text)
+        self.assertIn("설명: 모델이 한 번에 다룰 수 있는 대화/문서 길이입니다.", text)
+        self.assertIn("[1] 변경", text)
 
     def test_launcher_starts_without_models_or_valid_llama_bin(self) -> None:
         with TemporaryDirectory() as home:
@@ -108,8 +164,8 @@ class BeginnerFlowTests(unittest.TestCase):
 
         self.assertEqual(completed.returncode, 0)
         self.assertIn("GGUF 파일을 찾을 수 없습니다", completed.stdout)
-        self.assertIn("[설정 변경]", completed.stdout)
-        self.assertIn("[Hermes 등록]", completed.stdout)
+        self.assertIn("[A] 설정 변경", completed.stdout)
+        self.assertIn("[E] Hermes 등록", completed.stdout)
 
 
 if __name__ == "__main__":

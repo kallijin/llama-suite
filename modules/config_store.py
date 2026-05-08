@@ -109,6 +109,7 @@ def default_config() -> dict[str, Any]:
         "enable_thinking": False,      # chat_template_kwargs용
         # 긴 ctx 로컬 실행에서는 KV cache 압축을 기본 안전장치로 둔다.
         "extra_args": KV_CACHE_SAFETY_EXTRA_ARGS.copy(),
+        "custom_args": [],
     }
 
 
@@ -123,6 +124,7 @@ def load_config() -> dict[str, Any]:
         except Exception as e:
             print(f"  ⚠️  설정 파일 읽기 실패: {e}")
     cfg["extra_args"] = ensure_kv_cache_safety_args(cfg.get("extra_args"))
+    cfg["custom_args"] = normalize_extra_args(cfg.get("custom_args", []))
     return cfg
 
 
@@ -200,3 +202,37 @@ def ensure_kv_cache_safety_args(value: Any) -> list[str]:
     if not extra_arg_has_value_option(args, "--flash-attn"):
         defaults.extend(["--flash-attn", "on"])
     return dedupe_extra_args(defaults + args)
+
+
+def get_option_value(args: list[str], option: str) -> str | None:
+    for i, arg in enumerate(args):
+        if arg.startswith(f"{option}="):
+            return arg.split("=", 1)[1]
+        if arg == option and i + 1 < len(args) and not args[i + 1].startswith("-"):
+            return args[i + 1]
+    return None
+
+
+def set_option_value(args: list[str], option: str, value: str) -> list[str]:
+    result: list[str] = []
+    i = 0
+    replaced = False
+    while i < len(args):
+        arg = args[i]
+        if arg == option:
+            if not replaced:
+                result.extend([option, value])
+                replaced = True
+            i += 2 if i + 1 < len(args) and not args[i + 1].startswith("-") else 1
+            continue
+        if arg.startswith(f"{option}="):
+            if not replaced:
+                result.extend([option, value])
+                replaced = True
+            i += 1
+            continue
+        result.append(arg)
+        i += 1
+    if not replaced:
+        result.extend([option, value])
+    return dedupe_extra_args(result)

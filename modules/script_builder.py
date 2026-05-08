@@ -69,6 +69,7 @@ def script_snapshot_hash(model_name: str, model_path: str, cfg: dict[str, Any]) 
             str(cfg.get("reasoning_budget", 0)),
             str(bool(cfg.get("enable_thinking", False))),
             " ".join(normalize_extra_args(cfg.get("extra_args", []))),
+            " ".join(normalize_extra_args(cfg.get("custom_args", []))),
         ]
     )
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:6]
@@ -129,6 +130,7 @@ def build_llama_command(model_name: str, model_path: str, cfg: dict[str, Any]) -
         ]
     )
     command.extend(normalize_extra_args(cfg.get("extra_args", [])))
+    command.extend(normalize_extra_args(cfg.get("custom_args", [])))
     return command
 
 
@@ -157,11 +159,16 @@ def parse_generated_script(path: str | os.PathLike[str]) -> dict[str, Any]:
             "REASONING_BUDGET",
             "CHAT_TEMPLATE_KWARGS",
             "EXTRA_ARGS",
+            "CUSTOM_ARGS",
         }:
             continue
         if key == "EXTRA_ARGS":
             inside = raw.removeprefix("(").removesuffix(")")
             fields["extra_args"] = normalize_extra_args(inside)
+            continue
+        if key == "CUSTOM_ARGS":
+            inside = raw.removeprefix("(").removesuffix(")")
+            fields["custom_args"] = normalize_extra_args(inside)
             continue
         try:
             parsed = shlex.split(raw)
@@ -185,6 +192,8 @@ def parse_generated_script(path: str | os.PathLike[str]) -> dict[str, Any]:
         cfg["reasoning_budget"] = int(fields["REASONING_BUDGET"])
     if "extra_args" in fields:
         cfg["extra_args"] = fields["extra_args"]
+    if "custom_args" in fields:
+        cfg["custom_args"] = fields["custom_args"]
     if fields.get("CHAT_TEMPLATE_KWARGS"):
         cfg["enable_thinking"] = '"enable_thinking":true' in str(fields["CHAT_TEMPLATE_KWARGS"]).replace(" ", "")
 
@@ -213,6 +222,7 @@ def generate_script(
     ctx_size = resolve_ctx_size(model_name, model_path, cfg)
     extra_args = normalize_extra_args(cfg.get("extra_args", []))
     extra_args_shell = " ".join(shlex.quote(x) for x in extra_args)
+    custom_args_shell = " ".join(shlex.quote(x) for x in normalize_extra_args(cfg.get("custom_args", [])))
 
     enable_thinking = "true" if bool(cfg.get("enable_thinking", False)) else "false"
     reasoning = str(cfg.get("reasoning", "off"))
@@ -236,7 +246,8 @@ def generate_script(
         cmd_lines.append('    --reasoning "$REASONING_MODE" \\')
     cmd_lines.append('    --reasoning-budget "$REASONING_BUDGET" \\')
     cmd_lines.append('    --chat-template-kwargs "$CHAT_TEMPLATE_KWARGS" \\')
-    cmd_lines.append('    "${EXTRA_ARGS[@]}"')
+    cmd_lines.append('    "${EXTRA_ARGS[@]}" \\')
+    cmd_lines.append('    "${CUSTOM_ARGS[@]}"')
 
     cmd_block = "\n".join(cmd_lines)
 
@@ -258,6 +269,7 @@ REASONING_MODE={shlex.quote(reasoning)}
 REASONING_BUDGET={reasoning_budget}
 CHAT_TEMPLATE_KWARGS='{{"enable_thinking":{enable_thinking}}}'
 EXTRA_ARGS=({extra_args_shell})
+CUSTOM_ARGS=({custom_args_shell})
 
 echo "🚀 Starting $MODEL"
 echo "   model id : $MODEL_ID"

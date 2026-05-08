@@ -487,3 +487,45 @@ These commits were already on `master` before the `2026-05-02 23:53 KST` flash-a
 3820f38 default to q8 kv cache for long context safety
 4346b71 add post-freeze smoke check script
 ```
+
+## 2026-05-09 00:05 KST - Structured Parameter Controls
+
+### Change
+
+Added the second beginner-first launcher milestone:
+
+- Main screen now exposes `[K] 파라미터`.
+- Known llama.cpp settings are shown as structured cards with value, source, explanation, and a concrete change action.
+- KV cache K/V support preset selection plus custom experimental values.
+- User custom args are separated from stable structured args.
+- Final preview and generated scripts preserve `custom_args`.
+- Custom args that duplicate structured options are reported as conflicts before execution.
+- Square-bracket action labels were aligned with real menu choices, such as `[M] 모델 변경` and `[W] 현재 설정 저장`.
+
+### Manual UI Check
+
+Ran the launcher with an empty temporary model directory and opened `[K] 파라미터`.
+
+Result:
+
+```text
+Context Size / KV Cache K / KV Cache V / Flash Attention cards were displayed.
+[7] 뒤로 returned to the main screen without marking the draft dirty when nothing changed.
+```
+
+### Verification
+
+```sh
+python3 -m py_compile llama-launcher-complete.py modules/*.py
+python3 scripts/policy-check.py
+python3 -m unittest discover -v
+bash scripts/smoke-check.sh
+```
+
+Result:
+
+```text
+POLICY CHECK OK
+7 tests OK
+SMOKE CHECK OK
+```

@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import copy
 import os
 import shlex
 import sys
@@ -23,9 +24,11 @@ from typing import Any
 from modules.config_store import (
     detect_tailscale_ip,
     expand_path,
+    get_option_value,
     load_config,
     normalize_extra_args,
     save_config,
+    set_option_value,
 )
 from modules.model_scan import get_model_list
 from modules.profiles import default_model_profile, get_model_profile, load_profiles, save_profiles
@@ -39,6 +42,22 @@ from modules.system_info import collect_system_info
 
 MODELS_DIR = os.environ.get("LLAMA_MODELS_DIR", "/mnt/data_main/downloads/models")
 SCRIPTS_DIR = Path(os.path.expanduser("~/.hermes/llama-scripts"))
+STRUCTURED_ARG_OPTIONS = {
+    "-m",
+    "--model",
+    "--host",
+    "--port",
+    "--ctx-size",
+    "--alias",
+    "--jinja",
+    "--reasoning",
+    "--reasoning-budget",
+    "--chat-template-kwargs",
+    "--cache-type-k",
+    "--cache-type-v",
+    "--flash-attn",
+}
+KV_PRESETS = ("q8_0", "f16", "q4_0", "q5_0", "q6_0", "tbq3_0", "tbq4_0")
 
 
 # ─── 작은 유틸 ─────────────────────────────────────────
@@ -164,6 +183,159 @@ def change_settings(cfg: dict[str, Any]) -> dict[str, Any]:
     return cfg
 
 
+def extra_arg_value(cfg: dict[str, Any], option: str) -> str:
+    return get_option_value(normalize_extra_args(cfg.get("extra_args", [])), option) or "-"
+
+
+def parameter_source(cfg: dict[str, Any], key: str) -> str:
+    sources = cfg.setdefault("param_sources", {})
+    return str(sources.get(key) or "default")
+
+
+def set_parameter_source(cfg: dict[str, Any], key: str, source: str) -> None:
+    sources = cfg.setdefault("param_sources", {})
+    sources[key] = source
+
+
+def custom_arg_conflicts(cfg: dict[str, Any]) -> list[str]:
+    conflicts: list[str] = []
+    custom_args = normalize_extra_args(cfg.get("custom_args", []))
+    for arg in custom_args:
+        option = arg.split("=", 1)[0]
+        if option in STRUCTURED_ARG_OPTIONS and option not in conflicts:
+            conflicts.append(option)
+    return conflicts
+
+
+def custom_args_status(cfg: dict[str, Any]) -> str:
+    custom_args = normalize_extra_args(cfg.get("custom_args", []))
+    if not custom_args:
+        return "empty"
+    return "conflict" if custom_arg_conflicts(cfg) else "user_experimental"
+
+
+def print_parameter_card(name: str, value: Any, source: str, description: str, action: str) -> None:
+    print(f"\n  {name}:")
+    print(f"    {value}")
+    print(f"    출처: {source}")
+    print(f"    설명: {description}")
+    print(f"    바꾸려면 {action}을 선택하세요.")
+
+
+def show_parameter_overview(cfg: dict[str, Any]) -> None:
+    print("\n  ── 파라미터 ──")
+    print_parameter_card(
+        "Context Size",
+        cfg.get("ctx_size"),
+        parameter_source(cfg, "ctx_size"),
+        "모델이 한 번에 다룰 수 있는 대화/문서 길이입니다.",
+        "[1] 변경",
+    )
+    print_parameter_card(
+        "KV Cache K",
+        extra_arg_value(cfg, "--cache-type-k"),
+        parameter_source(cfg, "cache_type_k"),
+        "긴 context 사용 시 안정성과 VRAM 사용량에 영향을 주는 KV cache K 설정입니다.",
+        "[2] 변경",
+    )
+    print_parameter_card(
+        "KV Cache V",
+        extra_arg_value(cfg, "--cache-type-v"),
+        parameter_source(cfg, "cache_type_v"),
+        "긴 context 사용 시 안정성과 VRAM 사용량에 영향을 주는 KV cache V 설정입니다.",
+        "[3] 변경",
+    )
+    print_parameter_card(
+        "Flash Attention",
+        extra_arg_value(cfg, "--flash-attn"),
+        parameter_source(cfg, "flash_attn"),
+        "긴 context에서 속도와 메모리 효율에 영향을 주는 llama.cpp 옵션입니다.",
+        "[4] 변경",
+    )
+
+    custom_args = normalize_extra_args(cfg.get("custom_args", []))
+    print("\n  사용자 추가 파라미터:")
+    if custom_args:
+        print("    " + " ".join(shlex.quote(x) for x in custom_args))
+    else:
+        print("    -")
+    status = custom_args_status(cfg)
+    print(f"\n  상태: {status}")
+    if status == "user_experimental":
+        print("  주의: 이 값은 llama-suite가 안정값으로 보장하지 않습니다.")
+        print("  현재 등록된 llama-server 바이너리에서 지원되는지 확인해야 합니다.")
+    elif status == "conflict":
+        print("  충돌: 사용자 추가 파라미터가 구조화 설정과 같은 옵션을 다시 지정합니다.")
+        print("  충돌 옵션: " + ", ".join(custom_arg_conflicts(cfg)))
+        print("  구조화 설정을 쓰거나, 실험 옵션에서 중복 옵션을 제거하세요.")
+    print("\n  [5] 실험 옵션 변경")
+    print("  [6] Advanced raw extra args 변경")
+    print("  [7] 뒤로")
+
+
+def choose_kv_value(label: str, current: str) -> tuple[str | None, str | None]:
+    print(f"\n  {label} preset:")
+    for index, value in enumerate(KV_PRESETS, start=1):
+        marker = " ◀ 현재" if current == value else ""
+        print(f"    [{index}] {value}{marker}")
+    print("    [C] custom")
+    choice = input("  선택 > ").strip().upper()
+    if choice == "C":
+        value = input(f"  custom value [{current}] > ").strip()
+        return (value or current, "user_experimental")
+    if choice.isdigit():
+        index = int(choice) - 1
+        if 0 <= index < len(KV_PRESETS):
+            value = KV_PRESETS[index]
+            source = "llama-suite 안정성 기본값" if value == "q8_0" else "user"
+            return value, source
+    return None, None
+
+
+def edit_parameters(cfg: dict[str, Any]) -> dict[str, Any]:
+    while True:
+        show_parameter_overview(cfg)
+        choice = input("  선택 > ").strip().upper()
+        if choice == "7":
+            return cfg
+        if choice == "1":
+            value = input(f"  Context Size [{cfg.get('ctx_size')}] > ").strip()
+            if value:
+                cfg["ctx_size"] = int(value)
+                set_parameter_source(cfg, "ctx_size", "user")
+            continue
+        if choice == "2":
+            value, source = choose_kv_value("KV Cache K", extra_arg_value(cfg, "--cache-type-k"))
+            if value:
+                cfg["extra_args"] = set_option_value(normalize_extra_args(cfg.get("extra_args", [])), "--cache-type-k", value)
+                set_parameter_source(cfg, "cache_type_k", source or "user")
+            continue
+        if choice == "3":
+            value, source = choose_kv_value("KV Cache V", extra_arg_value(cfg, "--cache-type-v"))
+            if value:
+                cfg["extra_args"] = set_option_value(normalize_extra_args(cfg.get("extra_args", [])), "--cache-type-v", value)
+                set_parameter_source(cfg, "cache_type_v", source or "user")
+            continue
+        if choice == "4":
+            value = input(f"  Flash Attention on/off [{extra_arg_value(cfg, '--flash-attn')}] > ").strip().lower()
+            if value in {"on", "off"}:
+                cfg["extra_args"] = set_option_value(normalize_extra_args(cfg.get("extra_args", [])), "--flash-attn", value)
+                set_parameter_source(cfg, "flash_attn", "user")
+            continue
+        if choice == "5":
+            current = " ".join(shlex.quote(x) for x in normalize_extra_args(cfg.get("custom_args", [])))
+            value = input(f"  사용자 추가 파라미터 [{current}] > ").strip()
+            cfg["custom_args"] = normalize_extra_args(value)
+            continue
+        if choice == "6":
+            current = " ".join(shlex.quote(x) for x in normalize_extra_args(cfg.get("extra_args", [])))
+            print("  Advanced 모드입니다. 구조화된 안정값을 직접 바꿉니다.")
+            value = input(f"  raw extra args [{current}] > ").strip()
+            if value:
+                cfg["extra_args"] = normalize_extra_args(value)
+                set_parameter_source(cfg, "raw_extra_args", "advanced")
+
+
 def apply_draft_to_config(cfg: dict[str, Any], draft: dict[str, Any]) -> dict[str, Any]:
     updated = dict(cfg)
     for key in (
@@ -177,6 +349,8 @@ def apply_draft_to_config(cfg: dict[str, Any], draft: dict[str, Any]) -> dict[st
         "reasoning_budget",
         "enable_thinking",
         "extra_args",
+        "custom_args",
+        "param_sources",
     ):
         if key in draft:
             updated[key] = draft[key]
@@ -186,7 +360,7 @@ def apply_draft_to_config(cfg: dict[str, Any], draft: dict[str, Any]) -> dict[st
 
 def save_working_draft(cfg: dict[str, Any], draft: dict[str, Any]) -> tuple[bool, str, dict[str, Any]]:
     if not draft.get("model_name") or not draft.get("model_path"):
-        return False, "저장할 모델이 선택되지 않았습니다. [모델 변경]을 먼저 선택하세요.", cfg
+        return False, "저장할 모델이 선택되지 않았습니다. [M] 모델 변경을 먼저 선택하세요.", cfg
 
     updated = apply_draft_to_config(cfg, draft)
     try:
@@ -226,6 +400,8 @@ def draft_from_config(cfg: dict[str, Any], models: dict[str, str]) -> dict[str, 
         "reasoning_budget": int(cfg.get("reasoning_budget", 0)),
         "enable_thinking": bool(cfg.get("enable_thinking", False)),
         "extra_args": normalize_extra_args(cfg.get("extra_args", [])),
+        "custom_args": normalize_extra_args(cfg.get("custom_args", [])),
+        "param_sources": dict(cfg.get("param_sources", {})),
         "dirty": False,
         "loaded_from": "defaults/profile",
         "status": "저장된 profile/config에서 불러온 값입니다.",
@@ -262,16 +438,18 @@ def print_working_draft_status(draft: dict[str, Any]) -> None:
         print("    이 값들은 아직 저장된 프로필에 반영되지 않았습니다.")
         print("    저장하지 않고 실행하면 이번 실행에만 사용됩니다.")
         print("    프로그램을 종료하면 저장되지 않은 변경값은 사라집니다.")
-        print("    저장하려면 [현재 설정 저장]을 선택하세요.")
-        print("    현재 값으로 한 번만 실행하려면 [1회 실행]을 선택하세요.")
+        print("    저장하려면 [W] 현재 설정 저장을 선택하세요.")
+        print("    현재 값으로 한 번만 실행하려면 [O] 1회 실행을 선택하세요.")
     else:
         print("    값을 바꾸면 먼저 임시 작업 설정으로만 반영됩니다.")
-        print("    저장은 [현재 설정 저장]을 눌렀을 때만 수행됩니다.")
+        print("    저장은 [W] 현재 설정 저장을 눌렀을 때만 수행됩니다.")
     print()
     print(f"  모델: {draft.get('model_name') or '선택 없음'}")
     print(f"  endpoint: http://{draft.get('host')}:{draft.get('port')}/v1")
     print(f"  ctx: {draft.get('ctx_size')}")
+    print(f"  KV: k={extra_arg_value(draft, '--cache-type-k')}, v={extra_arg_value(draft, '--cache-type-v')}, flash-attn={extra_arg_value(draft, '--flash-attn')}")
     print(f"  reasoning: {draft.get('reasoning')}, budget={draft.get('reasoning_budget')}, enable_thinking={draft.get('enable_thinking')}")
+    print(f"  사용자 추가 파라미터: {custom_args_status(draft)}")
     print(f"  llama-server: {draft.get('llama_bin') or '미등록'}")
 
 
@@ -279,7 +457,7 @@ def final_preview_text(draft: dict[str, Any]) -> str:
     model_name = draft.get("model_name")
     model_path = draft.get("model_path")
     if not model_name or not model_path:
-        return "모델이 선택되지 않았습니다. 다른 모델을 사용하려면 [모델 변경]을 선택하세요."
+        return "모델이 선택되지 않았습니다. 다른 모델을 사용하려면 [M] 모델 변경을 선택하세요."
     try:
         final_command = command_preview(str(model_name), str(model_path), draft)
     except Exception as exc:
@@ -291,16 +469,27 @@ def final_preview_text(draft: dict[str, Any]) -> str:
         "",
         "[2] 실행 요약",
         f"현재 실행할 모델은 {Path(str(model_path)).name} 입니다.",
-        "다른 모델을 사용하려면 [모델 변경]을 선택하세요.",
+        "다른 모델을 사용하려면 [M] 모델 변경을 선택하세요.",
         "",
         f"사용될 endpoint는 http://{draft.get('host')}:{draft.get('port')}/v1 입니다.",
-        "주소를 바꾸려면 [설정 변경]을 선택하세요.",
+        "주소를 바꾸려면 [A] 설정 변경을 선택하세요.",
         "",
         "사용될 주요 파라미터는 다음과 같습니다.",
         f"- Context Size: {draft.get('ctx_size')}",
         f"- KV/기타 추가 파라미터: {' '.join(shlex.quote(x) for x in normalize_extra_args(draft.get('extra_args', []))) or '-'}",
+        f"- 사용자 추가 파라미터: {' '.join(shlex.quote(x) for x in normalize_extra_args(draft.get('custom_args', []))) or '-'}",
         f"- reasoning: {draft.get('reasoning')} / budget={draft.get('reasoning_budget')} / enable_thinking={draft.get('enable_thinking')}",
     ]
+    conflicts = custom_arg_conflicts(draft)
+    if conflicts:
+        lines.extend(
+            [
+                "",
+                "주의: 사용자 추가 파라미터가 구조화 설정과 충돌합니다.",
+                "충돌 옵션: " + ", ".join(conflicts),
+                "충돌을 해결하려면 [K] 파라미터에서 실험 옵션을 변경하세요.",
+            ]
+        )
     if draft.get("dirty"):
         lines.extend(
             [
@@ -308,7 +497,7 @@ def final_preview_text(draft: dict[str, Any]) -> str:
                 "이번 실행에는 현재 화면에 보이는 임시 설정이 사용됩니다.",
                 "이 값들은 아직 저장된 프로필에 반영되지 않았습니다.",
                 "프로그램 종료 시 저장되지 않은 변경값은 사라집니다.",
-                "저장하려면 [현재 설정 저장]을 선택하세요.",
+                "저장하려면 [W] 현재 설정 저장을 선택하세요.",
             ]
         )
     return "\n".join(lines)
@@ -316,18 +505,18 @@ def final_preview_text(draft: dict[str, Any]) -> str:
 
 def confirm_final_preview(draft: dict[str, Any], action_label: str) -> bool:
     print()
-    if action_label == "새 스크립트 생성 후 실행":
-        print("  [새 스크립트 생성 후 실행]이 선택되어 있습니다.")
+    if action_label == "[X] 새 스크립트 생성 후 실행":
+        print("  [X] 새 스크립트 생성 후 실행이 선택되어 있습니다.")
         print()
         print("  현재 설정을 바탕으로 새로운 실행 스크립트가 생성됩니다.")
         print("  모델을 불러올 때는 이번에 생성되는 새 스크립트가 사용됩니다.")
         print()
         print("  기존 스크립트는 삭제되거나 덮어쓰이지 않습니다.")
-        print("  기존 스크립트를 정리하려면 [스크립트 관리] 메뉴에서 수동으로 삭제하세요.")
-        print("  스크립트 실행 방식을 바꾸려면 [스크립트 관리] 또는 [1회 실행]을 선택하세요.")
+        print("  기존 스크립트를 정리하려면 [S] 스크립트 관리 메뉴에서 수동으로 삭제하세요.")
+        print("  스크립트 실행 방식을 바꾸려면 [S] 스크립트 관리 또는 [O] 1회 실행을 선택하세요.")
         print()
     print(final_preview_text(draft))
-    return input(f"\n  [{action_label}] 계속할까요? (y/n) > ").strip().lower() == "y"
+    return input(f"\n  {action_label} 계속할까요? (y/n) > ").strip().lower() == "y"
 
 
 # ─── 스크립트 관리 ─────────────────────────────────────
@@ -448,7 +637,7 @@ def show_script_readonly(script_path: str) -> None:
     print("\n  이 화면은 읽기 전용입니다.")
     print("  선택한 스크립트 파일은 여기서 직접 수정되지 않습니다.")
     print()
-    print("  스크립트의 설정을 바꾸고 싶다면 [현재 설정으로 불러오기]를 선택하세요.")
+    print("  스크립트의 설정을 바꾸고 싶다면 [3] 현재 설정으로 불러오기를 선택하세요.")
     print("  불러온 뒤 메인 화면에서 필요한 값을 변경하고, 새 실행 스크립트를 생성할 수 있습니다.")
     print("  기존 스크립트는 삭제되거나 덮어쓰이지 않습니다.")
     print()
@@ -489,7 +678,7 @@ def manage_scripts(draft: dict[str, Any]) -> None:
             continue
 
         if choice in {"2", "3", "4", "5"} and not selected_script:
-            print("  먼저 [실행할 스크립트 선택]을 선택하세요.")
+            print("  먼저 [1] 실행할 스크립트 선택을 선택하세요.")
             pause()
             continue
 
@@ -571,7 +760,7 @@ def main() -> None:
         print_working_draft_status(draft)
         if not models:
             print(f"\n  ⚠️  {MODELS_DIR} 에서 GGUF 파일을 찾을 수 없습니다.")
-            print("     그래도 [설정 변경], [시스템 정보], [Hermes 등록], [OpenClaw 등록]은 사용할 수 있습니다.")
+            print("     그래도 [A] 설정 변경, [I] 시스템 정보, [E] Hermes 등록, [C] OpenClaw 등록은 사용할 수 있습니다.")
 
         running = get_running_model()
         if running:
@@ -595,6 +784,7 @@ def main() -> None:
         print("  [W] 현재 설정 저장")
         print("  [M] 모델 변경")
         print("  [A] 설정 변경")
+        print("  [K] 파라미터")
         print("  [P] 최종 미리보기")
         print("  [O] 1회 실행")
         print("  [G] 새 스크립트 생성")
@@ -624,7 +814,7 @@ def main() -> None:
             break
 
         if upper == "L":
-            print("\n  [불러오기]")
+            print("\n  [L] 불러오기")
             print("  [1] saved profile/config")
             print("  [2] existing generated script")
             print("  [3] last run record")
@@ -670,6 +860,15 @@ def main() -> None:
             pause()
             continue
 
+        if upper == "K":
+            before = copy.deepcopy(draft)
+            draft = edit_parameters(draft)
+            if draft != before:
+                draft["dirty"] = True
+                draft["status"] = "파라미터 변경으로 생긴 임시 작업 설정입니다."
+            pause()
+            continue
+
         if upper == "P":
             print()
             print(final_preview_text(draft))
@@ -678,10 +877,10 @@ def main() -> None:
 
         if upper == "O":
             if not draft.get("model_name") or not draft.get("model_path"):
-                print("  ⚠️  모델이 선택되지 않았습니다. [모델 변경]을 먼저 선택하세요.")
+                print("  ⚠️  모델이 선택되지 않았습니다. [M] 모델 변경을 먼저 선택하세요.")
                 pause()
                 continue
-            if not confirm_final_preview(draft, "1회 실행"):
+            if not confirm_final_preview(draft, "[O] 1회 실행"):
                 continue
             with tempfile.TemporaryDirectory(prefix="llama-suite-once-") as directory:
                 _script_name, script_path = generate_script(str(draft["model_name"]), str(draft["model_path"]), draft, scripts_dir=directory)
@@ -691,10 +890,10 @@ def main() -> None:
 
         if upper == "G":
             if not draft.get("model_name") or not draft.get("model_path"):
-                print("  ⚠️  모델이 선택되지 않았습니다. [모델 변경]을 먼저 선택하세요.")
+                print("  ⚠️  모델이 선택되지 않았습니다. [M] 모델 변경을 먼저 선택하세요.")
                 pause()
                 continue
-            if not confirm_final_preview(draft, "새 스크립트 생성"):
+            if not confirm_final_preview(draft, "[G] 새 스크립트 생성"):
                 continue
             script_name, script_path = generate_script(str(draft["model_name"]), str(draft["model_path"]), draft)
             print(f"  📝 새 실행 스냅샷 생성됨: {script_name}")
@@ -704,10 +903,10 @@ def main() -> None:
 
         if upper == "X":
             if not draft.get("model_name") or not draft.get("model_path"):
-                print("  ⚠️  모델이 선택되지 않았습니다. [모델 변경]을 먼저 선택하세요.")
+                print("  ⚠️  모델이 선택되지 않았습니다. [M] 모델 변경을 먼저 선택하세요.")
                 pause()
                 continue
-            if not confirm_final_preview(draft, "새 스크립트 생성 후 실행"):
+            if not confirm_final_preview(draft, "[X] 새 스크립트 생성 후 실행"):
                 continue
             script_name, script_path = generate_script(str(draft["model_name"]), str(draft["model_path"]), draft)
             print(f"  📝 새 실행 스냅샷 생성됨: {script_name}")
@@ -722,7 +921,7 @@ def main() -> None:
         if upper == "E":
             print("\n  Hermes 설정 변경: 비활성화")
             print("  이유: Hermes config 경로가 아직 등록되지 않았습니다.")
-            print("  Hermes 설정을 연결하려면 [Hermes 등록]을 선택하세요.")
+            print("  Hermes 설정을 연결하려면 [E] Hermes 등록을 선택하세요.")
             print("  자동 탐지는 후보일 뿐이고, 등록된 경로만 공식 연결 대상입니다.")
             pause()
             continue
@@ -814,8 +1013,8 @@ def main() -> None:
         if existing_script:
             status = "modern" if script_is_modern(existing_script) else "old"
             print(f"  📝 기존 스크립트: {existing_name} ({status})")
-            print("  기존 스크립트를 수정하려면 [스크립트 관리] → [현재 설정으로 불러오기]를 사용하세요.")
-        print("  실행하려면 메인 화면에서 [1회 실행] 또는 [새 스크립트 생성 후 실행]을 선택하세요.")
+            print("  기존 스크립트를 수정하려면 [S] 스크립트 관리 → [3] 현재 설정으로 불러오기를 사용하세요.")
+        print("  실행하려면 메인 화면에서 [O] 1회 실행 또는 [X] 새 스크립트 생성 후 실행을 선택하세요.")
         pause()
 
 
