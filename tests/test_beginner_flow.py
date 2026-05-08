@@ -227,6 +227,34 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("[1] 생성만", text)
         self.assertIn("[2] 생성 후 실행", text)
 
+    def test_last_run_record_restores_unsaved_test_parameters(self) -> None:
+        launcher = load_launcher_module()
+        with TemporaryDirectory() as directory:
+            record_path = Path(directory) / "last-run.json"
+            model_path = Path(directory) / "Dummy-7B.gguf"
+            model_path.write_text("")
+            draft = self.sample_cfg("/bin/echo")
+            draft.update(
+                {
+                    "model_name": "Dummy-7B",
+                    "model_path": str(model_path),
+                    "ctx_size": 12345,
+                    "custom_args": ["--no-warmup"],
+                }
+            )
+
+            ok, message = launcher.write_last_run_record(draft, "one_time_run", path=record_path)
+            restored: dict = {}
+            loaded, loaded_message = launcher.load_last_run_record({"Dummy-7B": str(model_path)}, restored, path=record_path)
+
+        self.assertTrue(ok, message)
+        self.assertTrue(loaded, loaded_message)
+        self.assertEqual(restored["model_name"], "Dummy-7B")
+        self.assertEqual(restored["ctx_size"], 12345)
+        self.assertEqual(restored["custom_args"], ["--no-warmup"])
+        self.assertTrue(restored["dirty"])
+        self.assertIn("마지막 실행 기록", restored["status"])
+
 
 if __name__ == "__main__":
     unittest.main()

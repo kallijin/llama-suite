@@ -616,6 +616,47 @@ Result:
 SMOKE CHECK OK
 ```
 
+## 2026-05-09 00:45 KST - Last Run Recovery Cache
+
+### Change
+
+Added a recovery cache for parameters used in `[O] 1회 실행`:
+
+- Before one-time execution, llama-suite writes `~/.hermes/llama-suite-last-run.json`.
+- The record stores the visible working draft used for that run.
+- `[L] 불러오기 → [3] last run record` now restores that draft.
+- Restored values remain an unsaved temporary working draft.
+- The cache is not a saved profile and does not create a permanent script.
+
+### Manual UI Check
+
+Created a temporary last-run record with `ctx=12345` and `--no-warmup`, then loaded it through `[L] → [3] last run record`.
+
+Result:
+
+```text
+last run record를 현재 작업 설정으로 불러왔습니다.
+ctx: 12345
+사용자 추가 파라미터: user_experimental
+```
+
+### Verification
+
+```sh
+python3 -X pycache_prefix=/tmp/llama-suite-pycache -m py_compile llama-launcher-complete.py modules/*.py
+python3 scripts/policy-check.py
+python3 -m unittest discover -v
+bash scripts/smoke-check.sh
+```
+
+Result:
+
+```text
+POLICY CHECK OK
+12 tests OK
+SMOKE CHECK OK
+```
+
 ## 2026-05-09 00:26 KST - Move Save Into Settings Menu
 
 ### Change

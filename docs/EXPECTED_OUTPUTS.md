@@ -124,6 +124,15 @@ KV Cache K:
 저장하려면 [A] 설정 변경 → [W] 현재 설정 저장을 선택하세요.
 ```
 
+## Last Run Record Restored
+
+```text
+[L] 불러오기
+[3] last run record
+last run record를 현재 작업 설정으로 불러왔습니다.
+마지막 실행 기록에서 불러온 임시 작업 설정입니다. 아직 저장되지 않았습니다.
+```
+
 ## Script Read-Only View
 
 ```text

@@ -14,10 +14,12 @@
 from __future__ import annotations
 
 import copy
+import json
 import os
 import shlex
 import sys
 import tempfile
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +44,7 @@ from modules.system_info import collect_system_info
 
 MODELS_DIR = os.environ.get("LLAMA_MODELS_DIR", "/mnt/data_main/downloads/models")
 SCRIPTS_DIR = Path(os.path.expanduser("~/.hermes/llama-scripts"))
+LAST_RUN_RECORD_PATH = Path(os.path.expanduser("~/.hermes/llama-suite-last-run.json"))
 STRUCTURED_ARG_OPTIONS = {
     "-m",
     "--model",
@@ -458,6 +461,71 @@ def draft_from_config(cfg: dict[str, Any], models: dict[str, str]) -> dict[str, 
         "loaded_from": "defaults/profile",
         "status": "저장된 profile/config에서 불러온 값입니다.",
     }
+
+
+def draft_snapshot(draft: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "model_name": draft.get("model_name"),
+        "model_path": draft.get("model_path"),
+        "ctx_size": int(draft.get("ctx_size", 95000)),
+        "host": draft.get("host", "127.0.0.1"),
+        "port": int(draft.get("port", 8080)),
+        "llama_bin": draft.get("llama_bin"),
+        "jinja": bool(draft.get("jinja", True)),
+        "alias_by_file": bool(draft.get("alias_by_file", True)),
+        "reasoning": draft.get("reasoning", "off"),
+        "reasoning_budget": int(draft.get("reasoning_budget", 0)),
+        "enable_thinking": bool(draft.get("enable_thinking", False)),
+        "extra_args": normalize_extra_args(draft.get("extra_args", [])),
+        "custom_args": normalize_extra_args(draft.get("custom_args", [])),
+        "param_sources": dict(draft.get("param_sources", {})),
+    }
+
+
+def write_last_run_record(draft: dict[str, Any], action: str, path: Path = LAST_RUN_RECORD_PATH) -> tuple[bool, str]:
+    record = {
+        "schema": "llama-suite-last-run-v1",
+        "saved_at": datetime.now().isoformat(timespec="seconds"),
+        "action": action,
+        "draft": draft_snapshot(draft),
+    }
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(record, indent=2, ensure_ascii=False))
+    except Exception as exc:
+        return False, f"last run record 저장 실패: {exc}"
+    return True, f"last run record 저장됨: {path}"
+
+
+def load_last_run_record(models: dict[str, str], draft: dict[str, Any], path: Path = LAST_RUN_RECORD_PATH) -> tuple[bool, str]:
+    if not path.exists():
+        return False, "last run record가 없습니다."
+    try:
+        record = json.loads(path.read_text())
+    except Exception as exc:
+        return False, f"last run record 읽기 실패: {exc}"
+    if not isinstance(record, dict) or record.get("schema") != "llama-suite-last-run-v1":
+        return False, "last run record 형식이 올바르지 않습니다."
+    saved = record.get("draft")
+    if not isinstance(saved, dict):
+        return False, "last run record에 설정값이 없습니다."
+
+    model_name = saved.get("model_name")
+    model_path = saved.get("model_path")
+    if model_name in models:
+        model_path = models[model_name]
+    if not model_name or not model_path:
+        return False, "last run record에 모델 정보가 없습니다."
+
+    for key, value in draft_snapshot(saved).items():
+        draft[key] = value
+    draft["model_name"] = model_name
+    draft["model_path"] = model_path
+    draft["dirty"] = True
+    draft["loaded_from"] = "last run record"
+    draft["status"] = "마지막 실행 기록에서 불러온 임시 작업 설정입니다. 아직 저장되지 않았습니다."
+    saved_at = record.get("saved_at") or "unknown time"
+    return True, f"last run record를 현재 작업 설정으로 불러왔습니다. 저장 시각: {saved_at}"
 
 
 def load_script_into_draft(script_path: str, draft: dict[str, Any]) -> tuple[bool, str]:
@@ -1007,7 +1075,8 @@ def main() -> None:
                     ok, message = load_script_into_draft(selected, draft)
                     print("  " + ("✅ " if ok else "⚠️  ") + message)
             elif sub == "3":
-                print("  ⚠️  last run record 불러오기는 아직 기록 형식 설계가 필요합니다.")
+                ok, message = load_last_run_record(models, draft)
+                print("  " + ("✅ " if ok else "⚠️  ") + message)
             elif sub == "4":
                 draft = draft_from_config(load_config(), models)
                 draft["dirty"] = True
@@ -1051,6 +1120,8 @@ def main() -> None:
                 continue
             if not confirm_final_preview(draft, "[O] 1회 실행"):
                 continue
+            ok, message = write_last_run_record(draft, "one_time_run")
+            print("  " + ("✅ " if ok else "⚠️  ") + message)
             with tempfile.TemporaryDirectory(prefix="llama-suite-once-") as directory:
                 _script_name, script_path = generate_script(str(draft["model_name"]), str(draft["model_path"]), draft, scripts_dir=directory)
                 run_script(script_path, model_name=str(draft["model_name"]))
