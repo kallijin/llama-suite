@@ -62,7 +62,7 @@ Added the first working-draft baseline:
 - `[현재 설정 저장]` is the explicit save action
 - model absence is shown as a recoverable state
 - final preview shows both machine command and human summary
-- `[1회 실행]`, `[새 스크립트 생성]`, and `[새 스크립트 생성 후 실행]` all use the visible working draft
+- `[1회 실행]` and `[새 스크립트 생성]` use the visible working draft
 - script management now has read-only view, load-to-current-settings, run-as-is, and confirmed delete paths
 - generated script names now include model, ctx, thinking state, timestamp, and short hash
 - `docs/EXPECTED_OUTPUTS.md` records beginner UI output contracts
@@ -573,6 +573,46 @@ Result:
 ```text
 POLICY CHECK OK
 10 tests OK
+SMOKE CHECK OK
+```
+
+## 2026-05-09 00:31 KST - Unify Script Generation Actions
+
+### Change
+
+Collapsed the two top-level script creation actions into one:
+
+- Removed `[X] 새 스크립트 생성 후 실행` from the main menu.
+- Kept `[G] 새 스크립트 생성` as the single script snapshot action.
+- `[G] 새 스크립트 생성` now shows the final command and human summary first.
+- After preview, the user chooses:
+  - `[1] 생성만`
+  - `[2] 생성 후 실행`
+  - `[R] 작업 화면으로 돌아가기`
+
+### Manual UI Check
+
+Ran the launcher with a temporary model directory, dummy GGUF, and dummy `llama-server`.
+
+Result:
+
+```text
+Main menu shows [G] 새 스크립트 생성 and no [X] action.
+[G] opens final preview and then offers [1] 생성만 / [2] 생성 후 실행.
+```
+
+### Verification
+
+```sh
+python3 -X pycache_prefix=/tmp/llama-suite-pycache -m py_compile llama-launcher-complete.py modules/*.py
+python3 -m unittest discover -v
+bash scripts/smoke-check.sh
+```
+
+Result:
+
+```text
+11 tests OK
 SMOKE CHECK OK
 ```
 

@@ -201,6 +201,31 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("Hermes 설정 변경: 비활성화", completed.stdout)
         self.assertIn("[A] 설정 변경 / 현재 설정 저장", completed.stdout)
         self.assertNotIn("\n  [W] 현재 설정 저장", completed.stdout)
+        self.assertNotIn("[X] 새 스크립트 생성 후 실행", completed.stdout)
+
+    def test_script_generation_action_is_unified(self) -> None:
+        launcher = load_launcher_module()
+        draft = self.sample_cfg("/bin/echo")
+        draft.update(
+            {
+                "model_name": "Dummy-7B",
+                "model_path": "/models/Dummy-7B/model.gguf",
+            }
+        )
+
+        from io import StringIO
+        import contextlib
+        from unittest.mock import patch
+
+        stdout = StringIO()
+        with patch("builtins.input", return_value="1"), contextlib.redirect_stdout(stdout):
+            action = launcher.choose_script_generation_action(draft)
+        text = stdout.getvalue()
+
+        self.assertEqual(action, "create")
+        self.assertIn("[G] 새 스크립트 생성이 선택되어 있습니다.", text)
+        self.assertIn("[1] 생성만", text)
+        self.assertIn("[2] 생성 후 실행", text)
 
 
 if __name__ == "__main__":

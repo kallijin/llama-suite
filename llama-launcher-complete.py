@@ -672,18 +672,30 @@ def final_preview_text(draft: dict[str, Any]) -> str:
 
 def confirm_final_preview(draft: dict[str, Any], action_label: str) -> bool:
     print()
-    if action_label == "[X] 새 스크립트 생성 후 실행":
-        print("  [X] 새 스크립트 생성 후 실행이 선택되어 있습니다.")
-        print()
-        print("  현재 설정을 바탕으로 새로운 실행 스크립트가 생성됩니다.")
-        print("  모델을 불러올 때는 이번에 생성되는 새 스크립트가 사용됩니다.")
-        print()
-        print("  기존 스크립트는 삭제되거나 덮어쓰이지 않습니다.")
-        print("  기존 스크립트를 정리하려면 [S] 스크립트 관리 메뉴에서 수동으로 삭제하세요.")
-        print("  스크립트 실행 방식을 바꾸려면 [S] 스크립트 관리 또는 [O] 1회 실행을 선택하세요.")
-        print()
     print(final_preview_text(draft))
     return input(f"\n  {action_label} 계속할까요? (y/n) > ").strip().lower() == "y"
+
+
+def choose_script_generation_action(draft: dict[str, Any]) -> str | None:
+    print()
+    print("  [G] 새 스크립트 생성이 선택되어 있습니다.")
+    print()
+    print("  현재 설정을 바탕으로 새로운 실행 스크립트가 생성됩니다.")
+    print("  기존 스크립트는 삭제되거나 덮어쓰이지 않습니다.")
+    print("  기존 스크립트를 정리하려면 [S] 스크립트 관리 메뉴에서 수동으로 삭제하세요.")
+    print()
+    print(final_preview_text(draft))
+    print()
+    print("  생성 후 동작을 선택하세요.")
+    print("  [1] 생성만")
+    print("  [2] 생성 후 실행")
+    print("  [R] 작업 화면으로 돌아가기")
+    choice = input("  선택 > ").strip().upper()
+    if choice == "1":
+        return "create"
+    if choice == "2":
+        return "create_and_run"
+    return None
 
 
 # ─── 스크립트 관리 ─────────────────────────────────────
@@ -955,7 +967,6 @@ def main() -> None:
         print("  [P] 최종 미리보기")
         print("  [O] 1회 실행")
         print("  [G] 새 스크립트 생성")
-        print("  [X] 새 스크립트 생성 후 실행")
         print(f"  [S] 스크립트 관리{script_info}")
         print("  [E] Hermes 등록")
         print("  [C] OpenClaw 등록")
@@ -1051,24 +1062,14 @@ def main() -> None:
                 print("  ⚠️  모델이 선택되지 않았습니다. [M] 모델 변경을 먼저 선택하세요.")
                 pause()
                 continue
-            if not confirm_final_preview(draft, "[G] 새 스크립트 생성"):
+            action = choose_script_generation_action(draft)
+            if not action:
                 continue
             script_name, script_path = generate_script(str(draft["model_name"]), str(draft["model_path"]), draft)
             print(f"  📝 새 실행 스냅샷 생성됨: {script_name}")
             print(f"     {script_path}")
-            pause()
-            continue
-
-        if upper == "X":
-            if not draft.get("model_name") or not draft.get("model_path"):
-                print("  ⚠️  모델이 선택되지 않았습니다. [M] 모델 변경을 먼저 선택하세요.")
-                pause()
-                continue
-            if not confirm_final_preview(draft, "[X] 새 스크립트 생성 후 실행"):
-                continue
-            script_name, script_path = generate_script(str(draft["model_name"]), str(draft["model_path"]), draft)
-            print(f"  📝 새 실행 스냅샷 생성됨: {script_name}")
-            run_script(script_path, model_name=str(draft["model_name"]))
+            if action == "create_and_run":
+                run_script(script_path, model_name=str(draft["model_name"]))
             pause()
             continue
 
@@ -1182,7 +1183,7 @@ def main() -> None:
             status = "modern" if script_is_modern(existing_script) else "old"
             print(f"  📝 기존 스크립트: {existing_name} ({status})")
             print("  기존 스크립트를 수정하려면 [S] 스크립트 관리 → [3] 현재 설정으로 불러오기를 사용하세요.")
-        print("  실행하려면 메인 화면에서 [O] 1회 실행 또는 [X] 새 스크립트 생성 후 실행을 선택하세요.")
+        print("  실행하려면 메인 화면에서 [O] 1회 실행 또는 [G] 새 스크립트 생성 → [2] 생성 후 실행을 선택하세요.")
         pause()
 
 
