@@ -94,6 +94,8 @@ def safe_script_name(text: str, limit: int = 64) -> str:
 
 # ─── 설정 변경 ─────────────────────────────────────────
 
+SAVE_SETTINGS_ACTION = "[A] 설정 변경 → [W] 현재 설정 저장"
+
 def change_settings(cfg: dict[str, Any]) -> dict[str, Any]:
     print("\n  ── 설정 변경 ──")
     print(
@@ -191,6 +193,46 @@ def change_settings(cfg: dict[str, Any]) -> dict[str, Any]:
 
     print("  ✅ 임시 작업 설정에 반영됨. 아직 저장되지 않았습니다.")
     return cfg
+
+
+def settings_menu(cfg: dict[str, Any], draft: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    while True:
+        print("\n  ── 설정 변경 ──")
+        print("  설정은 먼저 현재 작업 설정에만 반영됩니다.")
+        print(f"  저장하려면 {SAVE_SETTINGS_ACTION}을 선택하세요.")
+        print()
+        print("  [1] 기본 설정 변경")
+        print("  [2] 파라미터")
+        print("  [W] 현재 설정 저장")
+        print("  [R] 작업 화면으로 돌아가기")
+        choice = input("  선택 > ").strip().upper()
+
+        if choice == "R":
+            return cfg, draft
+
+        if choice == "1":
+            before = copy.deepcopy(draft)
+            draft = change_settings(draft)
+            if draft != before:
+                draft["dirty"] = True
+                draft["status"] = "설정 변경으로 생긴 임시 작업 설정입니다."
+            pause()
+            continue
+
+        if choice == "2":
+            before = copy.deepcopy(draft)
+            draft = edit_parameters(draft)
+            if draft != before:
+                draft["dirty"] = True
+                draft["status"] = "파라미터 변경으로 생긴 임시 작업 설정입니다."
+            pause()
+            continue
+
+        if choice == "W":
+            ok, message, cfg = save_working_draft(cfg, draft)
+            print("  " + ("✅ " if ok else "⚠️  ") + message)
+            pause()
+            continue
 
 
 def extra_arg_value(cfg: dict[str, Any], option: str) -> str:
@@ -448,11 +490,11 @@ def print_working_draft_status(draft: dict[str, Any]) -> None:
         print("    이 값들은 아직 저장된 프로필에 반영되지 않았습니다.")
         print("    저장하지 않고 실행하면 이번 실행에만 사용됩니다.")
         print("    프로그램을 종료하면 저장되지 않은 변경값은 사라집니다.")
-        print("    저장하려면 [W] 현재 설정 저장을 선택하세요.")
+        print(f"    저장하려면 {SAVE_SETTINGS_ACTION}을 선택하세요.")
         print("    현재 값으로 한 번만 실행하려면 [O] 1회 실행을 선택하세요.")
     else:
         print("    값을 바꾸면 먼저 임시 작업 설정으로만 반영됩니다.")
-        print("    저장은 [W] 현재 설정 저장을 눌렀을 때만 수행됩니다.")
+        print(f"    저장은 {SAVE_SETTINGS_ACTION}을 눌렀을 때만 수행됩니다.")
     print()
     print(f"  모델: {draft.get('model_name') or '선택 없음'}")
     print(f"  endpoint: http://{draft.get('host')}:{draft.get('port')}/v1")
@@ -622,7 +664,7 @@ def final_preview_text(draft: dict[str, Any]) -> str:
                 "이번 실행에는 현재 화면에 보이는 임시 설정이 사용됩니다.",
                 "이 값들은 아직 저장된 프로필에 반영되지 않았습니다.",
                 "프로그램 종료 시 저장되지 않은 변경값은 사라집니다.",
-                "저장하려면 [W] 현재 설정 저장을 선택하세요.",
+                f"저장하려면 {SAVE_SETTINGS_ACTION}을 선택하세요.",
             ]
         )
     return "\n".join(lines)
@@ -907,9 +949,8 @@ def main() -> None:
         script_info = f" ({len(existing_scripts)}개)" if existing_scripts else ""
 
         print("\n  [L] 불러오기")
-        print("  [W] 현재 설정 저장")
         print("  [M] 모델 변경")
-        print("  [A] 설정 변경")
+        print("  [A] 설정 변경 / 현재 설정 저장")
         print("  [K] 파라미터")
         print("  [P] 최종 미리보기")
         print("  [O] 1회 실행")
@@ -965,12 +1006,6 @@ def main() -> None:
             pause()
             continue
 
-        if upper == "W":
-            ok, message, cfg = save_working_draft(cfg, draft)
-            print("  " + ("✅ " if ok else "⚠️  ") + message)
-            pause()
-            continue
-
         if upper == "M":
             if not numbered:
                 print("  ⚠️  선택할 모델이 없습니다. 모델 디렉터리를 확인한 뒤 [R] 모델 목록 새로고침을 선택하세요.")
@@ -980,10 +1015,7 @@ def main() -> None:
             upper = ""
 
         if upper == "A":
-            draft = change_settings(draft)
-            draft["dirty"] = True
-            draft["status"] = "설정 변경으로 생긴 임시 작업 설정입니다."
-            pause()
+            cfg, draft = settings_menu(cfg, draft)
             continue
 
         if upper == "K":

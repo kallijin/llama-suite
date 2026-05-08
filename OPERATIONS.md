@@ -575,3 +575,41 @@ POLICY CHECK OK
 10 tests OK
 SMOKE CHECK OK
 ```
+
+## 2026-05-09 00:26 KST - Move Save Into Settings Menu
+
+### Change
+
+Adjusted the beginner-first main screen navigation:
+
+- Removed `[W] 현재 설정 저장` from the top-level main menu.
+- Added `[W] 현재 설정 저장` inside `[A] 설정 변경`.
+- Main menu now shows `[A] 설정 변경 / 현재 설정 저장`.
+- Save guidance now points to `[A] 설정 변경 → [W] 현재 설정 저장`.
+- `[A] 설정 변경` now has a small submenu for basic settings, parameters, save, and return.
+
+### Manual UI Check
+
+Ran the launcher and selected `[A] 설정 변경`, then `[R] 작업 화면으로 돌아가기`.
+
+Result:
+
+```text
+Top-level menu no longer shows [W] 현재 설정 저장.
+Settings submenu shows [W] 현재 설정 저장.
+```
+
+### Verification
+
+```sh
+python3 -X pycache_prefix=/tmp/llama-suite-pycache -m py_compile llama-launcher-complete.py modules/*.py
+python3 -m unittest discover -v
+bash scripts/smoke-check.sh
+```
+
+Result:
+
+```text
+10 tests OK
+SMOKE CHECK OK
+```

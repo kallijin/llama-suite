@@ -106,7 +106,7 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("[2] 실행 요약", text)
         self.assertIn("현재 실행할 모델은 model.gguf 입니다.", text)
         self.assertIn("이번 실행에는 현재 화면에 보이는 임시 설정이 사용됩니다.", text)
-        self.assertIn("[W] 현재 설정 저장", text)
+        self.assertIn("[A] 설정 변경 → [W] 현재 설정 저장", text)
 
     def test_custom_arg_conflict_is_reported_in_preview(self) -> None:
         launcher = load_launcher_module()
@@ -199,6 +199,8 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("[A] 설정 변경", completed.stdout)
         self.assertIn("[E] Hermes 등록", completed.stdout)
         self.assertIn("Hermes 설정 변경: 비활성화", completed.stdout)
+        self.assertIn("[A] 설정 변경 / 현재 설정 저장", completed.stdout)
+        self.assertNotIn("\n  [W] 현재 설정 저장", completed.stdout)
 
 
 if __name__ == "__main__":
