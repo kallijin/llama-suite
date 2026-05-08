@@ -27,6 +27,76 @@ This keeps three recoverable layers:
 - timestamped local backup files for pre-commit reconstruction
 - this operations log for why the change happened and what was observed at runtime
 
+## 2026-05-08 23:48 KST - Beginner-first working draft baseline
+
+### Context
+
+The launcher is shifting from a direct execution helper into a beginner-first
+llama.cpp operations console.
+
+The new operating rule is:
+
+```text
+메인 화면은 임시 작업 설정 편집기.
+저장은 명시적.
+실행은 현재 화면값 기준.
+스크립트는 수정하지 않는 실행 스냅샷.
+Hermes/OpenClaw는 등록된 경로만 안전하게 연동.
+```
+
+Before this change, several beginner-hostile failures were observed:
+
+- startup could fail before showing the menu if config write failed
+- startup could fail before showing the menu if `llama_bin` did not exist
+- an empty model directory exited the whole launcher
+- selecting a model pushed the user directly toward script creation/execution
+- generated script names did not encode the execution snapshot clearly
+
+### Change
+
+Added the first working-draft baseline:
+
+- startup no longer auto-saves config
+- the main screen displays an in-memory working draft
+- editing values is not saving
+- `[현재 설정 저장]` is the explicit save action
+- model absence is shown as a recoverable state
+- final preview shows both machine command and human summary
+- `[1회 실행]`, `[새 스크립트 생성]`, and `[새 스크립트 생성 후 실행]` all use the visible working draft
+- script management now has read-only view, load-to-current-settings, run-as-is, and confirmed delete paths
+- generated script names now include model, ctx, thinking state, timestamp, and short hash
+- `docs/EXPECTED_OUTPUTS.md` records beginner UI output contracts
+- `scripts/smoke-check.sh` now runs unittest discovery
+
+### Backup Files
+
+Created in `/tmp/git-backups` for this temporary checkout:
+
+```text
+/tmp/git-backups/llama-suite-2026-05-08-234822-57b9cc7-beginner-draft-wip.diff
+/tmp/git-backups/llama-suite-2026-05-08-234822-57b9cc7-beginner-draft-staged.diff
+/tmp/git-backups/llama-suite-2026-05-08-234822-57b9cc7-beginner-draft-status.txt
+/tmp/git-backups/llama-suite-2026-05-08-234822-57b9cc7-before-beginner-draft.bundle
+```
+
+### Verification
+
+```sh
+python3 -m py_compile llama-launcher-complete.py modules/*.py
+python3 scripts/policy-check.py
+python3 -m unittest discover -v
+bash scripts/smoke-check.sh
+```
+
+Result:
+
+```text
+POLICY CHECK OK
+Ran 4 tests
+OK
+SMOKE CHECK OK
+```
+
 ## 2026-05-03 01:01 KST - Rust-portability baseline and policy checker
 
 ### Why This Backup Was Made

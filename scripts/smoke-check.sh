@@ -8,6 +8,7 @@ git log --oneline --decorate -5
 
 python3 -m py_compile llama-launcher-complete.py modules/*.py
 python3 scripts/policy-check.py
+python3 -m unittest discover -v
 
 test -f README.md
 test -f IDEAS.md

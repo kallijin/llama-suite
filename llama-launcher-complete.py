@@ -16,6 +16,7 @@ from __future__ import annotations
 import os
 import shlex
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -27,10 +28,10 @@ from modules.config_store import (
     save_config,
 )
 from modules.model_scan import get_model_list
-from modules.profiles import get_model_profile, load_profiles, save_profiles
+from modules.profiles import default_model_profile, get_model_profile, load_profiles, save_profiles
 from modules.probes import quick_no_think_test, show_status
 from modules.runner_tmux import get_running_model, get_running_servers, run_script
-from modules.script_builder import generate_script, resolve_ctx_size
+from modules.script_builder import command_preview, generate_script, parse_generated_script, resolve_ctx_size
 from modules.system_info import collect_system_info
 
 
@@ -159,9 +160,174 @@ def change_settings(cfg: dict[str, Any]) -> dict[str, Any]:
     if val:
         cfg["extra_args"] = normalize_extra_args(val)
 
-    save_config(cfg)
-    print("  ✅ 설정 저장됨!")
+    print("  ✅ 임시 작업 설정에 반영됨. 아직 저장되지 않았습니다.")
     return cfg
+
+
+def apply_draft_to_config(cfg: dict[str, Any], draft: dict[str, Any]) -> dict[str, Any]:
+    updated = dict(cfg)
+    for key in (
+        "ctx_size",
+        "host",
+        "port",
+        "llama_bin",
+        "jinja",
+        "alias_by_file",
+        "reasoning",
+        "reasoning_budget",
+        "enable_thinking",
+        "extra_args",
+    ):
+        if key in draft:
+            updated[key] = draft[key]
+    updated["last_model"] = draft.get("model_name")
+    return updated
+
+
+def save_working_draft(cfg: dict[str, Any], draft: dict[str, Any]) -> tuple[bool, str, dict[str, Any]]:
+    if not draft.get("model_name") or not draft.get("model_path"):
+        return False, "저장할 모델이 선택되지 않았습니다. [모델 변경]을 먼저 선택하세요.", cfg
+
+    updated = apply_draft_to_config(cfg, draft)
+    try:
+        save_config(updated)
+    except Exception as exc:
+        return False, f"설정 저장 실패: {exc}", cfg
+
+    try:
+        profiles = load_profiles()
+        profile = get_model_profile(profiles, str(draft["model_name"]), str(draft["model_path"]))
+        profile["stable_ctx_size"] = int(draft["ctx_size"])
+        profile["reasoning"]["mode"] = draft.get("reasoning")
+        profile["reasoning"]["budget"] = draft.get("reasoning_budget")
+        profile["reasoning"]["enable_thinking"] = draft.get("enable_thinking")
+        save_profiles(profiles)
+    except Exception as exc:
+        return False, f"기본 설정은 저장했지만 profile 저장 실패: {exc}", updated
+
+    draft["dirty"] = False
+    draft["status"] = "저장된 profile/config와 같은 값입니다."
+    return True, "현재 설정을 저장했습니다.", updated
+
+
+def draft_from_config(cfg: dict[str, Any], models: dict[str, str]) -> dict[str, Any]:
+    model_name = cfg.get("last_model") if cfg.get("last_model") in models else None
+    model_path = models.get(model_name) if model_name else None
+    return {
+        "model_name": model_name,
+        "model_path": model_path,
+        "ctx_size": int(cfg.get("ctx_size", 95000)),
+        "host": cfg.get("host", "127.0.0.1"),
+        "port": int(cfg.get("port", 8080)),
+        "llama_bin": cfg.get("llama_bin"),
+        "jinja": bool(cfg.get("jinja", True)),
+        "alias_by_file": bool(cfg.get("alias_by_file", True)),
+        "reasoning": cfg.get("reasoning", "off"),
+        "reasoning_budget": int(cfg.get("reasoning_budget", 0)),
+        "enable_thinking": bool(cfg.get("enable_thinking", False)),
+        "extra_args": normalize_extra_args(cfg.get("extra_args", [])),
+        "dirty": False,
+        "loaded_from": "defaults/profile",
+        "status": "저장된 profile/config에서 불러온 값입니다.",
+    }
+
+
+def load_script_into_draft(script_path: str, draft: dict[str, Any]) -> tuple[bool, str]:
+    try:
+        snapshot = parse_generated_script(script_path)
+    except Exception as exc:
+        return False, f"스크립트 읽기 실패: {exc}"
+    if not snapshot.get("model_name") or not snapshot.get("model_path"):
+        return False, "스크립트에서 MODEL/MODEL_PATH를 찾지 못했습니다."
+
+    draft["model_name"] = snapshot["model_name"]
+    draft["model_path"] = snapshot["model_path"]
+    draft.update(snapshot.get("cfg") or {})
+    draft["extra_args"] = normalize_extra_args(draft.get("extra_args", []))
+    draft["dirty"] = True
+    draft["loaded_from"] = f"script:{Path(script_path).name}"
+    draft["status"] = "기존 스크립트에서 불러온 임시 작업 설정입니다. 스크립트 파일은 수정되지 않았습니다."
+    return True, "스크립트 설정을 현재 작업 설정으로 불러왔습니다."
+
+
+def print_working_draft_status(draft: dict[str, Any]) -> None:
+    dirty = bool(draft.get("dirty"))
+    print("\n  현재 설정 상태:")
+    if dirty:
+        print("    저장되지 않은 임시 작업 설정입니다.")
+    else:
+        print(f"    {draft.get('status') or '임시 작업 설정입니다.'}")
+    print()
+    if dirty:
+        print("    이 값들은 아직 저장된 프로필에 반영되지 않았습니다.")
+        print("    저장하지 않고 실행하면 이번 실행에만 사용됩니다.")
+        print("    프로그램을 종료하면 저장되지 않은 변경값은 사라집니다.")
+        print("    저장하려면 [현재 설정 저장]을 선택하세요.")
+        print("    현재 값으로 한 번만 실행하려면 [1회 실행]을 선택하세요.")
+    else:
+        print("    값을 바꾸면 먼저 임시 작업 설정으로만 반영됩니다.")
+        print("    저장은 [현재 설정 저장]을 눌렀을 때만 수행됩니다.")
+    print()
+    print(f"  모델: {draft.get('model_name') or '선택 없음'}")
+    print(f"  endpoint: http://{draft.get('host')}:{draft.get('port')}/v1")
+    print(f"  ctx: {draft.get('ctx_size')}")
+    print(f"  reasoning: {draft.get('reasoning')}, budget={draft.get('reasoning_budget')}, enable_thinking={draft.get('enable_thinking')}")
+    print(f"  llama-server: {draft.get('llama_bin') or '미등록'}")
+
+
+def final_preview_text(draft: dict[str, Any]) -> str:
+    model_name = draft.get("model_name")
+    model_path = draft.get("model_path")
+    if not model_name or not model_path:
+        return "모델이 선택되지 않았습니다. 다른 모델을 사용하려면 [모델 변경]을 선택하세요."
+    try:
+        final_command = command_preview(str(model_name), str(model_path), draft)
+    except Exception as exc:
+        final_command = f"명령 생성 실패: {exc}"
+
+    lines = [
+        "[1] 최종 실행 명령",
+        final_command,
+        "",
+        "[2] 실행 요약",
+        f"현재 실행할 모델은 {Path(str(model_path)).name} 입니다.",
+        "다른 모델을 사용하려면 [모델 변경]을 선택하세요.",
+        "",
+        f"사용될 endpoint는 http://{draft.get('host')}:{draft.get('port')}/v1 입니다.",
+        "주소를 바꾸려면 [설정 변경]을 선택하세요.",
+        "",
+        "사용될 주요 파라미터는 다음과 같습니다.",
+        f"- Context Size: {draft.get('ctx_size')}",
+        f"- KV/기타 추가 파라미터: {' '.join(shlex.quote(x) for x in normalize_extra_args(draft.get('extra_args', []))) or '-'}",
+        f"- reasoning: {draft.get('reasoning')} / budget={draft.get('reasoning_budget')} / enable_thinking={draft.get('enable_thinking')}",
+    ]
+    if draft.get("dirty"):
+        lines.extend(
+            [
+                "",
+                "이번 실행에는 현재 화면에 보이는 임시 설정이 사용됩니다.",
+                "이 값들은 아직 저장된 프로필에 반영되지 않았습니다.",
+                "프로그램 종료 시 저장되지 않은 변경값은 사라집니다.",
+                "저장하려면 [현재 설정 저장]을 선택하세요.",
+            ]
+        )
+    return "\n".join(lines)
+
+
+def confirm_final_preview(draft: dict[str, Any], action_label: str) -> bool:
+    print()
+    if action_label == "새 스크립트 생성 후 실행":
+        print("  [새 스크립트 생성 후 실행]이 선택되어 있습니다.")
+        print()
+        print("  현재 설정을 바탕으로 새로운 실행 스크립트가 생성됩니다.")
+        print("  모델을 불러올 때는 이번에 생성되는 새 스크립트가 사용됩니다.")
+        print()
+        print("  기존 스크립트는 삭제되거나 덮어쓰이지 않습니다.")
+        print("  기존 스크립트를 정리하려면 [스크립트 관리] 메뉴에서 수동으로 삭제하세요.")
+        print("  스크립트 실행 방식을 바꾸려면 [스크립트 관리] 또는 [1회 실행]을 선택하세요.")
+        print()
+    print(final_preview_text(draft))
+    return input(f"\n  [{action_label}] 계속할까요? (y/n) > ").strip().lower() == "y"
 
 
 # ─── 스크립트 관리 ─────────────────────────────────────
@@ -261,38 +427,100 @@ def delete_script(index: int) -> None:
         print(f"  ⚠️  삭제 실패: {e}")
 
 
-def manage_scripts() -> None:
+def select_script_path() -> str | None:
+    scripts = list_scripts()
+    if not scripts:
+        print("\n  저장된 스크립트가 없습니다.")
+        return None
+    show_scripts()
+    choice = input("  실행/관리할 스크립트 번호 > ").strip()
+    if not choice.isdigit():
+        print("  ⚠️  번호를 입력하세요.")
+        return None
+    index = int(choice) - 1
+    if not 0 <= index < len(scripts):
+        print("  ⚠️  유효하지 않은 번호입니다.")
+        return None
+    return scripts[index][1]
+
+
+def show_script_readonly(script_path: str) -> None:
+    print("\n  이 화면은 읽기 전용입니다.")
+    print("  선택한 스크립트 파일은 여기서 직접 수정되지 않습니다.")
+    print()
+    print("  스크립트의 설정을 바꾸고 싶다면 [현재 설정으로 불러오기]를 선택하세요.")
+    print("  불러온 뒤 메인 화면에서 필요한 값을 변경하고, 새 실행 스크립트를 생성할 수 있습니다.")
+    print("  기존 스크립트는 삭제되거나 덮어쓰이지 않습니다.")
+    print()
+    try:
+        print(Path(script_path).read_text())
+    except Exception as exc:
+        print(f"  ⚠️  읽기 실패: {exc}")
+
+
+def manage_scripts(draft: dict[str, Any]) -> None:
+    selected_script: str | None = None
     while True:
         show_scripts()
         scripts = list_scripts()
         if not scripts:
             break
 
-        print("  [번호] 삭제")
-        print("  [A] 모두 삭제")
-        print("  [B] 돌아가기\n")
+        print(f"  선택된 스크립트: {Path(selected_script).name if selected_script else '없음'}")
+        print("  [1] 실행할 스크립트 선택")
+        print("  [2] 스크립트 내용 보기")
+        print("  [3] 현재 설정으로 불러오기")
+        print("  [4] 이 스크립트 그대로 실행")
+        print("  [5] 스크립트 삭제")
+        print("  [6] 뒤로\n")
 
-        choice = input("  선택 > ").strip().upper()
-
-        if choice == "B":
+        try:
+            choice = input("  선택 > ").strip()
+        except EOFError:
+            print("\n👋 안녕!\n")
             break
 
-        if choice == "A":
-            confirm = input("  정말 모두 삭제할까요? (y/n) > ").strip().lower()
-            if confirm == "y":
-                for _, path in scripts:
-                    try:
-                        os.remove(path)
-                        pid_file = path + ".pid"
-                        if os.path.exists(pid_file):
-                            os.remove(pid_file)
-                    except OSError:
-                        pass
-                print("  🗑️  모두 삭제됨!")
+        if choice == "6":
+            break
+
+        if choice == "1":
+            selected_script = select_script_path()
+            pause()
             continue
 
-        if choice.isdigit():
-            delete_script(int(choice) - 1)
+        if choice in {"2", "3", "4", "5"} and not selected_script:
+            print("  먼저 [실행할 스크립트 선택]을 선택하세요.")
+            pause()
+            continue
+
+        if choice == "2":
+            show_script_readonly(selected_script)
+            pause()
+            continue
+
+        if choice == "3":
+            ok, message = load_script_into_draft(selected_script, draft)
+            print("  " + ("✅ " if ok else "⚠️  ") + message)
+            pause()
+            if ok:
+                break
+            continue
+
+        if choice == "4":
+            run_existing_script(selected_script)
+            pause()
+            continue
+
+        if choice == "5":
+            confirm = input("  이 스크립트를 삭제할까요? (y/n) > ").strip().lower()
+            if confirm == "y":
+                try:
+                    index = [path for _, path in scripts].index(selected_script)
+                    delete_script(index)
+                    selected_script = None
+                except ValueError:
+                    print("  ⚠️  선택된 스크립트를 찾지 못했습니다.")
+            pause()
 
 
 # ─── 스크립트 생성 및 실행 ──────────────────────────────
@@ -333,45 +561,58 @@ def show_system_info() -> None:
 
 def main() -> None:
     cfg = load_config()
-    save_config(cfg)  # 새 필드가 생겼으면 즉시 반영
-
     models = get_model_list(MODELS_DIR)
-    if not models:
-        print(f"\n⚠️  {MODELS_DIR} 에서 GGUF 파일을 찾을 수 없습니다.")
-        sys.exit(1)
+    draft = draft_from_config(cfg, models)
 
     while True:
         print_header()
+        print("  고급 기능을 품은 초보용 llama.cpp 운용 조정판")
         print(f"  모델 디렉터리: {MODELS_DIR}")
-        print(f"  endpoint 설정: http://{cfg['host']}:{cfg['port']}/v1")
-        print(f"  ctx={cfg['ctx_size']}, reasoning={cfg.get('reasoning')}, budget={cfg.get('reasoning_budget')}")
-        print(f"  모델 목록 ({len(models)}개)\n")
+        print_working_draft_status(draft)
+        if not models:
+            print(f"\n  ⚠️  {MODELS_DIR} 에서 GGUF 파일을 찾을 수 없습니다.")
+            print("     그래도 [설정 변경], [시스템 정보], [Hermes 등록], [OpenClaw 등록]은 사용할 수 있습니다.")
 
         running = get_running_model()
         if running:
             print(f"  🔴 실행 중: {running}\n")
 
         numbered = list(enumerate(models.items(), 1))
+        if numbered:
+            print(f"\n  모델 목록 ({len(models)}개)\n")
         for i, (name, _path) in numbered:
             marker = ""
             if name == running:
                 marker = " ◀ 실행 중"
-            elif name == cfg.get("last_model"):
-                marker = " ◀ 최근 사용"
+            elif name == draft.get("model_name"):
+                marker = " ◀ 현재 작업 설정"
             print(f"  [{i:>2}] {name}{marker}")
 
         existing_scripts = list_scripts()
         script_info = f" ({len(existing_scripts)}개)" if existing_scripts else ""
 
-        print("\n  [A] 설정 변경")
+        print("\n  [L] 불러오기")
+        print("  [W] 현재 설정 저장")
+        print("  [M] 모델 변경")
+        print("  [A] 설정 변경")
+        print("  [P] 최종 미리보기")
+        print("  [O] 1회 실행")
+        print("  [G] 새 스크립트 생성")
+        print("  [X] 새 스크립트 생성 후 실행")
         print(f"  [S] 스크립트 관리{script_info}")
+        print("  [E] Hermes 등록")
+        print("  [C] OpenClaw 등록")
         print("  [H] 서버 상태 확인")
         print("  [I] 시스템 정보")
         print("  [T] no-thinking 채팅 테스트")
         print("  [R] 모델 목록 새로고침")
-        print("  [Q] 종료\n")
+        print("  [Q] 취소\n")
 
-        choice = input("  선택 > ").strip()
+        try:
+            choice = input("  선택 > ").strip()
+        except EOFError:
+            print("\n👋 안녕!\n")
+            break
 
         if not choice:
             continue
@@ -382,16 +623,118 @@ def main() -> None:
             print("\n👋 안녕!\n")
             break
 
+        if upper == "L":
+            print("\n  [불러오기]")
+            print("  [1] saved profile/config")
+            print("  [2] existing generated script")
+            print("  [3] last run record")
+            print("  [4] defaults")
+            sub = input("  선택 > ").strip()
+            if sub == "1":
+                draft = draft_from_config(cfg, models)
+                print("  ✅ 저장된 profile/config에서 현재 작업 설정을 불러왔습니다.")
+            elif sub == "2":
+                selected = select_script_path()
+                if selected:
+                    ok, message = load_script_into_draft(selected, draft)
+                    print("  " + ("✅ " if ok else "⚠️  ") + message)
+            elif sub == "3":
+                print("  ⚠️  last run record 불러오기는 아직 기록 형식 설계가 필요합니다.")
+            elif sub == "4":
+                draft = draft_from_config(load_config(), models)
+                draft["dirty"] = True
+                draft["loaded_from"] = "defaults"
+                draft["status"] = "기본값에서 불러온 임시 작업 설정입니다."
+                print("  ✅ 기본값을 현재 작업 설정으로 불러왔습니다.")
+            pause()
+            continue
+
+        if upper == "W":
+            ok, message, cfg = save_working_draft(cfg, draft)
+            print("  " + ("✅ " if ok else "⚠️  ") + message)
+            pause()
+            continue
+
+        if upper == "M":
+            if not numbered:
+                print("  ⚠️  선택할 모델이 없습니다. 모델 디렉터리를 확인한 뒤 [R] 모델 목록 새로고침을 선택하세요.")
+                pause()
+                continue
+            choice = input("  모델 번호 또는 검색어 > ").strip()
+            upper = ""
+
         if upper == "A":
-            cfg = change_settings(cfg)
+            draft = change_settings(draft)
+            draft["dirty"] = True
+            draft["status"] = "설정 변경으로 생긴 임시 작업 설정입니다."
+            pause()
+            continue
+
+        if upper == "P":
+            print()
+            print(final_preview_text(draft))
+            pause()
+            continue
+
+        if upper == "O":
+            if not draft.get("model_name") or not draft.get("model_path"):
+                print("  ⚠️  모델이 선택되지 않았습니다. [모델 변경]을 먼저 선택하세요.")
+                pause()
+                continue
+            if not confirm_final_preview(draft, "1회 실행"):
+                continue
+            with tempfile.TemporaryDirectory(prefix="llama-suite-once-") as directory:
+                _script_name, script_path = generate_script(str(draft["model_name"]), str(draft["model_path"]), draft, scripts_dir=directory)
+                run_script(script_path, model_name=str(draft["model_name"]))
+            pause()
+            continue
+
+        if upper == "G":
+            if not draft.get("model_name") or not draft.get("model_path"):
+                print("  ⚠️  모델이 선택되지 않았습니다. [모델 변경]을 먼저 선택하세요.")
+                pause()
+                continue
+            if not confirm_final_preview(draft, "새 스크립트 생성"):
+                continue
+            script_name, script_path = generate_script(str(draft["model_name"]), str(draft["model_path"]), draft)
+            print(f"  📝 새 실행 스냅샷 생성됨: {script_name}")
+            print(f"     {script_path}")
+            pause()
+            continue
+
+        if upper == "X":
+            if not draft.get("model_name") or not draft.get("model_path"):
+                print("  ⚠️  모델이 선택되지 않았습니다. [모델 변경]을 먼저 선택하세요.")
+                pause()
+                continue
+            if not confirm_final_preview(draft, "새 스크립트 생성 후 실행"):
+                continue
+            script_name, script_path = generate_script(str(draft["model_name"]), str(draft["model_path"]), draft)
+            print(f"  📝 새 실행 스냅샷 생성됨: {script_name}")
+            run_script(script_path, model_name=str(draft["model_name"]))
+            pause()
             continue
 
         if upper == "S":
-            manage_scripts()
+            manage_scripts(draft)
+            continue
+
+        if upper == "E":
+            print("\n  Hermes 설정 변경: 비활성화")
+            print("  이유: Hermes config 경로가 아직 등록되지 않았습니다.")
+            print("  Hermes 설정을 연결하려면 [Hermes 등록]을 선택하세요.")
+            print("  자동 탐지는 후보일 뿐이고, 등록된 경로만 공식 연결 대상입니다.")
+            pause()
+            continue
+
+        if upper == "C":
+            print("\n  OpenClaw 등록: 읽기 전용 inspection부터 구현할 예정입니다.")
+            print("  위험한 쓰기 작업은 아직 수행하지 않습니다.")
+            pause()
             continue
 
         if upper == "H":
-            show_status(cfg, get_running_servers())
+            show_status(draft, get_running_servers())
             pause()
             continue
 
@@ -401,12 +744,14 @@ def main() -> None:
             continue
 
         if upper == "T":
-            quick_no_think_test(cfg)
+            quick_no_think_test(draft)
             pause()
             continue
 
         if upper == "R":
             models = get_model_list(MODELS_DIR)
+            if draft.get("model_name") in models:
+                draft["model_path"] = models[draft["model_name"]]
             print("  ✅ 목록 새로고침!")
             pause()
             continue
@@ -438,58 +783,40 @@ def main() -> None:
                 pause()
                 continue
 
-        cfg["last_model"] = model_name
-        save_config(cfg)
+        draft["model_name"] = model_name
+        draft["model_path"] = model_path
+        draft["dirty"] = True
+        draft["loaded_from"] = "model selection"
+        draft["status"] = "모델 변경으로 생긴 임시 작업 설정입니다."
 
         profiles = load_profiles()
-        profile = get_model_profile(profiles, model_name, model_path)
-        save_profiles(profiles)
+        profile = profiles.get("models", {}).get(model_name) or default_model_profile(model_name, model_path)
 
         result = get_latest_script(model_name)
         existing_script, existing_name = (result if result else (None, None))
-        effective_ctx_size = resolve_ctx_size(model_name, model_path, cfg)
+        effective_ctx_size = resolve_ctx_size(model_name, model_path, draft)
+        draft["ctx_size"] = effective_ctx_size
 
         print(f"\n  📦 모델 : {model_name}")
         print(f"  📄 경로 : {model_path}")
-        print(f"  ⚙️  설정 : ctx={effective_ctx_size} (global={cfg['ctx_size']}), {cfg['host']}:{cfg['port']}")
+        print(f"  ⚙️  설정 : ctx={effective_ctx_size}, {draft['host']}:{draft['port']}")
         print(
             f"  🧾 profile: ctx={profile.get('stable_ctx_size') or 'unknown'}, "
             f"backend={profile.get('recommended_backend') or 'unknown'}, "
             f"tool={profile.get('hermes_tool_call', {}).get('status') or 'unknown'}"
         )
         print(
-            f"  🧠 reasoning={cfg.get('reasoning')}, "
-            f"budget={cfg.get('reasoning_budget')}, "
-            f"enable_thinking={cfg.get('enable_thinking')}"
+            f"  🧠 reasoning={draft.get('reasoning')}, "
+            f"budget={draft.get('reasoning_budget')}, "
+            f"enable_thinking={draft.get('enable_thinking')}"
         )
 
         if existing_script:
             status = "modern" if script_is_modern(existing_script) else "old"
             print(f"  📝 기존 스크립트: {existing_name} ({status})")
-            default_choice = "E" if status == "modern" else "N"
-            choice2 = input(
-                f"\n  [E] 기존 스크립트 실행 / [N] 새 스크립트 만들기 [{default_choice}] > "
-            ).strip().upper() or default_choice
-            if choice2 == "E":
-                run_existing_script(existing_script)
-                pause()
-                continue
-        else:
-            choice2 = "N"
-
-        if choice2 == "N":
-            confirm = input("\n  새 스크립트 생성하고 실행할까요? (y/n) > ").strip().lower()
-            if confirm != "y":
-                continue
-
-            script_name, script_path = generate_script(model_name, model_path, cfg)
-            print(f"  📝 스크립트 생성됨: {script_path}")
-
-            run_confirm = input("  지금 실행할까요? (y/n) > ").strip().lower()
-            if run_confirm == "y":
-                run_script(script_path, model_name=model_name)
-
-            pause()
+            print("  기존 스크립트를 수정하려면 [스크립트 관리] → [현재 설정으로 불러오기]를 사용하세요.")
+        print("  실행하려면 메인 화면에서 [1회 실행] 또는 [새 스크립트 생성 후 실행]을 선택하세요.")
+        pause()
 
 
 if __name__ == "__main__":
