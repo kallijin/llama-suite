@@ -58,6 +58,16 @@ STRUCTURED_ARG_OPTIONS = {
     "--flash-attn",
 }
 KV_PRESETS = ("q8_0", "f16", "q4_0", "q5_0", "q6_0", "tbq3_0", "tbq4_0")
+HERMES_CONFIG_CANDIDATES = (
+    "~/.hermes/config.yaml",
+    "~/.config/hermes/config.yaml",
+    "~/Hermes/config.yaml",
+)
+OPENCLAW_CONFIG_CANDIDATES = (
+    "~/.openclaw/config.yaml",
+    "~/.config/openclaw/config.yaml",
+    "~/OpenClaw/config.yaml",
+)
 
 
 # ─── 작은 유틸 ─────────────────────────────────────────
@@ -453,6 +463,121 @@ def print_working_draft_status(draft: dict[str, Any]) -> None:
     print(f"  llama-server: {draft.get('llama_bin') or '미등록'}")
 
 
+def registered_paths(cfg: dict[str, Any]) -> dict[str, Any]:
+    value = cfg.setdefault("registered_paths", {})
+    if not isinstance(value, dict):
+        value = {}
+        cfg["registered_paths"] = value
+    return value
+
+
+def verify_registered_config_path(path: Any, *, require_writable: bool) -> tuple[bool, list[str]]:
+    if not isinstance(path, str) or not path.strip():
+        return False, ["config 경로가 아직 등록되지 않았습니다."]
+    expanded = expand_path(path)
+    messages: list[str] = []
+    file_path = Path(expanded)
+    if not file_path.exists():
+        return False, [f"파일이 없습니다: {expanded}"]
+    if not file_path.is_file():
+        return False, [f"일반 파일이 아닙니다: {expanded}"]
+    if not os.access(expanded, os.R_OK):
+        messages.append(f"읽기 권한이 없습니다: {expanded}")
+    if require_writable and not os.access(expanded, os.W_OK):
+        messages.append(f"쓰기 권한이 없습니다: {expanded}")
+    return not messages, messages or [f"확인됨: {expanded}"]
+
+
+def integration_status_line(cfg: dict[str, Any], key: str, label: str, *, require_writable: bool) -> str:
+    path = registered_paths(cfg).get(key)
+    ok, messages = verify_registered_config_path(path, require_writable=require_writable)
+    state = "활성화 준비됨" if ok else "비활성화"
+    target = expand_path(str(path)) if path else "미등록"
+    return f"  {label}: {state} ({target}) - {messages[0]}"
+
+
+def print_integration_status(cfg: dict[str, Any]) -> None:
+    print("\n  연동 등록 상태:")
+    print(integration_status_line(cfg, "hermes_config", "Hermes 설정 변경", require_writable=True))
+    print(integration_status_line(cfg, "openclaw_config", "OpenClaw inspection", require_writable=False))
+    print("  자동 탐지는 후보일 뿐이고, 등록된 경로만 공식 연결 대상입니다.")
+
+
+def print_config_candidates(label: str, candidates: tuple[str, ...]) -> list[str]:
+    found: list[str] = []
+    for candidate in candidates:
+        expanded = expand_path(candidate)
+        if Path(expanded).is_file():
+            found.append(expanded)
+    print(f"\n  {label} 자동 탐지 후보:")
+    if found:
+        for index, path in enumerate(found, 1):
+            print(f"    [{index}] {path}")
+    else:
+        print("    후보 파일을 찾지 못했습니다. 직접 경로를 입력하세요.")
+    return found
+
+
+def preview_config_file(path: str, max_lines: int = 12) -> list[str]:
+    lines = Path(path).read_text(errors="replace").splitlines()
+    return lines[:max_lines]
+
+
+def register_config_path(
+    cfg: dict[str, Any],
+    key: str,
+    label: str,
+    candidates: tuple[str, ...],
+    *,
+    require_writable: bool,
+    read_only: bool,
+) -> dict[str, Any]:
+    found = print_config_candidates(label, candidates)
+    current = registered_paths(cfg).get(key)
+    if current:
+        print(f"  현재 등록된 경로: {expand_path(str(current))}")
+    value = input(f"  {label} config 경로 > ").strip()
+    if not value:
+        print("  변경하지 않았습니다.")
+        return cfg
+    if value.isdigit():
+        index = int(value) - 1
+        if 0 <= index < len(found):
+            value = found[index]
+        else:
+            print("  ⚠️  유효하지 않은 후보 번호입니다.")
+            return cfg
+
+    expanded = expand_path(value)
+    ok, messages = verify_registered_config_path(expanded, require_writable=require_writable)
+    if not ok:
+        print("  ⚠️  등록할 수 없습니다.")
+        for message in messages:
+            print(f"     - {message}")
+        return cfg
+
+    updated = dict(cfg)
+    paths = dict(registered_paths(updated))
+    paths[key] = expanded
+    updated["registered_paths"] = paths
+    try:
+        save_config(updated)
+    except Exception as exc:
+        print(f"  ⚠️  등록 정보 저장 실패: {exc}")
+        return cfg
+
+    print(f"  ✅ {label} config 경로를 등록했습니다.")
+    print("  등록된 경로만 공식 연결 대상으로 사용됩니다.")
+    if read_only:
+        print("  OpenClaw는 현재 읽기 전용 inspection만 수행합니다. 위험한 쓰기 작업은 하지 않습니다.")
+    else:
+        print("  실제 수정 기능은 diff/백업/사용자 확인/atomic replace 흐름이 준비된 뒤에만 수행됩니다.")
+    print("  읽기 전용 미리보기:")
+    for line in preview_config_file(expanded):
+        print(f"    {line}")
+    return updated
+
+
 def final_preview_text(draft: dict[str, Any]) -> str:
     model_name = draft.get("model_name")
     model_path = draft.get("model_path")
@@ -758,6 +883,7 @@ def main() -> None:
         print("  고급 기능을 품은 초보용 llama.cpp 운용 조정판")
         print(f"  모델 디렉터리: {MODELS_DIR}")
         print_working_draft_status(draft)
+        print_integration_status(cfg)
         if not models:
             print(f"\n  ⚠️  {MODELS_DIR} 에서 GGUF 파일을 찾을 수 없습니다.")
             print("     그래도 [A] 설정 변경, [I] 시스템 정보, [E] Hermes 등록, [C] OpenClaw 등록은 사용할 수 있습니다.")
@@ -919,16 +1045,26 @@ def main() -> None:
             continue
 
         if upper == "E":
-            print("\n  Hermes 설정 변경: 비활성화")
-            print("  이유: Hermes config 경로가 아직 등록되지 않았습니다.")
-            print("  Hermes 설정을 연결하려면 [E] Hermes 등록을 선택하세요.")
-            print("  자동 탐지는 후보일 뿐이고, 등록된 경로만 공식 연결 대상입니다.")
+            cfg = register_config_path(
+                cfg,
+                "hermes_config",
+                "Hermes",
+                HERMES_CONFIG_CANDIDATES,
+                require_writable=True,
+                read_only=False,
+            )
             pause()
             continue
 
         if upper == "C":
-            print("\n  OpenClaw 등록: 읽기 전용 inspection부터 구현할 예정입니다.")
-            print("  위험한 쓰기 작업은 아직 수행하지 않습니다.")
+            cfg = register_config_path(
+                cfg,
+                "openclaw_config",
+                "OpenClaw",
+                OPENCLAW_CONFIG_CANDIDATES,
+                require_writable=False,
+                read_only=True,
+            )
             pause()
             continue
 

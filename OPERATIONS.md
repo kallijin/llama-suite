@@ -529,3 +529,49 @@ POLICY CHECK OK
 7 tests OK
 SMOKE CHECK OK
 ```
+
+## 2026-05-09 00:15 KST - Safe Integration Registration
+
+### Change
+
+Added the first safe Hermes/OpenClaw registration milestone:
+
+- Config now stores `registered_paths.hermes_config` and `registered_paths.openclaw_config`.
+- Main screen shows integration registration status.
+- Auto-detected paths are shown only as candidates.
+- Registered paths are the source of truth.
+- `[E] Hermes 등록` verifies file existence, read permission, and write permission before saving.
+- `[C] OpenClaw 등록` verifies file existence and read permission only.
+- OpenClaw remains read-only inspection; no risky writes were implemented.
+- Hermes writes are still deferred until diff/backups/confirmation/atomic replace are implemented.
+
+### Manual UI Check
+
+Ran the launcher with a temporary HOME, fake executable `llama-server`, and a temporary Hermes config file.
+
+Result:
+
+```text
+Hermes 설정 변경: 비활성화 (미등록)
+...
+✅ Hermes config 경로를 등록했습니다.
+...
+Hermes 설정 변경: 활성화 준비됨 (/tmp/.../config.yaml)
+```
+
+### Verification
+
+```sh
+python3 -X pycache_prefix=/tmp/llama-suite-pycache -m py_compile llama-launcher-complete.py modules/*.py
+python3 scripts/policy-check.py
+python3 -m unittest discover -v
+bash scripts/smoke-check.sh
+```
+
+Result:
+
+```text
+POLICY CHECK OK
+10 tests OK
+SMOKE CHECK OK
+```

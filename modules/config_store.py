@@ -110,6 +110,10 @@ def default_config() -> dict[str, Any]:
         # 긴 ctx 로컬 실행에서는 KV cache 압축을 기본 안전장치로 둔다.
         "extra_args": KV_CACHE_SAFETY_EXTRA_ARGS.copy(),
         "custom_args": [],
+        "registered_paths": {
+            "hermes_config": None,
+            "openclaw_config": None,
+        },
     }
 
 
@@ -125,6 +129,13 @@ def load_config() -> dict[str, Any]:
             print(f"  ⚠️  설정 파일 읽기 실패: {e}")
     cfg["extra_args"] = ensure_kv_cache_safety_args(cfg.get("extra_args"))
     cfg["custom_args"] = normalize_extra_args(cfg.get("custom_args", []))
+    registered_paths = cfg.get("registered_paths")
+    if not isinstance(registered_paths, dict):
+        registered_paths = {}
+    cfg["registered_paths"] = {
+        "hermes_config": registered_paths.get("hermes_config"),
+        "openclaw_config": registered_paths.get("openclaw_config"),
+    }
     return cfg
 
 

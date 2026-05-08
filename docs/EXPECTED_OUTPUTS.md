@@ -54,8 +54,22 @@
 
 ```text
 Hermes 설정 변경: 비활성화
-이유: Hermes config 경로가 아직 등록되지 않았습니다.
-Hermes 설정을 연결하려면 [E] Hermes 등록을 선택하세요.
+Hermes 설정 변경: 비활성화 (미등록) - config 경로가 아직 등록되지 않았습니다.
+자동 탐지는 후보일 뿐이고, 등록된 경로만 공식 연결 대상입니다.
+```
+
+## Hermes Config Registered
+
+```text
+Hermes 설정 변경: 활성화 준비됨 (/path/to/config.yaml) - 확인됨: /path/to/config.yaml
+실제 수정 기능은 diff/백업/사용자 확인/atomic replace 흐름이 준비된 뒤에만 수행됩니다.
+```
+
+## OpenClaw Read-Only Registered
+
+```text
+OpenClaw inspection: 활성화 준비됨 (/path/to/config.yaml) - 확인됨: /path/to/config.yaml
+OpenClaw는 현재 읽기 전용 inspection만 수행합니다. 위험한 쓰기 작업은 하지 않습니다.
 ```
 
 ## Custom Args Conflict

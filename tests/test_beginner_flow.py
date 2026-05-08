@@ -146,6 +146,38 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("설명: 모델이 한 번에 다룰 수 있는 대화/문서 길이입니다.", text)
         self.assertIn("[1] 변경", text)
 
+    def test_integration_status_requires_registered_path(self) -> None:
+        launcher = load_launcher_module()
+        cfg = {"registered_paths": {"hermes_config": None, "openclaw_config": None}}
+
+        text = launcher.integration_status_line(cfg, "hermes_config", "Hermes 설정 변경", require_writable=True)
+
+        self.assertIn("Hermes 설정 변경: 비활성화", text)
+        self.assertIn("config 경로가 아직 등록되지 않았습니다", text)
+
+    def test_registered_hermes_path_enables_safe_write_readiness(self) -> None:
+        launcher = load_launcher_module()
+        with TemporaryDirectory() as directory:
+            config_path = Path(directory) / "config.yaml"
+            config_path.write_text("endpoint: http://127.0.0.1:8080/v1\n")
+            cfg = {"registered_paths": {"hermes_config": str(config_path)}}
+
+            text = launcher.integration_status_line(cfg, "hermes_config", "Hermes 설정 변경", require_writable=True)
+
+        self.assertIn("Hermes 설정 변경: 활성화 준비됨", text)
+        self.assertIn("확인됨:", text)
+
+    def test_openclaw_status_is_read_only_inspection(self) -> None:
+        launcher = load_launcher_module()
+        with TemporaryDirectory() as directory:
+            config_path = Path(directory) / "config.yaml"
+            config_path.write_text("model: local\n")
+            cfg = {"registered_paths": {"openclaw_config": str(config_path)}}
+
+            text = launcher.integration_status_line(cfg, "openclaw_config", "OpenClaw inspection", require_writable=False)
+
+        self.assertIn("OpenClaw inspection: 활성화 준비됨", text)
+
     def test_launcher_starts_without_models_or_valid_llama_bin(self) -> None:
         with TemporaryDirectory() as home:
             model_dir = Path(home) / "models"
@@ -166,6 +198,7 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("GGUF 파일을 찾을 수 없습니다", completed.stdout)
         self.assertIn("[A] 설정 변경", completed.stdout)
         self.assertIn("[E] Hermes 등록", completed.stdout)
+        self.assertIn("Hermes 설정 변경: 비활성화", completed.stdout)
 
 
 if __name__ == "__main__":
