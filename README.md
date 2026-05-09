@@ -14,6 +14,20 @@
 아직 public release가 아니며, 일반 사용자를 위한 설치/배포/호환성 보장을 하지 않는다.
 v0.4-scope-freeze 이후에는 새 기능보다 안정화, 검증, 문서 정리를 우선한다.
 
+### 실행
+
+repo root에서 짧은 래퍼로 실행한다.
+
+```sh
+./llama-suite
+```
+
+직접 Python 파일을 실행할 수도 있다.
+
+```sh
+python3 llama-launcher-complete.py
+```
+
 ### Implemented
 
 - 로컬 launcher 기본 흐름

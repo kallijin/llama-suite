@@ -702,6 +702,55 @@ Result:
 SMOKE CHECK OK
 ```
 
+## 2026-05-09 17:42 KST - Short Launcher Wrapper
+
+### Change
+
+Added a short executable wrapper:
+
+```sh
+./llama-suite
+```
+
+The wrapper delegates to `python3 llama-launcher-complete.py` from the repo root.
+
+Also added minimal ANSI coloring for TTY output only:
+
+- Title/header.
+- Main section headings.
+
+Captured output, tests, and pipes remain uncolored because color is disabled when stdout is not a TTY.
+
+### Manual UI Check
+
+Ran the new wrapper directly:
+
+```sh
+printf 'q\n' | env HOME=/tmp/llama-suite-wrapper-home LLAMA_MODELS_DIR=/tmp/llama-suite-wrapper-models ./llama-suite
+```
+
+Result:
+
+```text
+Launcher started through ./llama-suite and exited cleanly.
+Captured output contained no ANSI color escapes.
+```
+
+### Verification
+
+```sh
+python3 -X pycache_prefix=/tmp/llama-suite-pycache -m py_compile llama-launcher-complete.py modules/*.py
+python3 -m unittest discover -v
+bash scripts/smoke-check.sh
+```
+
+Result:
+
+```text
+14 tests OK
+SMOKE CHECK OK
+```
+
 ## 2026-05-09 00:26 KST - Move Save Into Settings Menu
 
 ### Change

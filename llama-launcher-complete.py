@@ -71,13 +71,27 @@ OPENCLAW_CONFIG_CANDIDATES = (
     "~/.config/openclaw/config.yaml",
     "~/OpenClaw/config.yaml",
 )
+USE_COLOR = bool(getattr(sys.stdout, "isatty", lambda: False)()) and os.environ.get("NO_COLOR") is None
+COLORS = {
+    "title": "\033[1;36m",
+    "section": "\033[1;34m",
+    "ok": "\033[1;32m",
+    "warn": "\033[1;33m",
+    "reset": "\033[0m",
+}
+
+
+def color(text: str, key: str) -> str:
+    if not USE_COLOR:
+        return text
+    return f"{COLORS.get(key, '')}{text}{COLORS['reset']}"
 
 
 # ─── 작은 유틸 ─────────────────────────────────────────
 def print_header() -> None:
-    print("\n" + "=" * 64)
-    print("  🦙  LLAMA.CPP 모델 실행기 — Hermes / ROCm 완성판")
-    print("=" * 64)
+    print("\n" + color("=" * 64, "title"))
+    print(color("  🦙  LLAMA.CPP 모델 실행기 — Hermes / ROCm 완성판", "title"))
+    print(color("=" * 64, "title"))
 
 
 def pause() -> None:
@@ -548,7 +562,7 @@ def load_script_into_draft(script_path: str, draft: dict[str, Any]) -> tuple[boo
 
 def print_working_draft_status(draft: dict[str, Any]) -> None:
     dirty = bool(draft.get("dirty"))
-    print("\n  현재 설정 상태:")
+    print("\n" + color("  현재 설정 상태:", "section"))
     if dirty:
         print("    저장되지 않은 임시 작업 설정입니다.")
     else:
@@ -580,7 +594,7 @@ def planned_run_summary_lines(draft: dict[str, Any], running_model: str | None =
     custom_state = custom_args_status(draft)
     running = running_model or "없음"
     return [
-        "  ── 실행 예정 요약 ──",
+        color("  ── 실행 예정 요약 ──", "section"),
         f"  실행 중: {running}",
         f"  실행될 모델: {model}",
         f"  endpoint: {endpoint}",
@@ -630,7 +644,7 @@ def integration_status_line(cfg: dict[str, Any], key: str, label: str, *, requir
 
 
 def print_integration_status(cfg: dict[str, Any]) -> None:
-    print("\n  연동 등록 상태:")
+    print("\n" + color("  연동 등록 상태:", "section"))
     print(integration_status_line(cfg, "hermes_config", "Hermes 설정 변경", require_writable=True))
     print(integration_status_line(cfg, "openclaw_config", "OpenClaw inspection", require_writable=False))
     print("  자동 탐지는 후보일 뿐이고, 등록된 경로만 공식 연결 대상입니다.")

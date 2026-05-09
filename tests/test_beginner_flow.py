@@ -54,6 +54,12 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("__20260508_231012__", name)
         self.assertTrue(name.endswith(".sh"))
 
+    def test_short_launcher_wrapper_exists(self) -> None:
+        wrapper = ROOT / "llama-suite"
+
+        self.assertTrue(wrapper.is_file())
+        self.assertTrue(os.access(wrapper, os.X_OK))
+
     def test_generated_script_loads_back_into_draft_shape(self) -> None:
         from modules.script_builder import generate_script
 
