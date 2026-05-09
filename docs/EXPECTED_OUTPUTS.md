@@ -23,6 +23,18 @@
 저장하려면 [A] 설정 변경 → [W] 현재 설정 저장을 선택하세요.
 ```
 
+## Main Planned Run Summary
+
+```text
+── 실행 예정 요약 ──
+실행 중: 없음
+실행될 모델: Dummy-7B
+endpoint: http://127.0.0.1:8080/v1
+주요 파라미터: ctx=80000, kv-k=q8_0, kv-v=q8_0, flash-attn=on
+사용자 추가 파라미터: user_experimental
+현재 설정 저장 상태: 저장 안 됨
+```
+
 ## No Script Exists
 
 ```text

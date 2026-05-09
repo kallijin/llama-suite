@@ -657,6 +657,51 @@ POLICY CHECK OK
 SMOKE CHECK OK
 ```
 
+## 2026-05-09 17:19 KST - Planned Run Summary
+
+### Change
+
+Added a compact main-screen summary of the settings that will be used for the next run:
+
+- Running model, if any.
+- Model selected for the next run.
+- Endpoint.
+- Context size.
+- KV cache K/V and flash-attn values.
+- User custom-args state.
+- Saved vs unsaved working-draft state.
+
+### Manual UI Check
+
+Ran the launcher with an empty temporary model directory.
+
+Result:
+
+```text
+── 실행 예정 요약 ──
+실행 중: 없음
+실행될 모델: 선택 없음
+endpoint: http://127.0.0.1:8080/v1
+주요 파라미터: ctx=95000, kv-k=q8_0, kv-v=q8_0, flash-attn=on
+사용자 추가 파라미터: empty
+현재 설정 저장 상태: 저장된 값
+```
+
+### Verification
+
+```sh
+python3 -X pycache_prefix=/tmp/llama-suite-pycache -m py_compile llama-launcher-complete.py modules/*.py
+python3 -m unittest discover -v
+bash scripts/smoke-check.sh
+```
+
+Result:
+
+```text
+13 tests OK
+SMOKE CHECK OK
+```
+
 ## 2026-05-09 00:26 KST - Move Save Into Settings Menu
 
 ### Change

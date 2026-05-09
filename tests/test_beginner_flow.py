@@ -146,6 +146,28 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("설명: 모델이 한 번에 다룰 수 있는 대화/문서 길이입니다.", text)
         self.assertIn("[1] 변경", text)
 
+    def test_planned_run_summary_shows_selected_runtime_options(self) -> None:
+        launcher = load_launcher_module()
+        draft = self.sample_cfg("/bin/echo")
+        draft.update(
+            {
+                "model_name": "Dummy-7B",
+                "model_path": "/models/Dummy-7B/model.gguf",
+                "dirty": True,
+                "custom_args": ["--no-warmup"],
+            }
+        )
+
+        text = "\n".join(launcher.planned_run_summary_lines(draft, "Running-Model"))
+
+        self.assertIn("실행 예정 요약", text)
+        self.assertIn("실행 중: Running-Model", text)
+        self.assertIn("실행될 모델: Dummy-7B", text)
+        self.assertIn("ctx=80000", text)
+        self.assertIn("kv-k=q8_0", text)
+        self.assertIn("사용자 추가 파라미터: user_experimental", text)
+        self.assertIn("현재 설정 저장 상태: 저장 안 됨", text)
+
     def test_integration_status_requires_registered_path(self) -> None:
         launcher = load_launcher_module()
         cfg = {"registered_paths": {"hermes_config": None, "openclaw_config": None}}
@@ -199,6 +221,7 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("[A] 설정 변경", completed.stdout)
         self.assertIn("[E] Hermes 등록", completed.stdout)
         self.assertIn("Hermes 설정 변경: 비활성화", completed.stdout)
+        self.assertIn("실행 예정 요약", completed.stdout)
         self.assertIn("[A] 설정 변경 / 현재 설정 저장", completed.stdout)
         self.assertNotIn("\n  [W] 현재 설정 저장", completed.stdout)
         self.assertNotIn("[X] 새 스크립트 생성 후 실행", completed.stdout)

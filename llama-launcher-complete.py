@@ -573,6 +573,29 @@ def print_working_draft_status(draft: dict[str, Any]) -> None:
     print(f"  llama-server: {draft.get('llama_bin') or '미등록'}")
 
 
+def planned_run_summary_lines(draft: dict[str, Any], running_model: str | None = None) -> list[str]:
+    model = draft.get("model_name") or "선택 없음"
+    endpoint = f"http://{draft.get('host')}:{draft.get('port')}/v1"
+    saved_state = "저장 안 됨" if draft.get("dirty") else "저장된 값"
+    custom_state = custom_args_status(draft)
+    running = running_model or "없음"
+    return [
+        "  ── 실행 예정 요약 ──",
+        f"  실행 중: {running}",
+        f"  실행될 모델: {model}",
+        f"  endpoint: {endpoint}",
+        f"  주요 파라미터: ctx={draft.get('ctx_size')}, kv-k={extra_arg_value(draft, '--cache-type-k')}, kv-v={extra_arg_value(draft, '--cache-type-v')}, flash-attn={extra_arg_value(draft, '--flash-attn')}",
+        f"  사용자 추가 파라미터: {custom_state}",
+        f"  현재 설정 저장 상태: {saved_state}",
+    ]
+
+
+def print_planned_run_summary(draft: dict[str, Any], running_model: str | None = None) -> None:
+    print()
+    for line in planned_run_summary_lines(draft, running_model):
+        print(line)
+
+
 def registered_paths(cfg: dict[str, Any]) -> dict[str, Any]:
     value = cfg.setdefault("registered_paths", {})
     if not isinstance(value, dict):
@@ -1006,11 +1029,12 @@ def main() -> None:
         print(f"  모델 디렉터리: {MODELS_DIR}")
         print_working_draft_status(draft)
         print_integration_status(cfg)
+        running = get_running_model()
+        print_planned_run_summary(draft, running)
         if not models:
             print(f"\n  ⚠️  {MODELS_DIR} 에서 GGUF 파일을 찾을 수 없습니다.")
             print("     그래도 [A] 설정 변경, [I] 시스템 정보, [E] Hermes 등록, [C] OpenClaw 등록은 사용할 수 있습니다.")
 
-        running = get_running_model()
         if running:
             print(f"  🔴 실행 중: {running}\n")
 
