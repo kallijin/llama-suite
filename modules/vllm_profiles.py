@@ -12,6 +12,20 @@ DEFAULT_VLLM_CACHE_ROOT = "/mnt/data_main/ai-cache/vllm"
 DEFAULT_HF_HOME = "/mnt/data_main/ai-cache/huggingface"
 DEFAULT_TRANSFORMERS_CACHE = "/mnt/data_main/ai-cache/huggingface"
 FUTURE_LAUNCH_PRESET_ID = "smoke-qwen-0.5b"
+VLLM_EDITABLE_PROFILE_FIELDS = [
+    "wrapper_path",
+    "model",
+    "host",
+    "port",
+    "dtype",
+    "max_model_len",
+    "gpu_memory_utilization",
+    "tensor_parallel_size",
+    "vllm_cache_root",
+    "hf_home",
+    "transformers_cache",
+    "extra_args",
+]
 
 
 @dataclass
@@ -87,6 +101,21 @@ def builtin_vllm_profile_presets() -> list[VllmProfilePreset]:
 
 def future_launch_preset_id() -> str:
     return FUTURE_LAUNCH_PRESET_ID
+
+
+def editable_vllm_profile_fields() -> list[str]:
+    return list(VLLM_EDITABLE_PROFILE_FIELDS)
+
+
+def update_vllm_profile_field(profile: VllmProfile, field_name: str, raw_value: Any) -> tuple[VllmProfile, list[str]]:
+    field = str(field_name or "").strip()
+    if field not in VLLM_EDITABLE_PROFILE_FIELDS:
+        return profile, [f"unknown vLLM profile field: {field or '-'}"]
+
+    data = profile.to_dict()
+    data[field] = str(raw_value or "").strip()
+    updated = VllmProfile(**data)
+    return updated, [f"updated vLLM profile field: {field}"]
 
 
 def vllm_profile_from_dict(data: dict[str, Any]) -> VllmProfile:
@@ -166,6 +195,39 @@ def cache_env_preview_lines(profile: VllmProfile) -> list[str]:
         f"HF_HOME={profile.hf_home}",
         f"TRANSFORMERS_CACHE={profile.transformers_cache}",
     ]
+
+
+def format_vllm_profile_report(title: str, profile: VllmProfile, port_check: Any = None) -> list[str]:
+    errors = validate_vllm_profile(profile)
+    command, command_messages = build_vllm_command(profile)
+    lines = [
+        title,
+        "vLLM-only fields:",
+    ]
+    for key, value in profile.to_dict().items():
+        lines.append(f"- {key}: {value if value != '' else '-'}")
+    lines.extend(["", "Validation messages:"])
+    if errors:
+        for error in errors:
+            lines.append(f"- {error}")
+    else:
+        lines.append("- none")
+    lines.extend(["", "Cache environment preview:"])
+    for env_line in cache_env_preview_lines(profile):
+        lines.append(f"- {env_line}")
+    lines.extend(["", "Command preview / dry-run:"])
+    if command:
+        lines.append(" ".join(shlex.quote(part) for part in command))
+    else:
+        lines.append("No runnable command preview because the profile needs attention:")
+        for message in command_messages:
+            lines.append(f"- {message}")
+    preflight = run_vllm_preflight(profile, port_check=port_check)
+    lines.extend(["", "Launch preflight:"])
+    for check in preflight.checks:
+        mark = "PASS" if check.ok else "FAIL"
+        lines.append(f"- [{mark}] {check.name}: {check.message}")
+    return lines
 
 
 def run_vllm_preflight(profile: VllmProfile, port_check: Any = None) -> VllmPreflightReport:

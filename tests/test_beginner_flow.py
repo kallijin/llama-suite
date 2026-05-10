@@ -527,6 +527,50 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(profile.tensor_parallel_size, 2)
         self.assertEqual(profile.extra_args, "--trust-remote-code --served-model-name local")
 
+    def test_vllm_editable_profile_fields_are_vllm_only(self) -> None:
+        from modules.vllm_profiles import editable_vllm_profile_fields
+
+        fields = editable_vllm_profile_fields()
+
+        self.assertEqual(
+            fields,
+            [
+                "wrapper_path",
+                "model",
+                "host",
+                "port",
+                "dtype",
+                "max_model_len",
+                "gpu_memory_utilization",
+                "tensor_parallel_size",
+                "vllm_cache_root",
+                "hf_home",
+                "transformers_cache",
+                "extra_args",
+            ],
+        )
+        self.assertNotIn("ctx_size", fields)
+        self.assertNotIn("llama_bin", fields)
+
+    def test_vllm_update_profile_field_preserves_invalid_user_input_for_validation(self) -> None:
+        from modules.vllm_profiles import VllmProfile, update_vllm_profile_field, validate_vllm_profile
+
+        profile = VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct")
+        updated, messages = update_vllm_profile_field(profile, "port", "not-a-port")
+
+        self.assertEqual(updated.port, "not-a-port")
+        self.assertIn("updated vLLM profile field: port", messages)
+        self.assertIn("port should be 1-65535", validate_vllm_profile(updated))
+
+    def test_vllm_update_profile_field_rejects_unknown_field(self) -> None:
+        from modules.vllm_profiles import VllmProfile, update_vllm_profile_field
+
+        profile = VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct")
+        updated, messages = update_vllm_profile_field(profile, "ctx_size", "8192")
+
+        self.assertIs(updated, profile)
+        self.assertIn("unknown vLLM profile field", "\n".join(messages))
+
     def test_vllm_command_preview_builds_expected_command_list(self) -> None:
         from modules.vllm_profiles import VllmProfile, build_vllm_command
 
@@ -787,6 +831,46 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("serve Qwen/Qwen2.5-0.5B-Instruct --host 127.0.0.1 --port 8000", text)
         self.assertIn("[PASS] profile validation", text)
         self.assertIn("[PASS] command preview", text)
+
+    def test_vllm_custom_profile_text_is_in_memory_and_separate(self) -> None:
+        launcher = load_launcher_module()
+        from modules.vllm_profiles import VllmPreflightCheck, VllmProfile
+
+        text = launcher.vllm_custom_profile_text(
+            VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct"),
+            port_check=lambda host, port: VllmPreflightCheck(
+                "port availability",
+                True,
+                f"port {port} is available on {host}",
+            ),
+        )
+
+        self.assertIn("vLLM custom profile draft", text)
+        self.assertIn("In-memory only", text)
+        self.assertIn("llama.cpp 설정과 별개", text)
+        self.assertIn("Editable vLLM fields:", text)
+        self.assertIn("- model", text)
+        self.assertIn("Command preview / dry-run", text)
+        self.assertIn("Launch preflight:", text)
+        self.assertIn("[PASS] profile validation", text)
+        self.assertIn("Qwen/Qwen2.5-0.5B-Instruct", text)
+
+    def test_vllm_profile_menu_can_edit_custom_profile_draft(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profiles import VllmProfile
+        from unittest.mock import patch
+
+        profile = VllmProfile()
+        stdout = StringIO()
+
+        with patch("builtins.input", side_effect=["3", "model", "Qwen/Qwen2.5-0.5B-Instruct"]), contextlib.redirect_stdout(stdout):
+            updated = launcher.show_vllm_profile_menu(profile)
+
+        self.assertEqual(updated.model, "Qwen/Qwen2.5-0.5B-Instruct")
+        self.assertIn("updated vLLM profile field: model", stdout.getvalue())
+        self.assertIn("custom profile draft", stdout.getvalue())
 
     def test_vllm_smoke_launch_preview_is_not_read_only_profile_text(self) -> None:
         launcher = load_launcher_module()

@@ -40,7 +40,7 @@ from modules.script_builder import command_preview, generate_script, parse_gener
 from modules.system_info import collect_system_info
 from modules.vllm_api_probe import run_vllm_api_smoke
 from modules.vllm_doctor import format_vllm_doctor_report, run_vllm_doctor
-from modules.vllm_profiles import build_vllm_command, builtin_vllm_profile_presets, cache_env_preview_lines, future_launch_preset_id, host_guidance_lines, launch_confirmation_guidance_lines, run_vllm_preflight, validate_vllm_profile
+from modules.vllm_profiles import builtin_vllm_profile_presets, default_vllm_profile, editable_vllm_profile_fields, format_vllm_profile_report, future_launch_preset_id, host_guidance_lines, launch_confirmation_guidance_lines, update_vllm_profile_field
 from modules.vllm_runner import check_vllm_smoke_status, latest_vllm_run_record, latest_vllm_run_summary, launch_vllm_smoke_once, read_vllm_run_record, read_vllm_smoke_log, stop_vllm_smoke
 
 
@@ -1054,36 +1054,7 @@ def show_vllm_doctor() -> None:
 
 
 def format_vllm_profile_section(title: str, profile: Any, port_check: Any = None) -> list[str]:
-    errors = validate_vllm_profile(profile)
-    command, command_messages = build_vllm_command(profile)
-    lines = [
-        title,
-        "vLLM-only fields:",
-    ]
-    for key, value in profile.to_dict().items():
-        lines.append(f"- {key}: {value if value != '' else '-'}")
-    lines.extend(["", "Validation messages:"])
-    if errors:
-        for error in errors:
-            lines.append(f"- {error}")
-    else:
-        lines.append("- none")
-    lines.extend(["", "Cache environment preview:"])
-    for env_line in cache_env_preview_lines(profile):
-        lines.append(f"- {env_line}")
-    lines.extend(["", "Command preview / dry-run:"])
-    if command:
-        lines.append(" ".join(shlex.quote(part) for part in command))
-    else:
-        lines.append("No runnable command preview because the profile needs attention:")
-        for message in command_messages:
-            lines.append(f"- {message}")
-    preflight = run_vllm_preflight(profile, port_check=port_check)
-    lines.extend(["", "Launch preflight:"])
-    for check in preflight.checks:
-        mark = "PASS" if check.ok else "FAIL"
-        lines.append(f"- [{mark}] {check.name}: {check.message}")
-    return lines
+    return format_vllm_profile_report(title, profile, port_check=port_check)
 
 
 def vllm_profile_preview_text(port_check: Any = None) -> str:
@@ -1120,10 +1091,73 @@ def vllm_profile_preview_text(port_check: Any = None) -> str:
     return "\n".join(lines)
 
 
-def show_vllm_profile_preview() -> None:
-    print("\n  ── vLLM profile preview ──")
-    for line in vllm_profile_preview_text().splitlines():
+def vllm_custom_profile_text(profile: Any, port_check: Any = None) -> str:
+    lines = [
+        "vLLM custom profile draft",
+        "In-memory only. 저장/launch는 아직 구현하지 않았습니다.",
+        "이 draft는 llama.cpp 설정과 별개입니다.",
+        "",
+    ]
+    lines.extend(format_vllm_profile_section("Custom vLLM profile draft", profile, port_check=port_check))
+    lines.extend(["", "Editable vLLM fields:"])
+    for field_name in editable_vllm_profile_fields():
+        lines.append(f"- {field_name}")
+    lines.extend(["", "Host guidance:"])
+    for guidance in host_guidance_lines():
+        lines.append(f"- {guidance}")
+    return "\n".join(lines)
+
+
+def show_vllm_profile_menu(profile: Any) -> Any:
+    print("\n  ── vLLM profile ──")
+    print("  [1] built-in profile preview")
+    print("  [2] custom profile draft preview")
+    print("  [3] edit custom profile draft")
+    choice = input("  선택 > ").strip()
+
+    if choice == "1":
+        for line in vllm_profile_preview_text().splitlines():
+            print(f"  {line}" if line else "")
+        return profile
+    if choice == "2":
+        for line in vllm_custom_profile_text(profile).splitlines():
+            print(f"  {line}" if line else "")
+        return profile
+    if choice == "3":
+        return edit_vllm_custom_profile(profile)
+
+    print("  취소했습니다.")
+    return profile
+
+
+def edit_vllm_custom_profile(profile: Any) -> Any:
+    fields = editable_vllm_profile_fields()
+    print("\n  ── vLLM custom profile edit ──")
+    print("  저장/launch 없는 in-memory draft만 수정합니다.")
+    for index, field_name in enumerate(fields, 1):
+        print(f"  [{index}] {field_name}")
+    selected = input("  field 번호 또는 이름 > ").strip()
+    field_name = selected
+    if selected.isdigit():
+        index = int(selected)
+        if 1 <= index <= len(fields):
+            field_name = fields[index - 1]
+    if field_name not in fields:
+        updated, messages = update_vllm_profile_field(profile, field_name, "")
+        for message in messages:
+            print(f"  - {message}")
+        return updated
+    current = getattr(profile, field_name, "")
+    raw_value = input(f"  {field_name} [{current}] > ").strip()
+    if not raw_value:
+        raw_value = str(current)
+    updated, messages = update_vllm_profile_field(profile, field_name, raw_value)
+    for message in messages:
+        print(f"  - {message}")
+    print()
+    for line in vllm_custom_profile_text(updated).splitlines():
         print(f"  {line}" if line else "")
+    return updated
 
 
 def vllm_smoke_launch_preview_text(port_check: Any = None) -> str:
@@ -1333,6 +1367,7 @@ def main() -> None:
     cfg = load_config()
     models = get_model_list(MODELS_DIR)
     draft = draft_from_config(cfg, models)
+    vllm_profile_draft = default_vllm_profile()
 
     while True:
         print_header()
@@ -1449,7 +1484,7 @@ def main() -> None:
             continue
 
         if upper == "B":
-            show_vllm_profile_preview()
+            vllm_profile_draft = show_vllm_profile_menu(vllm_profile_draft)
             pause()
             continue
 
