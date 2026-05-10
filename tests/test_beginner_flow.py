@@ -1096,6 +1096,23 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("selected custom profile: custom-draft", stdout.getvalue())
         self.assertIn("selected custom profile: 30b-q4", stdout.getvalue())
 
+    def test_vllm_profile_menu_groups_actions_by_responsibility(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profiles import VllmProfile
+        from unittest.mock import patch
+
+        stdout = StringIO()
+
+        with patch("builtins.input", side_effect=[""]), contextlib.redirect_stdout(stdout):
+            launcher.show_vllm_profile_menu(VllmProfile())
+
+        output = stdout.getvalue()
+        self.assertIn("Built-in / preview", output)
+        self.assertIn("Custom draft", output)
+        self.assertIn("Script / launch", output)
+
     def test_vllm_profile_menu_save_and_load_default_profile_id(self) -> None:
         launcher = load_launcher_module()
         from io import StringIO
