@@ -40,7 +40,7 @@ from modules.script_builder import command_preview, generate_script, parse_gener
 from modules.system_info import collect_system_info
 from modules.vllm_api_probe import run_vllm_api_smoke
 from modules.vllm_doctor import format_vllm_doctor_report, run_vllm_doctor
-from modules.vllm_profile_store import delete_vllm_profile_draft, format_vllm_profile_draft_json, list_vllm_profile_drafts, load_vllm_profile_draft, load_vllm_profile_json_file, save_vllm_profile_draft
+from modules.vllm_profile_store import default_vllm_profile_path, delete_vllm_profile_draft, format_vllm_profile_draft_json, list_vllm_profile_drafts, load_vllm_profile_draft, load_vllm_profile_json_file, save_vllm_profile_draft
 from modules.vllm_profiles import builtin_vllm_profile_presets, default_vllm_profile, editable_vllm_profile_fields, format_vllm_profile_report, future_launch_preset_id, host_guidance_lines, large_model_guidance_lines, launch_confirmation_guidance_lines, update_vllm_profile_field
 from modules.vllm_runner import check_vllm_smoke_status, latest_vllm_run_record, latest_vllm_run_summary, launch_vllm_profile_once, launch_vllm_smoke_once, read_vllm_run_record, read_vllm_smoke_log, stop_vllm_smoke
 from modules.vllm_script_builder import build_vllm_script_preview, save_vllm_script
@@ -1130,6 +1130,8 @@ def vllm_custom_profile_text(profile: Any, port_check: Any = None) -> str:
 def show_vllm_profile_menu(profile: Any, profile_id: str = "custom-draft", *, return_profile_id: bool = False) -> Any:
     print("\n  ── vLLM profile ──")
     print(f"  selected custom profile: {profile_id}")
+    print(f"  profile store root: {Path(default_vllm_profile_path()).parent}")
+    print(f"  selected draft JSON path: {default_vllm_profile_path(profile_id)}")
     print(f"  selected model: {getattr(profile, 'model', '') or '(empty model)'}")
     print("  Built-in / preview")
     print("  [1] built-in profile preview")

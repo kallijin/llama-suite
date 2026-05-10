@@ -1213,6 +1213,9 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(loaded_id, "30b-q4")
         self.assertIn("selected custom profile: custom-draft", stdout.getvalue())
         self.assertIn("selected custom profile: 30b-q4", stdout.getvalue())
+        self.assertIn("profile store root:", stdout.getvalue())
+        self.assertIn("selected draft JSON path:", stdout.getvalue())
+        self.assertIn("30b-q4.json", stdout.getvalue())
 
     def test_vllm_profile_menu_groups_actions_by_responsibility(self) -> None:
         launcher = load_launcher_module()
