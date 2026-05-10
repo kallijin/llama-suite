@@ -296,20 +296,20 @@ def inspect_vllm_model_source(model: Any) -> list[VllmModelSourceCheck]:
         return [VllmModelSourceCheck("FAIL", "model source", f"local model path is not a directory: {path}")]
 
     checks = [
-        _directory_file_check(path, "config", ["config.json"], "config.json exists", "config.json is missing"),
+        _directory_file_check(path, "config", ["config.json"], "config.json: 있음", "config.json: 없음!"),
         _directory_file_check(
             path,
             "tokenizer",
             ["tokenizer.json", "tokenizer.model", "tokenizer_config.json"],
-            "tokenizer file exists",
-            "토크나이저 파일이 존재하지 않습니다; keep tokenizer/config files beside the model weights or copy them from the base model repo",
+            "tokenizer.json / tokenizer.model / tokenizer_config.json: 있음",
+            "tokenizer.json / tokenizer.model / tokenizer_config.json: 없음!",
         ),
         _directory_file_check(
             path,
             "weights",
             ["*.safetensors", "*.safetensors.index.json", "pytorch_model*.bin"],
-            "model weight file exists",
-            "model weight file is missing; expected safetensors or pytorch_model*.bin",
+            "*.safetensors / *.safetensors.index.json / pytorch_model*.bin: 있음",
+            "*.safetensors / *.safetensors.index.json / pytorch_model*.bin: 없음!",
         ),
     ]
     return checks

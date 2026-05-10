@@ -1249,7 +1249,7 @@ class BeginnerFlowTests(unittest.TestCase):
             checks = inspect_vllm_model_source(str(model_dir))
 
             self.assertEqual([check.level for check in checks], ["PASS", "PASS", "PASS"])
-            self.assertTrue(any(check.name == "tokenizer" and "exists" in check.message for check in checks))
+            self.assertTrue(any(check.name == "tokenizer" and "있음" in check.message for check in checks))
 
         with TemporaryDirectory() as directory:
             model_dir = Path(directory)
@@ -1259,7 +1259,7 @@ class BeginnerFlowTests(unittest.TestCase):
             checks = inspect_vllm_model_source(str(model_dir))
 
             self.assertTrue(any(check.name == "tokenizer" and check.level == "FAIL" for check in checks))
-            self.assertTrue(any("토크나이저 파일이 존재하지 않습니다" in check.message for check in checks))
+            self.assertTrue(any("tokenizer.json / tokenizer.model / tokenizer_config.json: 없음!" in check.message for check in checks))
             guidance = "\n".join(model_source_recovery_guidance_lines(str(model_dir)))
             self.assertIn("Do not invent tokenizer/config files", guidance)
             self.assertIn("Hugging Face:", guidance)
@@ -1407,7 +1407,7 @@ class BeginnerFlowTests(unittest.TestCase):
         checks = {check.name: check for check in report.checks}
         self.assertIn("model source inspection", checks)
         self.assertFalse(checks["model source inspection"].ok)
-        self.assertIn("토크나이저 파일이 존재하지 않습니다", checks["model source inspection"].message)
+        self.assertIn("tokenizer.json / tokenizer.model / tokenizer_config.json: 없음!", checks["model source inspection"].message)
 
     def test_vllm_preflight_used_port_reports_failure(self) -> None:
         from modules.vllm_profiles import VllmPreflightCheck, VllmProfile, run_vllm_preflight
