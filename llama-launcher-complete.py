@@ -1211,6 +1211,10 @@ def _vllm_profile_menu_return(profile: Any, profile_id: str, return_profile_id: 
 
 def show_vllm_profile_json_menu(profile: Any, profile_id: str) -> tuple[Any, str]:
     print("\n  ── vLLM profile JSON / preset ──")
+    print(f"  selected draft JSON path: {default_vllm_profile_path(profile_id)}")
+    print(f"  small example JSON path: {Path('examples/vllm-profile.example.json')}")
+    print(f"  local large example JSON path: {Path('examples/vllm-profile.local-large.example.json')}")
+    print("  These files are safe to open in an editor; this menu does not launch an editor.")
     print("  [1] profile JSON preview")
     print("  [2] import profile JSON file")
     print("  [3] validate profile JSON file")
