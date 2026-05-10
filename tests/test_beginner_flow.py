@@ -1036,6 +1036,34 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIs(after_save, profile)
         self.assertEqual(after_load.model, "loaded-model")
 
+    def test_vllm_profile_menu_tracks_selected_profile_id(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profile_store import VllmProfileStoreResult
+        from modules.vllm_profiles import VllmProfile
+        from unittest.mock import Mock, patch
+
+        profile = VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct")
+        loaded_profile = VllmProfile(model="loaded-model")
+        save_result = VllmProfileStoreResult(True, profile, "/tmp/30b-q4.json", ["saved"])
+        load_result = VllmProfileStoreResult(True, loaded_profile, "/tmp/30b-q4.json", ["loaded"])
+        mocked_save = Mock(return_value=save_result)
+        mocked_load = Mock(return_value=load_result)
+        stdout = StringIO()
+
+        with patch.object(launcher, "save_vllm_profile_draft", mocked_save), patch("builtins.input", side_effect=["4", "30b-q4"]), contextlib.redirect_stdout(stdout):
+            saved_profile, saved_id = launcher.show_vllm_profile_menu(profile, "custom-draft", return_profile_id=True)
+        with patch.object(launcher, "load_vllm_profile_draft", mocked_load), patch("builtins.input", side_effect=["5", "30b-q4"]), contextlib.redirect_stdout(stdout):
+            loaded, loaded_id = launcher.show_vllm_profile_menu(profile, saved_id, return_profile_id=True)
+
+        self.assertIs(saved_profile, profile)
+        self.assertEqual(saved_id, "30b-q4")
+        self.assertEqual(loaded.model, "loaded-model")
+        self.assertEqual(loaded_id, "30b-q4")
+        self.assertIn("selected custom profile: custom-draft", stdout.getvalue())
+        self.assertIn("selected custom profile: 30b-q4", stdout.getvalue())
+
     def test_vllm_profile_menu_save_and_load_default_profile_id(self) -> None:
         launcher = load_launcher_module()
         from io import StringIO
@@ -1154,9 +1182,9 @@ class BeginnerFlowTests(unittest.TestCase):
         mocked_launch = Mock(return_value=launch_result)
 
         with patch.object(launcher, "launch_vllm_profile_once", mocked_launch), patch("builtins.input", side_effect=["8", "no"]), contextlib.redirect_stdout(StringIO()):
-            result = launcher.show_vllm_profile_menu(profile)
+            result = launcher.show_vllm_profile_menu(profile, "30b-q4")
 
-        mocked_launch.assert_called_once_with(profile, confirmed=False)
+        mocked_launch.assert_called_once_with(profile, confirmed=False, preset_id="30b-q4")
         self.assertIs(result, profile)
 
     def test_vllm_smoke_launch_preview_is_not_read_only_profile_text(self) -> None:

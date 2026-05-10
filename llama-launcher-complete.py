@@ -1116,8 +1116,10 @@ def vllm_custom_profile_text(profile: Any, port_check: Any = None) -> str:
     return "\n".join(lines)
 
 
-def show_vllm_profile_menu(profile: Any) -> Any:
+def show_vllm_profile_menu(profile: Any, profile_id: str = "custom-draft", *, return_profile_id: bool = False) -> Any:
     print("\n  ── vLLM profile ──")
+    print(f"  selected custom profile: {profile_id}")
+    print(f"  selected model: {getattr(profile, 'model', '') or '(empty model)'}")
     print("  [1] built-in profile preview")
     print("  [2] custom profile draft preview")
     print("  [3] edit custom profile draft")
@@ -1132,39 +1134,49 @@ def show_vllm_profile_menu(profile: Any) -> Any:
     if choice == "1":
         for line in vllm_profile_preview_text().splitlines():
             print(f"  {line}" if line else "")
-        return profile
+        return _vllm_profile_menu_return(profile, profile_id, return_profile_id)
     if choice == "2":
         for line in vllm_custom_profile_text(profile).splitlines():
             print(f"  {line}" if line else "")
-        return profile
+        return _vllm_profile_menu_return(profile, profile_id, return_profile_id)
     if choice == "3":
-        return edit_vllm_custom_profile(profile)
+        return _vllm_profile_menu_return(edit_vllm_custom_profile(profile), profile_id, return_profile_id)
     if choice == "4":
-        profile_id = prompt_vllm_profile_id()
-        result = save_vllm_profile_draft(profile, profile_id=profile_id)
+        updated_profile_id = prompt_vllm_profile_id(profile_id)
+        result = save_vllm_profile_draft(profile, profile_id=updated_profile_id)
         print_vllm_profile_store_result(result)
-        return profile
+        if result.ok:
+            profile_id = updated_profile_id
+        return _vllm_profile_menu_return(profile, profile_id, return_profile_id)
     if choice == "5":
-        profile_id = prompt_vllm_profile_id()
-        result = load_vllm_profile_draft(profile_id=profile_id)
+        updated_profile_id = prompt_vllm_profile_id(profile_id)
+        result = load_vllm_profile_draft(profile_id=updated_profile_id)
         print_vllm_profile_store_result(result)
-        return result.profile if result.ok and result.profile else profile
+        if result.ok and result.profile:
+            return _vllm_profile_menu_return(result.profile, updated_profile_id, return_profile_id)
+        return _vllm_profile_menu_return(profile, profile_id, return_profile_id)
     if choice == "6":
         preview = build_vllm_script_preview(profile)
         print_vllm_script_preview(preview)
-        return profile
+        return _vllm_profile_menu_return(profile, profile_id, return_profile_id)
     if choice == "7":
         result = save_vllm_script(profile)
         print_vllm_script_save_result(result)
-        return profile
+        return _vllm_profile_menu_return(profile, profile_id, return_profile_id)
     if choice == "8":
-        show_vllm_custom_launch(profile)
-        return profile
+        show_vllm_custom_launch(profile, profile_id)
+        return _vllm_profile_menu_return(profile, profile_id, return_profile_id)
     if choice == "9":
         print_vllm_profile_list_result(list_vllm_profile_drafts())
-        return profile
+        return _vllm_profile_menu_return(profile, profile_id, return_profile_id)
 
     print("  취소했습니다.")
+    return _vllm_profile_menu_return(profile, profile_id, return_profile_id)
+
+
+def _vllm_profile_menu_return(profile: Any, profile_id: str, return_profile_id: bool) -> Any:
+    if return_profile_id:
+        return profile, profile_id
     return profile
 
 
@@ -1244,15 +1256,15 @@ def print_vllm_script_save_result(result: Any) -> None:
         print(f"  - {message}")
 
 
-def show_vllm_custom_launch(profile: Any) -> None:
+def show_vllm_custom_launch(profile: Any, profile_id: str = "custom-draft") -> None:
     print("\n  ── vLLM custom profile launch ──")
-    print("  custom draft를 실제 vLLM launch 대상으로 사용합니다.")
+    print(f"  custom draft를 실제 vLLM launch 대상으로 사용합니다: {profile_id}")
     print("  launch 전 profile preview, command dry-run, preflight를 다시 표시합니다.\n")
     for line in vllm_custom_profile_text(profile).splitlines():
         print(f"  {line}" if line else "")
     print("\n  계속하려면 launch 또는 LAUNCH 를 정확히 입력하세요.")
     confirm = input("  confirmation > ").strip()
-    result = launch_vllm_profile_once(profile, confirmed=(confirm.lower() == "launch"))
+    result = launch_vllm_profile_once(profile, confirmed=(confirm.lower() == "launch"), preset_id=profile_id)
     print_vllm_launch_result(result)
 
 
@@ -1464,6 +1476,7 @@ def main() -> None:
     models = get_model_list(MODELS_DIR)
     draft = draft_from_config(cfg, models)
     vllm_profile_draft = default_vllm_profile()
+    vllm_profile_draft_id = "custom-draft"
 
     while True:
         print_header()
@@ -1580,7 +1593,11 @@ def main() -> None:
             continue
 
         if upper == "B":
-            vllm_profile_draft = show_vllm_profile_menu(vllm_profile_draft)
+            vllm_profile_draft, vllm_profile_draft_id = show_vllm_profile_menu(
+                vllm_profile_draft,
+                vllm_profile_draft_id,
+                return_profile_id=True,
+            )
             pause()
             continue
 
