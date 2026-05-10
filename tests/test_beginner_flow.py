@@ -2830,8 +2830,36 @@ class BeginnerFlowTests(unittest.TestCase):
         with patch.object(launcher, "latest_vllm_run_record", return_value=latest), patch.object(launcher, "check_vllm_run_status", mocked_status), patch("builtins.input", side_effect=["1", ""]), contextlib.redirect_stdout(stdout):
             launcher.show_vllm_smoke_manage()
 
-        mocked_status.assert_called_once_with(pid="1234", run_id="run-latest", log_path="/tmp/latest.log", host="100.68.40.87", port=8010)
+        mocked_status.assert_called_once_with(pid="1234", run_id="run-latest", log_path="/tmp/latest.log", preset_id="smoke-qwen-0.5b", host="100.68.40.87", port=8010)
         self.assertIn("latest run record", stdout.getvalue())
+
+    def test_vllm_smoke_manage_uses_latest_record_preset_id_for_status(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_runner import VllmRunRecord, VllmRunRecordResult
+        from unittest.mock import Mock, patch
+
+        record = VllmRunRecord(
+            backend="vllm",
+            preset_id="custom-draft",
+            run_id="run-custom",
+            pid=1234,
+            command=["cmd"],
+            env_preview={},
+            log_path="/tmp/custom.log",
+            host="127.0.0.1",
+            port=8000,
+            started_at="2026-05-10T19:31:00+09:00",
+            status_hint="started",
+        )
+        latest = VllmRunRecordResult(True, record, "/tmp/latest.json", [])
+        mocked_status = Mock(return_value=type("Status", (), {"ok": True, "preset_id": "custom-draft", "pid": 1234, "run_id": "run-custom", "log_path": "/tmp/custom.log", "alive": True, "log_exists": True, "port_listening": True, "messages": []})())
+
+        with patch.object(launcher, "latest_vllm_run_record", return_value=latest), patch.object(launcher, "check_vllm_run_status", mocked_status), patch("builtins.input", side_effect=["1", ""]), contextlib.redirect_stdout(StringIO()):
+            launcher.show_vllm_smoke_manage()
+
+        mocked_status.assert_called_once_with(pid="1234", run_id="run-custom", log_path="/tmp/custom.log", preset_id="custom-draft", host="127.0.0.1", port=8000)
 
     def test_vllm_smoke_manage_missing_latest_falls_back_to_manual_status(self) -> None:
         launcher = load_launcher_module()
@@ -2847,7 +2875,7 @@ class BeginnerFlowTests(unittest.TestCase):
         with patch.object(launcher, "latest_vllm_run_record", return_value=latest), patch.object(launcher, "check_vllm_run_status", mocked_status), patch("builtins.input", side_effect=["1", "", "1234", "manual-run", "/tmp/manual.log", "127.0.0.1", "8000"]), contextlib.redirect_stdout(stdout):
             launcher.show_vllm_smoke_manage()
 
-        mocked_status.assert_called_once_with(pid="1234", run_id="manual-run", log_path="/tmp/manual.log", host="127.0.0.1", port="8000")
+        mocked_status.assert_called_once_with(pid="1234", run_id="manual-run", log_path="/tmp/manual.log", preset_id="smoke-qwen-0.5b", host="127.0.0.1", port="8000")
         self.assertIn("latest.json이 없거나 유효하지 않으면", stdout.getvalue())
 
     def test_vllm_smoke_manage_manual_override_still_works_with_latest_record(self) -> None:
@@ -2876,7 +2904,7 @@ class BeginnerFlowTests(unittest.TestCase):
         with patch.object(launcher, "latest_vllm_run_record", return_value=latest), patch.object(launcher, "check_vllm_run_status", mocked_status), patch("builtins.input", side_effect=["1", "-", "2222", "manual-run", "/tmp/manual.log", "0.0.0.0", "8020"]), contextlib.redirect_stdout(StringIO()):
             launcher.show_vllm_smoke_manage()
 
-        mocked_status.assert_called_once_with(pid="2222", run_id="manual-run", log_path="/tmp/manual.log", host="0.0.0.0", port="8020")
+        mocked_status.assert_called_once_with(pid="2222", run_id="manual-run", log_path="/tmp/manual.log", preset_id="smoke-qwen-0.5b", host="0.0.0.0", port="8020")
 
     def test_vllm_smoke_manage_stop_with_latest_still_requires_confirmation(self) -> None:
         launcher = load_launcher_module()
@@ -2904,7 +2932,35 @@ class BeginnerFlowTests(unittest.TestCase):
         with patch.object(launcher, "latest_vllm_run_record", return_value=latest), patch.object(launcher, "stop_vllm_run", mocked_stop), patch("builtins.input", side_effect=["3", "", "no"]), contextlib.redirect_stdout(StringIO()):
             launcher.show_vllm_smoke_manage()
 
-        mocked_stop.assert_called_once_with(pid="1234", run_id="run-latest", confirmed=False)
+        mocked_stop.assert_called_once_with(pid="1234", run_id="run-latest", preset_id="smoke-qwen-0.5b", confirmed=False)
+
+    def test_vllm_smoke_manage_uses_latest_record_preset_id_for_stop(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_runner import VllmRunRecord, VllmRunRecordResult
+        from unittest.mock import Mock, patch
+
+        record = VllmRunRecord(
+            backend="vllm",
+            preset_id="custom-draft",
+            run_id="run-custom",
+            pid=1234,
+            command=["cmd"],
+            env_preview={},
+            log_path="/tmp/custom.log",
+            host="127.0.0.1",
+            port=8000,
+            started_at="2026-05-10T19:31:00+09:00",
+            status_hint="started",
+        )
+        latest = VllmRunRecordResult(True, record, "/tmp/latest.json", [])
+        mocked_stop = Mock(return_value=type("Stop", (), {"ok": True, "preset_id": "custom-draft", "pid": 1234, "run_id": "run-custom", "messages": ["stopped"]})())
+
+        with patch.object(launcher, "latest_vllm_run_record", return_value=latest), patch.object(launcher, "stop_vllm_run", mocked_stop), patch("builtins.input", side_effect=["3", "", "stop"]), contextlib.redirect_stdout(StringIO()):
+            launcher.show_vllm_smoke_manage()
+
+        mocked_stop.assert_called_once_with(pid="1234", run_id="run-custom", preset_id="custom-draft", confirmed=True)
 
     def test_vllm_smoke_log_reports_missing_file(self) -> None:
         from modules.vllm_runner import read_vllm_smoke_log

@@ -420,6 +420,7 @@ def check_vllm_smoke_status(
     pid: int | str | None,
     run_id: str = "",
     log_path: str = "",
+    preset_id: str = FUTURE_LAUNCH_PRESET_ID,
     host: str = "127.0.0.1",
     port: int | str = 8000,
     alive_check: Any = None,
@@ -458,7 +459,7 @@ def check_vllm_smoke_status(
         pid=pid_number,
         run_id=str(run_id or ""),
         log_path=expanded_log_path,
-        preset_id=FUTURE_LAUNCH_PRESET_ID,
+        preset_id=str(preset_id or FUTURE_LAUNCH_PRESET_ID),
         alive=alive,
         log_exists=log_exists,
         port_listening=port_listening,
@@ -555,20 +556,22 @@ def stop_vllm_smoke(
     pid: int | str | None,
     confirmed: bool,
     run_id: str = "",
+    preset_id: str = FUTURE_LAUNCH_PRESET_ID,
     getpgid_func: Any = None,
     killpg_func: Any = None,
 ) -> VllmSmokeStopResult:
     pid_number = _coerce_pid(pid)
+    preset_text = str(preset_id or FUTURE_LAUNCH_PRESET_ID)
     if not confirmed:
         return VllmSmokeStopResult(
             False,
             pid_number,
             str(run_id or ""),
-            FUTURE_LAUNCH_PRESET_ID,
+            preset_text,
             ["stop cancelled: explicit confirmation is required"],
         )
     if pid_number is None:
-        return VllmSmokeStopResult(False, None, str(run_id or ""), FUTURE_LAUNCH_PRESET_ID, ["pid is required"])
+        return VllmSmokeStopResult(False, None, str(run_id or ""), preset_text, ["pid is required"])
 
     getpgid = getpgid_func or os.getpgid
     killpg = killpg_func or os.killpg
@@ -580,7 +583,7 @@ def stop_vllm_smoke(
             False,
             pid_number,
             str(run_id or ""),
-            FUTURE_LAUNCH_PRESET_ID,
+            preset_text,
             [f"stop failed: {exc}"],
         )
 
@@ -588,7 +591,7 @@ def stop_vllm_smoke(
         True,
         pid_number,
         str(run_id or ""),
-        FUTURE_LAUNCH_PRESET_ID,
+        preset_text,
         [f"SIGTERM sent to process group for pid {pid_number}"],
     )
 

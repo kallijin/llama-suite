@@ -1569,15 +1569,17 @@ def show_vllm_smoke_manage() -> None:
             pid = str(record.pid)
             run_id = record.run_id
             log_path = record.log_path
+            preset_id = record.preset_id
             host = record.host
             port = record.port
         else:
             pid = input("  pid > ").strip()
             run_id = input("  run_id > ").strip()
             log_path = input("  log_path > ").strip()
+            preset_id = future_launch_preset_id()
             host = input("  host [127.0.0.1] > ").strip() or "127.0.0.1"
             port = input("  port [8000] > ").strip() or "8000"
-        result = check_vllm_run_status(pid=pid, run_id=run_id, log_path=log_path, host=host, port=port)
+        result = check_vllm_run_status(pid=pid, run_id=run_id, log_path=log_path, preset_id=preset_id, host=host, port=port)
         print_vllm_status_result(result)
         return
 
@@ -1598,12 +1600,14 @@ def show_vllm_smoke_manage() -> None:
         if record:
             pid = str(record.pid)
             run_id = record.run_id
+            preset_id = record.preset_id
         else:
             pid = input("  pid > ").strip()
             run_id = input("  run_id > ").strip()
+            preset_id = future_launch_preset_id()
         print("  계속하려면 stop 또는 STOP 를 정확히 입력하세요.")
         confirm = input("  confirmation > ").strip()
-        result = stop_vllm_run(pid=pid, run_id=run_id, confirmed=(confirm.lower() == "stop"))
+        result = stop_vllm_run(pid=pid, run_id=run_id, preset_id=preset_id, confirmed=(confirm.lower() == "stop"))
         print_vllm_stop_result(result)
         return
 
