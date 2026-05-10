@@ -698,6 +698,10 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(data["model"], "served-qwen")
         self.assertEqual(data["context_length"], 64000)
         self.assertEqual(data["auxiliary"]["compression"]["context_length"], 64000)
+        self.assertEqual(data["custom_providers"][0]["name"], "llama-suite vLLM")
+        self.assertEqual(data["custom_providers"][0]["base_url"], "http://127.0.0.1:8000/v1")
+        self.assertEqual(data["custom_providers"][0]["model"], "served-qwen")
+        self.assertEqual(data["custom_providers"][0]["models"]["served-qwen"]["context_length"], 64000)
         self.assertEqual(data["temperature"], 0.2)
 
     def test_hermes_vllm_sync_preserves_nested_model_block(self) -> None:
@@ -739,6 +743,66 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("    model: should-not-change", updated)
         self.assertIn("  compression:\n    provider: auto\n    context_length: 64000", updated)
         self.assertIn("  vision:\n    model: vision-model", updated)
+        self.assertIn("custom_providers:", updated)
+        self.assertIn("  - name: llama-suite vLLM", updated)
+        self.assertIn("    base_url: http://127.0.0.1:8000/v1", updated)
+        self.assertIn("    model: served-qwen", updated)
+        self.assertIn("      served-qwen:\n        context_length: 64000", updated)
+
+    def test_hermes_vllm_sync_updates_existing_llama_suite_custom_provider(self) -> None:
+        from modules.hermes_integration import update_hermes_config_text
+
+        original = (
+            "model: old\n"
+            "custom_providers:\n"
+            "  - name: llama-suite vLLM\n"
+            "    base_url: http://127.0.0.1:9000/v1\n"
+            "    api_key: local\n"
+            "    model: old-vllm\n"
+            "    models:\n"
+            "      old-vllm:\n"
+            "        context_length: 4096\n"
+            "  - name: other\n"
+            "    base_url: http://127.0.0.1:1234/v1\n"
+        )
+
+        updated = update_hermes_config_text(
+            original,
+            base_url="http://127.0.0.1:8000/v1",
+            model_id="served-qwen",
+            config_path="config.yaml",
+        )
+
+        self.assertEqual(updated.count("name: llama-suite vLLM"), 1)
+        self.assertIn("  - name: llama-suite vLLM\n    base_url: http://127.0.0.1:8000/v1", updated)
+        self.assertIn("    model: served-qwen", updated)
+        self.assertIn("      served-qwen:\n        context_length: 64000", updated)
+        self.assertIn("  - name: other\n    base_url: http://127.0.0.1:1234/v1", updated)
+
+    def test_hermes_vllm_sync_preserves_unindented_custom_provider_list_style(self) -> None:
+        from modules.hermes_integration import update_hermes_config_text
+
+        original = (
+            "model: old\n"
+            "custom_providers:\n"
+            "- name: existing\n"
+            "  base_url: http://127.0.0.1:1234/v1\n"
+            "platform_toolsets:\n"
+            "  cli:\n"
+            "  - terminal\n"
+        )
+
+        updated = update_hermes_config_text(
+            original,
+            base_url="http://127.0.0.1:8000/v1",
+            model_id="served-qwen",
+            config_path="config.yaml",
+        )
+
+        self.assertIn("custom_providers:\n- name: existing", updated)
+        self.assertIn("- name: llama-suite vLLM\n  base_url: http://127.0.0.1:8000/v1", updated)
+        self.assertIn("  model: served-qwen", updated)
+        self.assertIn("platform_toolsets:\n  cli:\n  - terminal", updated)
 
     def test_hermes_vllm_smoke_plan_uses_ready_latest_run(self) -> None:
         from modules.hermes_runner import build_hermes_vllm_smoke_plan

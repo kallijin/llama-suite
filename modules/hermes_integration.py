@@ -129,6 +129,11 @@ def update_hermes_config_text(original: str, *, base_url: str, model_id: str, co
         data["base_url"] = base_url
         data["model"] = model_id
         data["context_length"] = HERMES_MIN_CONTEXT_LENGTH
+        custom_providers = data.setdefault("custom_providers", [])
+        if not isinstance(custom_providers, list):
+            custom_providers = []
+            data["custom_providers"] = custom_providers
+        _upsert_custom_provider_data(custom_providers, base_url=base_url, model_id=model_id)
         auxiliary = data.setdefault("auxiliary", {})
         if not isinstance(auxiliary, dict):
             auxiliary = {}
@@ -153,6 +158,7 @@ def update_hermes_config_text(original: str, *, base_url: str, model_id: str, co
         if not seen_context:
             updated_lines.append(f"context_length: {HERMES_MIN_CONTEXT_LENGTH}")
     updated_lines = _ensure_yamlish_auxiliary_compression_context(updated_lines)
+    updated_lines = _ensure_yamlish_custom_provider(updated_lines, base_url=base_url, model_id=model_id)
     return "\n".join(updated_lines) + "\n"
 
 
@@ -206,7 +212,7 @@ def _update_yamlish_lines(lines: list[str], *, base_url: str, model_id: str) -> 
             key = stripped.split(":", 1)[0]
             updated.append(f"{indent}{key}: {HERMES_MIN_CONTEXT_LENGTH}")
             seen_context = True
-        elif not in_root_model_block and stripped.startswith(("base_url:", "api_base:", "endpoint:")):
+        elif not in_root_model_block and not indent and stripped.startswith(("base_url:", "api_base:", "endpoint:")):
             key = stripped.split(":", 1)[0]
             updated.append(f"{indent}{key}: {base_url}")
             seen_base = True
@@ -286,6 +292,111 @@ def _ensure_yamlish_auxiliary_compression_context(lines: list[str]) -> list[str]
         updated.append("  compression:")
         updated.append(f"    context_length: {HERMES_MIN_CONTEXT_LENGTH}")
     return updated
+
+
+def _upsert_custom_provider_data(custom_providers: list[Any], *, base_url: str, model_id: str) -> None:
+    provider = None
+    for candidate in custom_providers:
+        if isinstance(candidate, dict) and candidate.get("name") == "llama-suite vLLM":
+            provider = candidate
+            break
+    if provider is None:
+        provider = {"name": "llama-suite vLLM"}
+        custom_providers.append(provider)
+    provider["base_url"] = base_url
+    provider["api_key"] = "local"
+    provider["model"] = model_id
+    models = provider.setdefault("models", {})
+    if not isinstance(models, dict):
+        models = {}
+        provider["models"] = models
+    entry = models.setdefault(model_id, {})
+    if not isinstance(entry, dict):
+        entry = {}
+        models[model_id] = entry
+    entry["context_length"] = HERMES_MIN_CONTEXT_LENGTH
+
+
+def _ensure_yamlish_custom_provider(lines: list[str], *, base_url: str, model_id: str) -> list[str]:
+    custom_index = _top_level_key_index(lines, "custom_providers:")
+    if custom_index is None:
+        provider_block = _custom_provider_block(base_url=base_url, model_id=model_id, list_indent="  ")
+        updated = list(lines)
+        if updated and updated[-1].strip():
+            updated.append("")
+        updated.append("custom_providers:")
+        updated.extend(provider_block)
+        return updated
+
+    block_end = _top_level_block_end(lines, custom_index)
+    list_indent = _custom_provider_list_indent(lines, custom_index + 1, block_end)
+    provider_block = _custom_provider_block(base_url=base_url, model_id=model_id, list_indent=list_indent)
+    provider_start = _llama_suite_vllm_provider_start(lines, custom_index + 1, block_end)
+    if provider_start is None:
+        updated = list(lines)
+        updated[block_end:block_end] = provider_block
+        return updated
+
+    provider_end = _custom_provider_item_end(lines, provider_start, block_end)
+    return list(lines[:provider_start]) + provider_block + list(lines[provider_end:])
+
+
+def _custom_provider_block(*, base_url: str, model_id: str, list_indent: str) -> list[str]:
+    field_indent = f"{list_indent}  "
+    nested_indent = f"{list_indent}    "
+    value_indent = f"{list_indent}      "
+    return [
+        f"{list_indent}- name: llama-suite vLLM",
+        f"{field_indent}base_url: {base_url}",
+        f"{field_indent}api_key: local",
+        f"{field_indent}model: {model_id}",
+        f"{field_indent}models:",
+        f"{nested_indent}{model_id}:",
+        f"{value_indent}context_length: {HERMES_MIN_CONTEXT_LENGTH}",
+    ]
+
+
+def _top_level_key_index(lines: list[str], key: str) -> int | None:
+    for index, line in enumerate(lines):
+        if line == key:
+            return index
+    return None
+
+
+def _top_level_block_end(lines: list[str], start: int) -> int:
+    for index in range(start + 1, len(lines)):
+        stripped = lines[index].strip()
+        if stripped and not lines[index].startswith((" ", "\t", "- ")):
+            return index
+    return len(lines)
+
+
+def _custom_provider_list_indent(lines: list[str], start: int, end: int) -> str:
+    for index in range(start, end):
+        stripped = lines[index].lstrip()
+        if stripped.startswith("- "):
+            return lines[index][: len(lines[index]) - len(stripped)]
+    return "  "
+
+
+def _llama_suite_vllm_provider_start(lines: list[str], start: int, end: int) -> int | None:
+    for index in range(start, end):
+        line = lines[index]
+        stripped = line.strip()
+        if stripped == "- name: llama-suite vLLM":
+            return index
+        if stripped == "name: llama-suite vLLM":
+            previous = index - 1
+            if previous >= start and lines[previous].lstrip().startswith("-"):
+                return previous
+    return None
+
+
+def _custom_provider_item_end(lines: list[str], start: int, block_end: int) -> int:
+    for index in range(start + 1, block_end):
+        if lines[index].lstrip().startswith("- "):
+            return index
+    return block_end
 
 
 def _empty_plan(messages: list[str], *, config_path: str | None = None) -> HermesVllmSyncPlan:
