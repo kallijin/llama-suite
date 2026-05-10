@@ -1113,9 +1113,76 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIs(result, profile)
         output = stdout.getvalue()
         self.assertIn("vLLM saved custom profiles", output)
-        self.assertIn("smoke: Qwen/Qwen2.5-0.5B-Instruct [valid]", output)
-        self.assertIn("30b: Local/ThirtyB [needs attention]", output)
+        self.assertIn("[1] smoke: Qwen/Qwen2.5-0.5B-Instruct [valid]", output)
+        self.assertIn("[2] 30b: Local/ThirtyB [needs attention]", output)
         self.assertIn("validation: port should be 1-65535", output)
+
+    def test_vllm_profile_menu_can_load_saved_custom_profile_from_list(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profile_store import VllmProfileListResult, VllmProfileStoreResult, VllmStoredProfileInfo
+        from modules.vllm_profiles import VllmProfile
+        from unittest.mock import Mock, patch
+
+        profile = VllmProfile(model="current-model")
+        loaded_profile = VllmProfile(model="loaded-model")
+        list_result = VllmProfileListResult(
+            True,
+            [
+                VllmStoredProfileInfo("smoke", "/tmp/smoke.json", "Qwen/Qwen2.5-0.5B-Instruct", []),
+                VllmStoredProfileInfo("30b-q4", "/tmp/30b-q4.json", "Local/ThirtyB", []),
+            ],
+            "/tmp/profiles",
+            [],
+        )
+        load_result = VllmProfileStoreResult(True, loaded_profile, "/tmp/30b-q4.json", ["loaded"])
+        mocked_list = Mock(return_value=list_result)
+        mocked_load = Mock(return_value=load_result)
+        stdout = StringIO()
+
+        with (
+            patch.object(launcher, "list_vllm_profile_drafts", mocked_list),
+            patch.object(launcher, "load_vllm_profile_draft", mocked_load),
+            patch("builtins.input", side_effect=["10", "2"]),
+            contextlib.redirect_stdout(stdout),
+        ):
+            loaded, loaded_id = launcher.show_vllm_profile_menu(profile, "custom-draft", return_profile_id=True)
+
+        mocked_list.assert_called_once_with()
+        mocked_load.assert_called_once_with(profile_id="30b-q4")
+        self.assertEqual(loaded.model, "loaded-model")
+        self.assertEqual(loaded_id, "30b-q4")
+        self.assertIn("[10] load saved custom profile from list", stdout.getvalue())
+
+    def test_vllm_profile_menu_load_from_list_cancel_keeps_current_profile(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profile_store import VllmProfileListResult, VllmStoredProfileInfo
+        from modules.vllm_profiles import VllmProfile
+        from unittest.mock import Mock, patch
+
+        profile = VllmProfile(model="current-model")
+        list_result = VllmProfileListResult(
+            True,
+            [VllmStoredProfileInfo("smoke", "/tmp/smoke.json", "Qwen/Qwen2.5-0.5B-Instruct", [])],
+            "/tmp/profiles",
+            [],
+        )
+        mocked_load = Mock()
+
+        with (
+            patch.object(launcher, "list_vllm_profile_drafts", Mock(return_value=list_result)),
+            patch.object(launcher, "load_vllm_profile_draft", mocked_load),
+            patch("builtins.input", side_effect=["10", "bad"]),
+            contextlib.redirect_stdout(StringIO()),
+        ):
+            loaded, loaded_id = launcher.show_vllm_profile_menu(profile, "custom-draft", return_profile_id=True)
+
+        mocked_load.assert_not_called()
+        self.assertIs(loaded, profile)
+        self.assertEqual(loaded_id, "custom-draft")
 
     def test_vllm_profile_menu_can_preview_custom_script(self) -> None:
         launcher = load_launcher_module()
