@@ -60,6 +60,31 @@ Future shared actions should be backend-aware and dispatch to backend-specific h
 Do not mix llama.cpp profile/config fields with vLLM profile/config fields.
 The UI shell may share menu patterns, but backend parameters and command generation must remain separate.
 
+## Backend tuning language
+
+Each backend keeps its own tuning vocabulary. Similar concepts must not be merged into shared fields just because they affect memory, context, or throughput.
+
+llama.cpp tuning language:
+
+- `ctx-size`
+- `cache-type-k`
+- `cache-type-v`
+- `flash-attn`
+- `n-gpu-layers`
+- GGUF-centered model handling
+
+vLLM tuning language:
+
+- `max_model_len`
+- `gpu_memory_utilization`
+- `kv_cache_dtype`
+- `max_num_seqs`
+- `max_num_batched_tokens`
+- `tensor_parallel_size`
+- HF/safetensors-centered model handling
+
+The same UI may expose both families later, but profile schemas, validation, and command generation must remain backend-specific.
+
 ## vLLM autonomous expansion boundary
 
 Stable baseline:
