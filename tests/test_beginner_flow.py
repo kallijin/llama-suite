@@ -1219,13 +1219,13 @@ class BeginnerFlowTests(unittest.TestCase):
         stdout = StringIO()
 
         with patch.object(launcher, "list_vllm_profile_drafts", mocked_list), patch("builtins.input", side_effect=["9"]), contextlib.redirect_stdout(stdout):
-            result = launcher.show_vllm_profile_menu(profile)
+            result = launcher.show_vllm_profile_menu(profile, "smoke")
 
         mocked_list.assert_called_once_with()
         self.assertIs(result, profile)
         output = stdout.getvalue()
         self.assertIn("vLLM saved custom profiles", output)
-        self.assertIn("[1] smoke: Qwen/Qwen2.5-0.5B-Instruct [valid]", output)
+        self.assertIn("[1] smoke: Qwen/Qwen2.5-0.5B-Instruct [valid] *selected*", output)
         self.assertIn("[2] 30b: Local/ThirtyB [needs attention]", output)
         self.assertIn("validation: port should be 1-65535", output)
 
@@ -1266,6 +1266,7 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(loaded.model, "loaded-model")
         self.assertEqual(loaded_id, "30b-q4")
         self.assertIn("[10] load saved custom profile from list", stdout.getvalue())
+        self.assertIn("[1] smoke: Qwen/Qwen2.5-0.5B-Instruct [valid]", stdout.getvalue())
 
     def test_vllm_profile_menu_load_from_list_cancel_keeps_current_profile(self) -> None:
         launcher = load_launcher_module()
@@ -1327,6 +1328,7 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIs(returned_profile, profile)
         self.assertEqual(returned_id, "custom-draft")
         self.assertIn("[11] delete saved custom profile from list", stdout.getvalue())
+        self.assertIn("[1] 30b-q4: Local/ThirtyB [valid] *selected*", stdout.getvalue())
 
     def test_vllm_profile_menu_delete_cancel_does_not_call_delete(self) -> None:
         launcher = load_launcher_module()

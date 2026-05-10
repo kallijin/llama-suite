@@ -1183,13 +1183,13 @@ def show_vllm_profile_menu(profile: Any, profile_id: str = "custom-draft", *, re
         show_vllm_custom_launch(profile, profile_id)
         return _vllm_profile_menu_return(profile, profile_id, return_profile_id)
     if choice == "9":
-        print_vllm_profile_list_result(list_vllm_profile_drafts())
+        print_vllm_profile_list_result(list_vllm_profile_drafts(), selected_profile_id=profile_id)
         return _vllm_profile_menu_return(profile, profile_id, return_profile_id)
     if choice == "10":
         loaded_profile, loaded_profile_id = load_vllm_profile_from_list(profile, profile_id)
         return _vllm_profile_menu_return(loaded_profile, loaded_profile_id, return_profile_id)
     if choice == "11":
-        deleted_profile_id = delete_vllm_profile_from_list()
+        deleted_profile_id = delete_vllm_profile_from_list(profile_id)
         if deleted_profile_id == profile_id:
             profile_id = "custom-draft"
         return _vllm_profile_menu_return(profile, profile_id, return_profile_id)
@@ -1241,7 +1241,7 @@ def prompt_vllm_profile_id(default: str = "custom-draft") -> str:
 
 def load_vllm_profile_from_list(profile: Any, profile_id: str) -> tuple[Any, str]:
     result = list_vllm_profile_drafts()
-    print_vllm_profile_list_result(result)
+    print_vllm_profile_list_result(result, selected_profile_id=profile_id)
     if not result.profiles:
         return profile, profile_id
 
@@ -1263,9 +1263,9 @@ def load_vllm_profile_from_list(profile: Any, profile_id: str) -> tuple[Any, str
     return profile, profile_id
 
 
-def delete_vllm_profile_from_list() -> str | None:
+def delete_vllm_profile_from_list(selected_profile_id: str = "custom-draft") -> str | None:
     result = list_vllm_profile_drafts()
-    print_vllm_profile_list_result(result)
+    print_vllm_profile_list_result(result, selected_profile_id=selected_profile_id)
     if not result.profiles:
         return None
 
@@ -1300,13 +1300,14 @@ def print_vllm_profile_store_result(result: Any) -> None:
         print(f"  - {message}")
 
 
-def print_vllm_profile_list_result(result: Any) -> None:
+def print_vllm_profile_list_result(result: Any, selected_profile_id: str | None = None) -> None:
     print("\n  vLLM saved custom profiles:")
     print(f"  ok: {result.ok}")
     print(f"  store_root: {result.store_root}")
     for index, profile in enumerate(result.profiles, 1):
         state = "valid" if not profile.validation_messages else "needs attention"
-        print(f"  [{index}] {profile.profile_id}: {profile.model or '(empty model)'} [{state}]")
+        marker = " *selected*" if selected_profile_id and profile.profile_id == selected_profile_id else ""
+        print(f"  [{index}] {profile.profile_id}: {profile.model or '(empty model)'} [{state}]{marker}")
         print(f"    path: {profile.profile_path}")
         for message in profile.validation_messages:
             print(f"    validation: {message}")
