@@ -20,6 +20,22 @@ class VllmProfileStoreResult:
     messages: list[str]
 
 
+@dataclass(frozen=True)
+class VllmStoredProfileInfo:
+    profile_id: str
+    profile_path: str
+    model: str
+    validation_messages: list[str]
+
+
+@dataclass(frozen=True)
+class VllmProfileListResult:
+    ok: bool
+    profiles: list[VllmStoredProfileInfo]
+    store_root: str
+    messages: list[str]
+
+
 def default_vllm_profile_path(
     profile_id: str = "custom-draft",
     *,
@@ -27,6 +43,40 @@ def default_vllm_profile_path(
 ) -> str:
     root = Path(store_root or DEFAULT_VLLM_PROFILE_STORE_ROOT).expanduser()
     return str(root / f"{_safe_name(profile_id)}.json")
+
+
+def list_vllm_profile_drafts(*, store_root: str | Path | None = None) -> VllmProfileListResult:
+    root = Path(store_root or DEFAULT_VLLM_PROFILE_STORE_ROOT).expanduser()
+    if not root.is_dir():
+        return VllmProfileListResult(False, [], str(root), [f"vLLM profile store does not exist: {root}"])
+
+    profiles: list[VllmStoredProfileInfo] = []
+    messages: list[str] = []
+    for path in sorted(root.glob("*.json")):
+        result = _read_vllm_profile_payload(path)
+        if not result.ok or result.profile is None:
+            messages.extend(f"{path.name}: {message}" for message in result.messages)
+            continue
+        profile_id = _profile_id_from_path(path)
+        try:
+            payload = json.loads(path.read_text())
+            profile_id = str(payload.get("profile_id") or profile_id)
+        except Exception:
+            pass
+        validation_messages = validate_vllm_profile(result.profile)
+        profiles.append(
+            VllmStoredProfileInfo(
+                profile_id=profile_id,
+                profile_path=str(path),
+                model=str(result.profile.model or ""),
+                validation_messages=validation_messages,
+            )
+        )
+
+    ok = bool(profiles)
+    if not profiles and not messages:
+        messages.append(f"no vLLM profile drafts found under {root}")
+    return VllmProfileListResult(ok, profiles, str(root), messages)
 
 
 def save_vllm_profile_draft(
@@ -62,6 +112,11 @@ def load_vllm_profile_draft(
     store_root: str | Path | None = None,
 ) -> VllmProfileStoreResult:
     profile_path = default_vllm_profile_path(profile_id, store_root=store_root)
+    return _read_vllm_profile_payload(Path(profile_path))
+
+
+def _read_vllm_profile_payload(path: Path) -> VllmProfileStoreResult:
+    profile_path = str(path.expanduser())
     try:
         payload = json.loads(Path(profile_path).read_text())
     except Exception as exc:
@@ -101,3 +156,7 @@ def _atomic_write_text(path: Path, payload: str) -> None:
 def _safe_name(value: str) -> str:
     text = str(value or "custom-draft").strip()
     return "".join(char if char.isalnum() or char in "-_." else "-" for char in text) or "custom-draft"
+
+
+def _profile_id_from_path(path: Path) -> str:
+    return path.stem or "custom-draft"

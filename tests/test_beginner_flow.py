@@ -606,6 +606,25 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertFalse(invalid.ok)
         self.assertIn("invalid vLLM profile draft schema", "\n".join(invalid.messages))
 
+    def test_vllm_profile_draft_store_lists_named_profiles(self) -> None:
+        from modules.vllm_profile_store import list_vllm_profile_drafts, save_vllm_profile_draft
+        from modules.vllm_profiles import VllmProfile
+
+        with TemporaryDirectory() as directory:
+            save_vllm_profile_draft(VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct"), profile_id="smoke", store_root=directory)
+            save_vllm_profile_draft(VllmProfile(model="Local/ThirtyB", port="bad"), profile_id="30b candidate", store_root=directory)  # type: ignore[arg-type]
+            result = list_vllm_profile_drafts(store_root=directory)
+            missing = list_vllm_profile_drafts(store_root=Path(directory) / "missing")
+
+        self.assertTrue(result.ok, result.messages)
+        by_id = {profile.profile_id: profile for profile in result.profiles}
+        self.assertIn("smoke", by_id)
+        self.assertIn("30b candidate", by_id)
+        self.assertEqual(by_id["smoke"].model, "Qwen/Qwen2.5-0.5B-Instruct")
+        self.assertIn("port should be 1-65535", by_id["30b candidate"].validation_messages)
+        self.assertFalse(missing.ok)
+        self.assertIn("does not exist", "\n".join(missing.messages))
+
     def test_vllm_script_preview_builds_shell_script_for_valid_profile(self) -> None:
         from modules.vllm_profiles import VllmProfile
         from modules.vllm_script_builder import build_vllm_script_preview
