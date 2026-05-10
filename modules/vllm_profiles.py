@@ -322,7 +322,7 @@ def host_guidance_lines() -> list[str]:
 
 def launch_confirmation_guidance_lines() -> list[str]:
     return [
-        "This is guidance only; no launch button is implemented yet.",
+        "Launch actions require explicit typed confirmation.",
         "vLLM launch may download model files if they are not cached.",
         "vLLM may use GPU memory immediately.",
         "vLLM may run torch compile / graph capture on first launch.",

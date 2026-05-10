@@ -1073,13 +1073,13 @@ def format_vllm_profile_section(title: str, profile: Any, port_check: Any = None
 def vllm_profile_preview_text(port_check: Any = None) -> str:
     presets = builtin_vllm_profile_presets()
     lines = [
-        "vLLM profile preview (read-only)",
-        "이 화면은 vLLM 전용 profile 미리보기입니다. llama.cpp 파라미터와 별개입니다.",
+        "vLLM profile overview",
+        "이 화면은 vLLM 전용 profile/preset 미리보기입니다. llama.cpp 파라미터와 별개입니다.",
         "",
-        f"Selected for future launch: {future_launch_preset_id()}",
-        "Read-only placeholder only. 실제 launch 선택 상태는 아직 구현하지 않았습니다.",
+        f"Built-in smoke launch preset: {future_launch_preset_id()}",
+        "Custom profile selection/save/load/launch는 아래 vLLM profile menu에서 별도로 처리합니다.",
         "",
-        "Future launch confirmation wording:",
+        "Launch confirmation guidance:",
     ]
     for guidance in launch_confirmation_guidance_lines():
         lines.append(f"- {guidance}")
@@ -1091,7 +1091,7 @@ def vllm_profile_preview_text(port_check: Any = None) -> str:
     )
     for preset in presets:
         lines.append(f"- {preset.id}: {preset.label} - {preset.description}")
-    lines.extend(["", "현재는 read-only registry입니다. 선택/저장/실행은 아직 하지 않습니다."])
+    lines.extend(["", "Built-in presets are read-only templates. Custom drafts can be copied, edited, saved, and launched separately."])
     for preset in presets:
         lines.append("")
         if preset.id == "smoke-qwen-0.5b":
