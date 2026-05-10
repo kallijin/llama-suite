@@ -429,6 +429,99 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("HF_HOME=/mnt/data_main/ai-cache/huggingface", lines)
         self.assertIn("TRANSFORMERS_CACHE=/mnt/data_main/ai-cache/huggingface", lines)
 
+    def test_vllm_preflight_valid_profile_with_fake_wrapper_and_free_port_passes(self) -> None:
+        from modules.vllm_profiles import VllmPreflightCheck, VllmProfile, run_vllm_preflight
+
+        with TemporaryDirectory() as directory:
+            wrapper = Path(directory) / "vllm-rocm"
+            wrapper.write_text("#!/usr/bin/env bash\nexit 0\n")
+            wrapper.chmod(0o755)
+            profile = VllmProfile(
+                wrapper_path=str(wrapper),
+                model="Qwen/Qwen2.5-0.5B-Instruct",
+                port=54321,
+            )
+
+            report = run_vllm_preflight(
+                profile,
+                port_check=lambda host, port: VllmPreflightCheck(
+                    "port availability",
+                    True,
+                    f"port {port} is available on {host}",
+                ),
+            )
+
+        self.assertTrue(report.ok)
+        messages = "\n".join(check.message for check in report.checks)
+        self.assertIn("profile values look valid", messages)
+        self.assertIn("wrapper executable found", messages)
+        self.assertIn("command preview can be built", messages)
+        self.assertIn("port", messages)
+        self.assertIn("127.0.0.1 = local only", messages)
+
+    def test_vllm_preflight_invalid_profile_reports_validation_messages(self) -> None:
+        from modules.vllm_profiles import VllmProfile, run_vllm_preflight
+
+        report = run_vllm_preflight(VllmProfile(model=""))
+
+        self.assertFalse(report.ok)
+        messages = "\n".join(check.message for check in report.checks)
+        self.assertIn("model should not be empty", messages)
+
+    def test_vllm_preflight_used_port_reports_failure(self) -> None:
+        from modules.vllm_profiles import VllmPreflightCheck, VllmProfile, run_vllm_preflight
+
+        with TemporaryDirectory() as directory:
+            wrapper = Path(directory) / "vllm-rocm"
+            wrapper.write_text("#!/usr/bin/env bash\nexit 0\n")
+            wrapper.chmod(0o755)
+            used_port = 54322
+
+            report = run_vllm_preflight(
+                VllmProfile(
+                    wrapper_path=str(wrapper),
+                    model="Qwen/Qwen2.5-0.5B-Instruct",
+                    port=used_port,
+                ),
+                port_check=lambda host, port: VllmPreflightCheck(
+                    "port availability",
+                    False,
+                    f"port {port} is not available on {host}: address already in use",
+                ),
+            )
+
+        self.assertFalse(report.ok)
+        port_checks = [check for check in report.checks if check.name == "port availability"]
+        self.assertEqual(len(port_checks), 1)
+        self.assertFalse(port_checks[0].ok)
+        self.assertIn("not available", port_checks[0].message)
+
+    def test_vllm_preflight_non_executable_wrapper_reports_failure(self) -> None:
+        from modules.vllm_profiles import VllmProfile, run_vllm_preflight
+
+        with TemporaryDirectory() as directory:
+            wrapper = Path(directory) / "vllm-rocm"
+            wrapper.write_text("#!/usr/bin/env bash\nexit 0\n")
+            wrapper.chmod(0o644)
+            report = run_vllm_preflight(
+                VllmProfile(
+                    wrapper_path=str(wrapper),
+                    model="Qwen/Qwen2.5-0.5B-Instruct",
+                    port=54323,
+                )
+            )
+
+        self.assertFalse(report.ok)
+        messages = "\n".join(check.message for check in report.checks)
+        self.assertIn("wrapper path is not executable", messages)
+
+    def test_vllm_host_access_notes_cover_local_tailscale_and_exposed(self) -> None:
+        from modules.vllm_profiles import host_access_note
+
+        self.assertEqual(host_access_note("127.0.0.1"), "127.0.0.1 = local only")
+        self.assertEqual(host_access_note("100.68.40.87"), "Tailscale IP = private remote access")
+        self.assertEqual(host_access_note("0.0.0.0"), "0.0.0.0 = advanced/exposed")
+
     def test_vllm_host_guidance_mentions_access_modes(self) -> None:
         from modules.vllm_profiles import host_guidance_lines
 
@@ -460,6 +553,9 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("TRANSFORMERS_CACHE", text)
         self.assertIn("Command preview / dry-run", text)
         self.assertIn("No runnable command preview", text)
+        self.assertIn("Launch preflight:", text)
+        self.assertIn("[FAIL] profile validation", text)
+        self.assertIn("[PASS] host guidance", text)
         self.assertIn("127.0.0.1 = local only", text)
         self.assertIn("Tailscale IP = private remote access", text)
         self.assertIn("0.0.0.0 = advanced/exposed", text)

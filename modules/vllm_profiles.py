@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import shlex
+import socket
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any
 
 
@@ -31,6 +33,22 @@ class VllmProfile:
         data = asdict(self)
         data.pop("errors", None)
         return data
+
+
+@dataclass
+class VllmPreflightCheck:
+    name: str
+    ok: bool
+    message: str
+
+
+@dataclass
+class VllmPreflightReport:
+    checks: list[VllmPreflightCheck]
+
+    @property
+    def ok(self) -> bool:
+        return all(check.ok for check in self.checks)
 
 
 def default_vllm_profile(model: str = "") -> VllmProfile:
@@ -116,12 +134,100 @@ def cache_env_preview_lines(profile: VllmProfile) -> list[str]:
     ]
 
 
+def run_vllm_preflight(profile: VllmProfile, port_check: Any = None) -> VllmPreflightReport:
+    checks: list[VllmPreflightCheck] = []
+
+    validation_messages = validate_vllm_profile(profile)
+    checks.append(
+        VllmPreflightCheck(
+            "profile validation",
+            not validation_messages,
+            "; ".join(validation_messages) if validation_messages else "profile values look valid",
+        )
+    )
+
+    checks.append(_wrapper_preflight_check(profile.wrapper_path))
+
+    command, command_messages = build_vllm_command(profile)
+    checks.append(
+        VllmPreflightCheck(
+            "command preview",
+            command is not None,
+            "; ".join(command_messages) if command_messages else "command preview can be built",
+        )
+    )
+
+    check_port = port_check or _port_preflight_check
+    checks.append(check_port(profile.host, profile.port))
+    checks.append(VllmPreflightCheck("host guidance", True, host_access_note(str(profile.host))))
+    return VllmPreflightReport(checks)
+
+
+def host_access_note(host: str) -> str:
+    host = str(host).strip()
+    if host == "127.0.0.1":
+        return "127.0.0.1 = local only"
+    if host == "0.0.0.0":
+        return "0.0.0.0 = advanced/exposed"
+    if _looks_like_tailscale_ip(host):
+        return "Tailscale IP = private remote access"
+    return "custom host; review network exposure before launch"
+
+
 def host_guidance_lines() -> list[str]:
     return [
         "127.0.0.1 = local only",
         "Tailscale IP = private remote access",
         "0.0.0.0 = advanced/exposed",
     ]
+
+
+def _wrapper_preflight_check(wrapper_path: Any) -> VllmPreflightCheck:
+    path_text = str(wrapper_path or "").strip()
+    if not path_text:
+        return VllmPreflightCheck("wrapper executable", False, "wrapper path should not be empty")
+
+    path = Path(path_text).expanduser()
+    if not path.exists():
+        return VllmPreflightCheck("wrapper executable", False, f"wrapper path does not exist: {path}")
+    if not path.is_file():
+        return VllmPreflightCheck("wrapper executable", False, f"wrapper path is not a file: {path}")
+    if not path.stat().st_mode & 0o111:
+        return VllmPreflightCheck("wrapper executable", False, f"wrapper path is not executable: {path}")
+    return VllmPreflightCheck("wrapper executable", True, f"wrapper executable found: {path}")
+
+
+def _port_preflight_check(host: Any, port: Any) -> VllmPreflightCheck:
+    port_number = _try_int(port)
+    if port_number is None or not 1 <= port_number <= 65535:
+        return VllmPreflightCheck("port availability", False, "port should be 1-65535")
+
+    bind_host = "127.0.0.1" if str(host).strip() == "0.0.0.0" else str(host).strip()
+    if not bind_host:
+        bind_host = "127.0.0.1"
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind((bind_host, port_number))
+    except OSError as exc:
+        return VllmPreflightCheck(
+            "port availability",
+            False,
+            f"port {port_number} is not available on {bind_host}: {exc}",
+        )
+    return VllmPreflightCheck("port availability", True, f"port {port_number} is available on {bind_host}")
+
+
+def _looks_like_tailscale_ip(host: str) -> bool:
+    parts = host.split(".")
+    if len(parts) != 4:
+        return False
+    try:
+        nums = [int(part) for part in parts]
+    except ValueError:
+        return False
+    return nums[0] == 100 and all(0 <= num <= 255 for num in nums)
 
 
 def _coerce_int(value: Any, *, default: int) -> int:

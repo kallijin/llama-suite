@@ -39,7 +39,7 @@ from modules.runner_tmux import get_running_model, get_running_servers, run_scri
 from modules.script_builder import command_preview, generate_script, parse_generated_script, resolve_ctx_size
 from modules.system_info import collect_system_info
 from modules.vllm_doctor import format_vllm_doctor_report, run_vllm_doctor
-from modules.vllm_profiles import build_vllm_command, cache_env_preview_lines, default_vllm_profile, host_guidance_lines, validate_vllm_profile
+from modules.vllm_profiles import build_vllm_command, cache_env_preview_lines, default_vllm_profile, host_guidance_lines, run_vllm_preflight, validate_vllm_profile
 
 
 # ─── 설정 ──────────────────────────────────────────────
@@ -1068,6 +1068,11 @@ def vllm_profile_preview_text() -> str:
         lines.append("No runnable command preview because the profile needs attention:")
         for message in command_messages:
             lines.append(f"- {message}")
+    preflight = run_vllm_preflight(profile)
+    lines.extend(["", "Launch preflight:"])
+    for check in preflight.checks:
+        mark = "PASS" if check.ok else "FAIL"
+        lines.append(f"- [{mark}] {check.name}: {check.message}")
     lines.extend(["", "Host guidance:"])
     for guidance in host_guidance_lines():
         lines.append(f"- {guidance}")
