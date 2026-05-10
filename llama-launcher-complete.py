@@ -1097,7 +1097,7 @@ def vllm_profile_preview_text(port_check: Any = None) -> str:
         if preset.id == "smoke-qwen-0.5b":
             lines.append("Smoke profile preset (read-only)")
             lines.append("이미 이 시스템에서 성공한 작은 vLLM 확인용 preset입니다. 실행하지 않습니다.")
-        if preset.id == "template-30b-q4-local":
+        if preset.id == "template-local-large-q4":
             lines.append("Local large Q4 template preset (read-only)")
             lines.append("다운로드/launch 없이 /mnt/data_main/downloads/models 아래 HF/safetensors Q4급 디렉터리 형태만 제안합니다.")
         lines.extend(format_vllm_profile_section(f"Preset {preset.id}: {preset.label}", preset.profile, port_check=port_check))

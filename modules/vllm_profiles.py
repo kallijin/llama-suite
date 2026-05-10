@@ -106,15 +106,15 @@ def smoke_vllm_profile() -> VllmProfile:
     return VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct")
 
 
-def local_30b_q4_vllm_profile() -> VllmProfile:
+def local_large_q4_vllm_profile() -> VllmProfile:
     return VllmProfile(
-        model=f"{DEFAULT_MODEL_DOWNLOAD_ROOT}/local-30b-q4-hf",
+        model=f"{DEFAULT_MODEL_DOWNLOAD_ROOT}/local-large-q4-hf",
         max_model_len=8192,
         gpu_memory_utilization=0.82,
         kv_cache_dtype="auto",
         max_num_seqs=1,
         max_num_batched_tokens=8192,
-        extra_args="--served-model-name local-30b-q4",
+        extra_args="--served-model-name local-large-q4",
     )
 
 
@@ -133,10 +133,10 @@ def builtin_vllm_profile_presets() -> list[VllmProfilePreset]:
             profile=smoke_vllm_profile(),
         ),
         VllmProfilePreset(
-            id="template-30b-q4-local",
+            id="template-local-large-q4",
             label="Local large Q4 template",
             description="Read-only template for a local large HF/safetensors quantized model directory. It is not a launch target.",
-            profile=local_30b_q4_vllm_profile(),
+            profile=local_large_q4_vllm_profile(),
         ),
     ]
 
