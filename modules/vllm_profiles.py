@@ -56,13 +56,21 @@ def validate_vllm_profile(profile: VllmProfile) -> list[str]:
         errors.append("wrapper path should not be empty")
     if not str(profile.model).strip():
         errors.append("model should not be empty")
-    if not 1 <= int(profile.port) <= 65535:
+
+    port = _try_int(profile.port)
+    if port is None or not 1 <= port <= 65535:
         errors.append("port should be 1-65535")
-    if not 0 < float(profile.gpu_memory_utilization) <= 1:
+
+    gpu_memory_utilization = _try_float(profile.gpu_memory_utilization)
+    if gpu_memory_utilization is None or not 0 < gpu_memory_utilization <= 1:
         errors.append("gpu_memory_utilization should be between 0 and 1")
-    if int(profile.tensor_parallel_size) < 1:
+
+    tensor_parallel_size = _try_int(profile.tensor_parallel_size)
+    if tensor_parallel_size is None or tensor_parallel_size < 1:
         errors.append("tensor_parallel_size should be >= 1")
-    if int(profile.max_model_len) <= 0:
+
+    max_model_len = _try_int(profile.max_model_len)
+    if max_model_len is None or max_model_len <= 0:
         errors.append("max_model_len should be > 0")
 
     return errors
@@ -88,3 +96,17 @@ def _coerce_float(value: Any, *, default: float) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _try_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _try_float(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None

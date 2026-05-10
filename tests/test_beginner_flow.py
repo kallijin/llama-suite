@@ -322,6 +322,24 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("tensor_parallel_size should be >= 1", errors)
         self.assertIn("max_model_len should be > 0", errors)
 
+    def test_vllm_profile_validation_handles_non_numeric_user_values(self) -> None:
+        from modules.vllm_profiles import VllmProfile, validate_vllm_profile
+
+        profile = VllmProfile(
+            model="Qwen/Qwen2.5-0.5B-Instruct",
+            port="abc",  # type: ignore[arg-type]
+            gpu_memory_utilization="bad",  # type: ignore[arg-type]
+            tensor_parallel_size="many",  # type: ignore[arg-type]
+            max_model_len="long",  # type: ignore[arg-type]
+        )
+
+        errors = validate_vllm_profile(profile)
+
+        self.assertIn("port should be 1-65535", errors)
+        self.assertIn("gpu_memory_utilization should be between 0 and 1", errors)
+        self.assertIn("tensor_parallel_size should be >= 1", errors)
+        self.assertIn("max_model_len should be > 0", errors)
+
     def test_vllm_profile_from_dict_preserves_extra_args_as_opaque_string(self) -> None:
         from modules.vllm_profiles import vllm_profile_from_dict
 
