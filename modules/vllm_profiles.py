@@ -65,6 +65,14 @@ class VllmProfilePreset:
     profile: VllmProfile
 
 
+@dataclass(frozen=True)
+class VllmProfileFieldSpec:
+    name: str
+    group: str
+    label: str
+    help: str
+
+
 @dataclass
 class VllmPreflightCheck:
     name: str
@@ -130,6 +138,26 @@ def future_launch_preset_id() -> str:
 
 def editable_vllm_profile_fields() -> list[str]:
     return list(VLLM_EDITABLE_PROFILE_FIELDS)
+
+
+def editable_vllm_profile_field_specs() -> list[VllmProfileFieldSpec]:
+    return [
+        VllmProfileFieldSpec("wrapper_path", "Runtime", "Wrapper", "vLLM wrapper executable, for example ~/bin/vllm-rocm"),
+        VllmProfileFieldSpec("model", "Model", "Model", "Hugging Face model ID or local HF/safetensors directory"),
+        VllmProfileFieldSpec("host", "Network", "Host", "127.0.0.1 local-only, Tailscale IP private, 0.0.0.0 exposed"),
+        VllmProfileFieldSpec("port", "Network", "Port", "OpenAI-compatible API port, usually 8000"),
+        VllmProfileFieldSpec("dtype", "Memory", "DType", "vLLM dtype value, usually auto"),
+        VllmProfileFieldSpec("max_model_len", "Memory", "Max model length", "Maximum context length vLLM should allocate for"),
+        VllmProfileFieldSpec("gpu_memory_utilization", "Memory", "GPU memory utilization", "Fraction between 0 and 1"),
+        VllmProfileFieldSpec("tensor_parallel_size", "Parallelism", "Tensor parallel size", "Number of GPUs used for tensor parallelism"),
+        VllmProfileFieldSpec("kv_cache_dtype", "Memory", "KV cache dtype", "auto unless you are intentionally tuning KV cache memory"),
+        VllmProfileFieldSpec("max_num_seqs", "Throughput", "Max sequences", "Optional concurrency cap; empty lets vLLM choose"),
+        VllmProfileFieldSpec("max_num_batched_tokens", "Throughput", "Max batched tokens", "Optional batching cap; empty lets vLLM choose"),
+        VllmProfileFieldSpec("vllm_cache_root", "Cache", "VLLM cache root", "Directory for vLLM cache files"),
+        VllmProfileFieldSpec("hf_home", "Cache", "HF home", "Hugging Face cache root"),
+        VllmProfileFieldSpec("transformers_cache", "Cache", "Transformers cache", "Transformers cache directory"),
+        VllmProfileFieldSpec("extra_args", "Advanced", "Extra args", "Opaque advanced vLLM serve arguments split with shlex"),
+    ]
 
 
 def update_vllm_profile_field(profile: VllmProfile, field_name: str, raw_value: Any) -> tuple[VllmProfile, list[str]]:

@@ -604,9 +604,10 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(profile.extra_args, "--trust-remote-code --served-model-name local")
 
     def test_vllm_editable_profile_fields_are_vllm_only(self) -> None:
-        from modules.vllm_profiles import editable_vllm_profile_fields
+        from modules.vllm_profiles import editable_vllm_profile_field_specs, editable_vllm_profile_fields
 
         fields = editable_vllm_profile_fields()
+        specs = editable_vllm_profile_field_specs()
 
         self.assertEqual(
             fields,
@@ -628,6 +629,13 @@ class BeginnerFlowTests(unittest.TestCase):
                 "extra_args",
             ],
         )
+        self.assertEqual([spec.name for spec in specs], fields)
+        by_name = {spec.name: spec for spec in specs}
+        self.assertEqual(by_name["model"].group, "Model")
+        self.assertIn("Hugging Face model ID", by_name["model"].help)
+        self.assertEqual(by_name["max_model_len"].group, "Memory")
+        self.assertIn("context length", by_name["max_model_len"].help)
+        self.assertEqual(by_name["extra_args"].group, "Advanced")
         self.assertNotIn("ctx_size", fields)
         self.assertNotIn("llama_bin", fields)
 
@@ -1311,10 +1319,13 @@ class BeginnerFlowTests(unittest.TestCase):
         )
 
         self.assertIn("vLLM custom profile draft", text)
-        self.assertIn("In-memory only", text)
+        self.assertIn("Preview/preflight first", text)
         self.assertIn("llama.cpp 설정과 별개", text)
         self.assertIn("Editable vLLM fields:", text)
-        self.assertIn("- model", text)
+        self.assertIn("- Model / model: Qwen/Qwen2.5-0.5B-Instruct", text)
+        self.assertIn("Hugging Face model ID", text)
+        self.assertIn("- Memory / max_model_len: 4096", text)
+        self.assertIn("- Cache / hf_home: /mnt/data_main/ai-cache/huggingface", text)
         self.assertIn("Command preview / dry-run", text)
         self.assertIn("Launch preflight:", text)
         self.assertIn("[PASS] profile validation", text)
@@ -1338,6 +1349,8 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(updated.model, "Qwen/Qwen2.5-0.5B-Instruct")
         self.assertIn("updated vLLM profile field: model", stdout.getvalue())
         self.assertIn("custom profile draft", stdout.getvalue())
+        self.assertIn("Model - Hugging Face model ID", stdout.getvalue())
+        self.assertIn("Memory", stdout.getvalue())
 
     def test_vllm_profile_menu_can_save_and_load_custom_profile_draft(self) -> None:
         launcher = load_launcher_module()

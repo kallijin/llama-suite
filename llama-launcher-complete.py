@@ -41,7 +41,7 @@ from modules.system_info import collect_system_info
 from modules.vllm_api_probe import run_vllm_api_smoke
 from modules.vllm_doctor import format_vllm_doctor_report, run_vllm_doctor
 from modules.vllm_profile_store import default_vllm_profile_path, delete_vllm_profile_draft, format_vllm_profile_draft_json, list_vllm_profile_drafts, load_selected_vllm_profile_draft, load_vllm_profile_draft, load_vllm_profile_json_file, save_selected_vllm_profile_id, save_vllm_profile_draft, validate_vllm_profile_json_file
-from modules.vllm_profiles import builtin_vllm_profile_presets, default_vllm_profile, editable_vllm_profile_fields, format_vllm_profile_report, future_launch_preset_id, host_guidance_lines, large_model_guidance_lines, launch_confirmation_guidance_lines, update_vllm_profile_field
+from modules.vllm_profiles import builtin_vllm_profile_presets, default_vllm_profile, editable_vllm_profile_field_specs, editable_vllm_profile_fields, format_vllm_profile_report, future_launch_preset_id, host_guidance_lines, large_model_guidance_lines, launch_confirmation_guidance_lines, update_vllm_profile_field
 from modules.vllm_runner import check_vllm_smoke_status, latest_vllm_run_record, latest_vllm_run_summary, launch_vllm_profile_once, launch_vllm_smoke_once, read_vllm_run_record, read_vllm_smoke_log, stop_vllm_smoke
 from modules.vllm_script_builder import build_vllm_script_preview, save_vllm_script
 
@@ -1113,14 +1113,16 @@ def vllm_profile_preview_text(port_check: Any = None) -> str:
 def vllm_custom_profile_text(profile: Any, port_check: Any = None) -> str:
     lines = [
         "vLLM custom profile draft",
-        "In-memory only. 저장/launch는 아직 구현하지 않았습니다.",
+        "Preview/preflight first. Save and launch are separate explicit menu actions.",
         "이 draft는 llama.cpp 설정과 별개입니다.",
         "",
     ]
     lines.extend(format_vllm_profile_section("Custom vLLM profile draft", profile, port_check=port_check))
     lines.extend(["", "Editable vLLM fields:"])
-    for field_name in editable_vllm_profile_fields():
-        lines.append(f"- {field_name}")
+    for spec in editable_vllm_profile_field_specs():
+        value = getattr(profile, spec.name, "")
+        display_value = str(value) if str(value) else "(empty)"
+        lines.append(f"- {spec.group} / {spec.name}: {display_value} ({spec.help})")
     lines.extend(["", "Host guidance:"])
     for guidance in host_guidance_lines():
         lines.append(f"- {guidance}")
@@ -1226,11 +1228,19 @@ def _vllm_profile_menu_return(profile: Any, profile_id: str, return_profile_id: 
 
 
 def edit_vllm_custom_profile(profile: Any) -> Any:
-    fields = editable_vllm_profile_fields()
+    specs = editable_vllm_profile_field_specs()
+    fields = [spec.name for spec in specs]
     print("\n  ── vLLM custom profile edit ──")
-    print("  저장/launch 없는 in-memory draft만 수정합니다.")
-    for index, field_name in enumerate(fields, 1):
-        print(f"  [{index}] {field_name}")
+    print("  profile 값을 한 개씩 수정합니다. 저장/launch는 별도 메뉴에서만 실행합니다.")
+    current_group = ""
+    for index, spec in enumerate(specs, 1):
+        if spec.group != current_group:
+            current_group = spec.group
+            print(f"  {current_group}")
+        current = getattr(profile, spec.name, "")
+        display_value = str(current) if str(current) else "(empty)"
+        print(f"  [{index}] {spec.name}: {display_value}")
+        print(f"      {spec.label} - {spec.help}")
     selected = input("  field 번호 또는 이름 > ").strip()
     field_name = selected
     if selected.isdigit():
