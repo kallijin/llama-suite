@@ -1569,6 +1569,33 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(loaded_id, "custom-draft")
         self.assertEqual(loaded_profile.model, "")
 
+    def test_vllm_initial_profile_selection_reports_fallback_messages(self) -> None:
+        launcher = load_launcher_module()
+        from modules.vllm_profile_store import VllmProfileStoreResult
+        from unittest.mock import Mock, patch
+
+        result = VllmProfileStoreResult(False, None, "/tmp/latest.json", ["invalid selected vLLM profile schema"])
+
+        with patch.object(launcher, "load_selected_vllm_profile_draft", Mock(return_value=result)):
+            loaded_profile, loaded_id, messages = launcher.initial_vllm_profile_selection_with_messages()
+
+        self.assertEqual(loaded_id, "custom-draft")
+        self.assertEqual(loaded_profile.model, "")
+        self.assertIn("using custom-draft defaults", "\n".join(messages))
+        self.assertIn("invalid selected vLLM profile schema", "\n".join(messages))
+
+    def test_startup_warnings_render_nonfatal_messages(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+
+        stdout = StringIO()
+        with contextlib.redirect_stdout(stdout):
+            launcher.print_startup_warnings(["selected profile failed"])
+
+        self.assertIn("Startup warnings:", stdout.getvalue())
+        self.assertIn("selected profile failed", stdout.getvalue())
+
     def test_vllm_profile_menu_groups_actions_by_responsibility(self) -> None:
         launcher = load_launcher_module()
         from io import StringIO

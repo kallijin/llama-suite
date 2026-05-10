@@ -638,6 +638,14 @@ def print_selected_vllm_profile_summary(profile: Any, profile_id: str = "custom-
     print(selected_vllm_profile_summary_line(profile, profile_id))
 
 
+def print_startup_warnings(messages: list[str]) -> None:
+    if not messages:
+        return
+    print("  Startup warnings:")
+    for message in messages:
+        print(f"    - {message}")
+
+
 def registered_paths(cfg: dict[str, Any]) -> dict[str, Any]:
     value = cfg.setdefault("registered_paths", {})
     if not isinstance(value, dict):
@@ -1660,11 +1668,18 @@ def print_vllm_api_smoke_result(result: Any) -> None:
         print(f"  [{status}] {check.name}{code}: {check.message}")
 
 
-def initial_vllm_profile_selection() -> tuple[Any, str]:
+def initial_vllm_profile_selection_with_messages() -> tuple[Any, str, list[str]]:
     result = load_selected_vllm_profile_draft()
     if result.ok and result.profile and result.profile_id:
-        return result.profile, result.profile_id
-    return default_vllm_profile(), "custom-draft"
+        return result.profile, result.profile_id, []
+    messages = ["selected vLLM profile could not be loaded; using custom-draft defaults"]
+    messages.extend(result.messages)
+    return default_vllm_profile(), "custom-draft", messages
+
+
+def initial_vllm_profile_selection() -> tuple[Any, str]:
+    profile, profile_id, _messages = initial_vllm_profile_selection_with_messages()
+    return profile, profile_id
 
 
 def choose_llama_cpp_menu_action() -> str:
@@ -1713,7 +1728,7 @@ def main() -> None:
     cfg = load_config()
     models = get_model_list(MODELS_DIR)
     draft = draft_from_config(cfg, models)
-    vllm_profile_draft, vllm_profile_draft_id = initial_vllm_profile_selection()
+    vllm_profile_draft, vllm_profile_draft_id, startup_warnings = initial_vllm_profile_selection_with_messages()
 
     while True:
         print_header()
@@ -1725,6 +1740,7 @@ def main() -> None:
         print_planned_run_summary(draft, running)
         print_recent_vllm_run_summary()
         print_selected_vllm_profile_summary(vllm_profile_draft, vllm_profile_draft_id)
+        print_startup_warnings(startup_warnings)
         if not models:
             print(f"\n  ⚠️  {MODELS_DIR} 에서 GGUF 파일을 찾을 수 없습니다.")
             print("     그래도 [A] 설정 변경, [I] 시스템 정보, [E] Hermes 등록, [C] OpenClaw 등록은 사용할 수 있습니다.")
