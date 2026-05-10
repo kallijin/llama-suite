@@ -1677,6 +1677,7 @@ class BeginnerFlowTests(unittest.TestCase):
                 "run_id": None,
                 "log_path": None,
                 "record_path": None,
+                "profile_path": None,
                 "host": None,
                 "port": None,
                 "command": [],
@@ -1688,7 +1689,7 @@ class BeginnerFlowTests(unittest.TestCase):
         with patch.object(launcher, "launch_vllm_profile_once", mocked_launch), patch("builtins.input", side_effect=["8", "no"]), contextlib.redirect_stdout(StringIO()):
             result = launcher.show_vllm_profile_menu(profile, "30b-q4")
 
-        mocked_launch.assert_called_once_with(profile, confirmed=False, preset_id="30b-q4")
+        mocked_launch.assert_called_once_with(profile, confirmed=False, preset_id="30b-q4", profile_path=launcher.default_vllm_profile_path("30b-q4"))
         self.assertIs(result, profile)
 
     def test_vllm_smoke_launch_preview_is_not_read_only_profile_text(self) -> None:
@@ -1817,13 +1818,16 @@ class BeginnerFlowTests(unittest.TestCase):
                 wrapper_path=str(wrapper),
                 model="Qwen/Qwen2.5-0.5B-Instruct",
                 port=54324,
+                kv_cache_dtype="fp8",
             )
+            profile_path = root / "profiles" / "custom-qwen.json"
             result = launch_vllm_profile_once(
                 profile,
                 confirmed=True,
                 preset_id="custom-qwen",
                 timestamp="20260510-224500",
                 state_root=root / "runs",
+                profile_path=profile_path,
                 port_check=lambda host, port: VllmPreflightCheck(
                     "port availability",
                     True,
@@ -1844,6 +1848,12 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIsNotNone(record.record)
         assert record.record is not None
         self.assertEqual(record.record.preset_id, "custom-qwen")
+        self.assertEqual(record.record.profile_id, "custom-qwen")
+        self.assertEqual(record.record.profile_path, str(profile_path))
+        self.assertIsNotNone(record.record.profile_snapshot)
+        assert record.record.profile_snapshot is not None
+        self.assertEqual(record.record.profile_snapshot["model"], "Qwen/Qwen2.5-0.5B-Instruct")
+        self.assertEqual(record.record.profile_snapshot["kv_cache_dtype"], "fp8")
 
     def test_vllm_runner_sanitizes_preset_id_for_run_id(self) -> None:
         from modules.vllm_profiles import VllmPreflightCheck, smoke_vllm_profile

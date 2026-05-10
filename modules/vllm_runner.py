@@ -18,6 +18,7 @@ from modules.vllm_profiles import (
     run_vllm_preflight,
     validate_vllm_profile,
 )
+from modules.vllm_profile_store import default_vllm_profile_path
 
 
 DEFAULT_VLLM_RUN_ROOT = "~/.local/state/llama-suite/runs/vllm"
@@ -32,6 +33,9 @@ class VllmLaunchPlan:
     log_path: str
     host: str
     port: int
+    profile_id: str | None = None
+    profile_path: str | None = None
+    profile_snapshot: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -53,6 +57,7 @@ class VllmLaunchResult:
     command: list[str]
     messages: list[str]
     record_path: str | None = None
+    profile_path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -98,6 +103,9 @@ class VllmRunRecord:
     port: int
     started_at: str
     status_hint: str
+    profile_id: str | None = None
+    profile_path: str | None = None
+    profile_snapshot: dict[str, Any] | None = None
     schema: str = "llama-suite.run.v1"
 
 
@@ -134,6 +142,8 @@ def build_vllm_launch_plan(
     timestamp: str | None = None,
     state_root: str | Path | None = None,
     port_check: Any = None,
+    profile_path: str | Path | None = None,
+    include_profile_snapshot: bool = False,
 ) -> VllmLaunchReadiness:
     validation_messages = validate_vllm_profile(profile)
     if validation_messages:
@@ -162,6 +172,9 @@ def build_vllm_launch_plan(
         log_path=log_path,
         host=str(profile.host),
         port=int(profile.port),
+        profile_id=preset_id,
+        profile_path=str(Path(profile_path).expanduser()) if profile_path else None,
+        profile_snapshot=profile.to_dict() if include_profile_snapshot else None,
     )
     return VllmLaunchReadiness(True, plan, [])
 
@@ -220,6 +233,7 @@ def launch_vllm_profile_once(
     state_root: str | Path | None = None,
     port_check: Any = None,
     popen_factory: Any = None,
+    profile_path: str | Path | None = None,
 ) -> VllmLaunchResult:
     if not confirmed:
         return VllmLaunchResult(
@@ -240,6 +254,8 @@ def launch_vllm_profile_once(
         timestamp=timestamp,
         state_root=state_root,
         port_check=port_check,
+        profile_path=profile_path or default_vllm_profile_path(preset_id),
+        include_profile_snapshot=True,
     )
     if not readiness.ok or readiness.plan is None:
         return VllmLaunchResult(
@@ -293,6 +309,9 @@ def _launch_vllm_plan(
             port=plan.port,
             started_at=datetime.now().astimezone().isoformat(timespec="seconds"),
             status_hint="started",
+            profile_id=plan.profile_id,
+            profile_path=plan.profile_path,
+            profile_snapshot=plan.profile_snapshot,
         ),
         state_root=log_path.parent,
     )
@@ -310,6 +329,7 @@ def _launch_vllm_plan(
         command=plan.command,
         messages=messages,
         record_path=record_result.record_path,
+        profile_path=plan.profile_path,
     )
 
 
@@ -350,6 +370,9 @@ def read_vllm_run_record(record_path: str) -> VllmRunRecordResult:
             port=int(data.get("port", 0)),
             started_at=str(data.get("started_at", "")),
             status_hint=str(data.get("status_hint", "")),
+            profile_id=str(data.get("profile_id")) if data.get("profile_id") is not None else None,
+            profile_path=str(data.get("profile_path")) if data.get("profile_path") is not None else None,
+            profile_snapshot=dict(data.get("profile_snapshot")) if isinstance(data.get("profile_snapshot"), dict) else None,
         )
     except Exception as exc:
         return VllmRunRecordResult(False, None, expanded_path, [f"run record read failed: {exc}"])

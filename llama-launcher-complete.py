@@ -1391,7 +1391,12 @@ def show_vllm_custom_launch(profile: Any, profile_id: str = "custom-draft") -> N
         print(f"  {line}" if line else "")
     print("\n  계속하려면 launch 또는 LAUNCH 를 정확히 입력하세요.")
     confirm = input("  confirmation > ").strip()
-    result = launch_vllm_profile_once(profile, confirmed=(confirm.lower() == "launch"), preset_id=profile_id)
+    result = launch_vllm_profile_once(
+        profile,
+        confirmed=(confirm.lower() == "launch"),
+        preset_id=profile_id,
+        profile_path=default_vllm_profile_path(profile_id),
+    )
     print_vllm_launch_result(result)
 
 
