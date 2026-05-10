@@ -1227,6 +1227,63 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertTrue(result.ok)
         self.assertEqual(calls, [("100.68.40.87", 8010)])
 
+    def test_vllm_smoke_status_checks_tcp_listening_by_default(self) -> None:
+        from modules.vllm_runner import VllmSmokeStatusPortCheck, check_vllm_smoke_status
+        from unittest.mock import patch
+
+        with patch("modules.vllm_runner.check_tcp_listening", return_value=VllmSmokeStatusPortCheck(True, "ok")) as mocked_check:
+            result = check_vllm_smoke_status(
+                pid=1234,
+                run_id="run-a",
+                log_path="/tmp/missing.log",
+                host="100.68.40.87",
+                port=8010,
+                alive_check=lambda pid: True,
+            )
+
+        self.assertTrue(result.port_listening)
+        mocked_check.assert_called_once_with("100.68.40.87", 8010)
+
+    def test_vllm_tcp_listening_helper_reports_true_false_and_errors(self) -> None:
+        from modules.vllm_runner import check_tcp_listening
+        from unittest.mock import patch
+
+        class FakeSocket:
+            def __init__(self, code: int | None = 0, error: Exception | None = None):
+                self.code = code
+                self.error = error
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, _exc_type, _exc, _tb):
+                return False
+
+            def settimeout(self, _timeout):
+                pass
+
+            def connect_ex(self, _target):
+                if self.error:
+                    raise self.error
+                return self.code
+
+        with patch("modules.vllm_runner.socket.socket", return_value=FakeSocket(0)):
+            listening = check_tcp_listening("127.0.0.1", 8000)
+        with patch("modules.vllm_runner.socket.socket", return_value=FakeSocket(111)):
+            closed = check_tcp_listening("127.0.0.1", 8000)
+        with patch("modules.vllm_runner.socket.socket", return_value=FakeSocket(error=OSError("boom"))):
+            error = check_tcp_listening("127.0.0.1", 8000)
+        invalid = check_tcp_listening("127.0.0.1", "bad")
+
+        self.assertTrue(listening.ok)
+        self.assertIn("is listening", listening.message)
+        self.assertFalse(closed.ok)
+        self.assertIn("is not listening", closed.message)
+        self.assertFalse(error.ok)
+        self.assertIn("listening check failed", error.message)
+        self.assertFalse(invalid.ok)
+        self.assertIn("port should be a positive integer", invalid.message)
+
     def test_vllm_smoke_manage_uses_latest_record_for_status_defaults(self) -> None:
         launcher = load_launcher_module()
         from io import StringIO

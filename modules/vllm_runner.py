@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import signal
+import socket
 import subprocess
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -354,9 +355,10 @@ def check_vllm_smoke_status(
     messages.append(f"log file {'exists' if log_exists else 'does not exist'}: {expanded_log_path or '-'}")
 
     port_listening: bool | None = None
-    if port_check is not None:
+    check_port = port_check or check_tcp_listening
+    if host and port:
         try:
-            port_result = port_check(host, port)
+            port_result = check_port(host, port)
             port_listening = bool(getattr(port_result, "ok", port_result))
             detail = getattr(port_result, "message", "")
             messages.append(f"port {port} listening on {host}: {port_listening}" + (f" ({detail})" if detail else ""))
@@ -375,6 +377,32 @@ def check_vllm_smoke_status(
         port_listening=port_listening,
         messages=messages,
     )
+
+
+def check_tcp_listening(host: str, port: int | str, timeout: float = 1.0) -> Any:
+    port_number = _coerce_port(port)
+    if port_number is None:
+        return VllmSmokeStatusPortCheck(False, "port should be a positive integer")
+    host_text = str(host or "").strip()
+    if not host_text:
+        return VllmSmokeStatusPortCheck(False, "host is required")
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(timeout)
+            code = sock.connect_ex((host_text, port_number))
+    except Exception as exc:
+        return VllmSmokeStatusPortCheck(False, f"listening check failed: {exc}")
+
+    if code == 0:
+        return VllmSmokeStatusPortCheck(True, f"{host_text}:{port_number} is listening")
+    return VllmSmokeStatusPortCheck(False, f"{host_text}:{port_number} is not listening")
+
+
+@dataclass(frozen=True)
+class VllmSmokeStatusPortCheck:
+    ok: bool
+    message: str
 
 
 def read_vllm_smoke_log(log_path: str, *, last_lines: int = 80) -> VllmSmokeLogResult:
@@ -470,6 +498,14 @@ def _coerce_pid(value: int | str | None) -> int | None:
     except (TypeError, ValueError):
         return None
     return pid if pid > 0 else None
+
+
+def _coerce_port(value: int | str) -> int | None:
+    try:
+        port = int(value)
+    except (TypeError, ValueError):
+        return None
+    return port if port > 0 else None
 
 
 def _pid_is_alive(pid: int) -> bool:
