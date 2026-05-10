@@ -1326,7 +1326,7 @@ def print_vllm_launch_result(result: Any) -> None:
 
 
 def show_vllm_smoke_manage() -> None:
-    print("\n  ── vLLM smoke status/log/stop ──")
+    print("\n  ── vLLM latest run status/log/stop ──")
     latest_result = latest_vllm_run_record()
     latest_record = latest_result.record if latest_result.ok else None
     if latest_record:
@@ -1416,7 +1416,7 @@ def print_vllm_record_summary(record: Any) -> None:
 
 
 def print_vllm_status_result(result: Any) -> None:
-    print("\n  vLLM smoke status:")
+    print("\n  vLLM latest run status:")
     print(f"  ok: {result.ok}")
     print(f"  preset_id: {result.preset_id}")
     print(f"  pid: {result.pid if result.pid is not None else '-'}")
@@ -1515,7 +1515,7 @@ def main() -> None:
         print("  [B] vLLM profile")
         print("  [W] vLLM API smoke")
         print("  [Y] vLLM smoke launch")
-        print("  [Z] vLLM smoke status/log/stop")
+        print("  [Z] vLLM latest run status/log/stop")
         print("  [P] llama.cpp 최종 미리보기")
         print("  [O] llama.cpp 1회 실행")
         print("  [G] llama.cpp 새 스크립트 생성")

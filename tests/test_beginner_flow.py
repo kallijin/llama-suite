@@ -237,7 +237,7 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("[B] vLLM profile", completed.stdout)
         self.assertIn("[W] vLLM API smoke", completed.stdout)
         self.assertIn("[Y] vLLM smoke launch", completed.stdout)
-        self.assertIn("[Z] vLLM smoke status/log/stop", completed.stdout)
+        self.assertIn("[Z] vLLM latest run status/log/stop", completed.stdout)
         self.assertIn("[V] vLLM doctor", completed.stdout)
         self.assertIn("[A] 설정 변경 / 현재 설정 저장", completed.stdout)
         self.assertNotIn("\n  [W] 현재 설정 저장", completed.stdout)

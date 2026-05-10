@@ -52,7 +52,7 @@ Current vLLM-owned actions:
 
 - `[B] vLLM profile`
 - `[Y] vLLM smoke launch`
-- `[Z] vLLM smoke status/log/stop`
+- `[Z] vLLM latest run status/log/stop`
 - `[W] vLLM API smoke`
 - `[V] vLLM doctor`
 
