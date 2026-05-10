@@ -301,7 +301,7 @@ def inspect_vllm_model_source(model: Any) -> list[VllmModelSourceCheck]:
             "tokenizer",
             ["tokenizer.json", "tokenizer.model", "tokenizer_config.json"],
             "tokenizer file exists",
-            "tokenizer file is missing; keep tokenizer/config files beside the model weights or copy them from the base model repo",
+            "토크나이저 파일이 존재하지 않습니다; keep tokenizer/config files beside the model weights or copy them from the base model repo",
         ),
         _directory_file_check(
             path,

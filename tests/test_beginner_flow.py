@@ -1126,7 +1126,7 @@ class BeginnerFlowTests(unittest.TestCase):
             checks = inspect_vllm_model_source(str(model_dir))
 
             self.assertTrue(any(check.name == "tokenizer" and check.level == "WARN" for check in checks))
-            self.assertTrue(any("tokenizer file is missing" in check.message for check in checks))
+            self.assertTrue(any("토크나이저 파일이 존재하지 않습니다" in check.message for check in checks))
 
         gguf_checks = inspect_vllm_model_source("/mnt/data_main/downloads/models/model.gguf")
         self.assertEqual(gguf_checks[0].level, "WARN")
@@ -1248,7 +1248,7 @@ class BeginnerFlowTests(unittest.TestCase):
         checks = {check.name: check for check in report.checks}
         self.assertIn("model source inspection", checks)
         self.assertFalse(checks["model source inspection"].ok)
-        self.assertIn("tokenizer file is missing", checks["model source inspection"].message)
+        self.assertIn("토크나이저 파일이 존재하지 않습니다", checks["model source inspection"].message)
 
     def test_vllm_preflight_used_port_reports_failure(self) -> None:
         from modules.vllm_profiles import VllmPreflightCheck, VllmProfile, run_vllm_preflight
