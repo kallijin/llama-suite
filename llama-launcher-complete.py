@@ -1123,6 +1123,8 @@ def vllm_custom_profile_text(profile: Any, port_check: Any = None) -> str:
         value = getattr(profile, spec.name, "")
         display_value = str(value) if str(value) else "(empty)"
         lines.append(f"- {spec.group} / {spec.name}: {display_value} ({spec.help})")
+        lines.append(f"  hint: {spec.input_hint}")
+        lines.append(f"  example: {spec.example}")
     lines.extend(["", "Host guidance:"])
     for guidance in host_guidance_lines():
         lines.append(f"- {guidance}")
@@ -1241,6 +1243,8 @@ def edit_vllm_custom_profile(profile: Any) -> Any:
         display_value = str(current) if str(current) else "(empty)"
         print(f"  [{index}] {spec.name}: {display_value}")
         print(f"      {spec.label} - {spec.help}")
+        print(f"      hint: {spec.input_hint}")
+        print(f"      example: {spec.example}")
     selected = input("  field 번호 또는 이름 > ").strip()
     field_name = selected
     if selected.isdigit():
@@ -1253,7 +1257,14 @@ def edit_vllm_custom_profile(profile: Any) -> Any:
             print(f"  - {message}")
         return updated
     current = getattr(profile, field_name, "")
-    raw_value = input(f"  {field_name} [{current}] > ").strip()
+    selected_spec = next((spec for spec in specs if spec.name == field_name), None)
+    if selected_spec:
+        print(f"  selected: {selected_spec.group} / {selected_spec.name}")
+        print(f"  help: {selected_spec.help}")
+        print(f"  hint: {selected_spec.input_hint}")
+        print(f"  example: {selected_spec.example}")
+    print(f"  new value for {field_name} [{current}]")
+    raw_value = input("  > ").strip()
     if not raw_value:
         raw_value = str(current)
     updated, messages = update_vllm_profile_field(profile, field_name, raw_value)

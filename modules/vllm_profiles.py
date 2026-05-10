@@ -71,6 +71,8 @@ class VllmProfileFieldSpec:
     group: str
     label: str
     help: str
+    input_hint: str
+    example: str
 
 
 @dataclass
@@ -142,21 +144,21 @@ def editable_vllm_profile_fields() -> list[str]:
 
 def editable_vllm_profile_field_specs() -> list[VllmProfileFieldSpec]:
     return [
-        VllmProfileFieldSpec("wrapper_path", "Runtime", "Wrapper", "vLLM wrapper executable, for example ~/bin/vllm-rocm"),
-        VllmProfileFieldSpec("model", "Model", "Model", "Hugging Face model ID or local HF/safetensors directory"),
-        VllmProfileFieldSpec("host", "Network", "Host", "127.0.0.1 local-only, Tailscale IP private, 0.0.0.0 exposed"),
-        VllmProfileFieldSpec("port", "Network", "Port", "OpenAI-compatible API port, usually 8000"),
-        VllmProfileFieldSpec("dtype", "Memory", "DType", "vLLM dtype value, usually auto"),
-        VllmProfileFieldSpec("max_model_len", "Memory", "Max model length", "Maximum context length vLLM should allocate for"),
-        VllmProfileFieldSpec("gpu_memory_utilization", "Memory", "GPU memory utilization", "Fraction between 0 and 1"),
-        VllmProfileFieldSpec("tensor_parallel_size", "Parallelism", "Tensor parallel size", "Number of GPUs used for tensor parallelism"),
-        VllmProfileFieldSpec("kv_cache_dtype", "Memory", "KV cache dtype", "auto unless you are intentionally tuning KV cache memory"),
-        VllmProfileFieldSpec("max_num_seqs", "Throughput", "Max sequences", "Optional concurrency cap; empty lets vLLM choose"),
-        VllmProfileFieldSpec("max_num_batched_tokens", "Throughput", "Max batched tokens", "Optional batching cap; empty lets vLLM choose"),
-        VllmProfileFieldSpec("vllm_cache_root", "Cache", "VLLM cache root", "Directory for vLLM cache files"),
-        VllmProfileFieldSpec("hf_home", "Cache", "HF home", "Hugging Face cache root"),
-        VllmProfileFieldSpec("transformers_cache", "Cache", "Transformers cache", "Transformers cache directory"),
-        VllmProfileFieldSpec("extra_args", "Advanced", "Extra args", "Opaque advanced vLLM serve arguments split with shlex"),
+        VllmProfileFieldSpec("wrapper_path", "Runtime", "Wrapper", "vLLM wrapper executable", "Path to an executable wrapper. Keep default unless you made another wrapper.", "~/bin/vllm-rocm"),
+        VllmProfileFieldSpec("model", "Model", "Model", "Hugging Face model ID or local HF/safetensors directory", "Use a HF model ID or a local model directory. Do not use split GGUF here.", "Qwen/Qwen2.5-0.5B-Instruct"),
+        VllmProfileFieldSpec("host", "Network", "Host", "Address the server binds to", "127.0.0.1 is local-only. Use a Tailscale IP for private LAN-style access.", "127.0.0.1"),
+        VllmProfileFieldSpec("port", "Network", "Port", "OpenAI-compatible API port", "Use 1-65535. 8000 is common; choose another free port if occupied.", "8000"),
+        VllmProfileFieldSpec("dtype", "Memory", "DType", "vLLM dtype value", "auto is the safest default. Change only when the model/backend requires it.", "auto"),
+        VllmProfileFieldSpec("max_model_len", "Memory", "Max model length", "Maximum context length vLLM should allocate for", "Larger values can use much more VRAM. Start conservative and increase after success.", "4096"),
+        VllmProfileFieldSpec("gpu_memory_utilization", "Memory", "GPU memory utilization", "Fraction of GPU memory vLLM may use", "Use a value greater than 0 and up to 1. Lower leaves more headroom for the OS/desktop.", "0.70"),
+        VllmProfileFieldSpec("tensor_parallel_size", "Parallelism", "Tensor parallel size", "Number of GPUs used for tensor parallelism", "Use 1 for a single GPU workstation.", "1"),
+        VllmProfileFieldSpec("kv_cache_dtype", "Memory", "KV cache dtype", "KV cache precision/memory setting", "auto unless you are intentionally tuning KV cache memory.", "auto"),
+        VllmProfileFieldSpec("max_num_seqs", "Throughput", "Max sequences", "Optional concurrency cap", "Leave empty to let vLLM choose. Use 1 for conservative single-user testing.", "1"),
+        VllmProfileFieldSpec("max_num_batched_tokens", "Throughput", "Max batched tokens", "Optional batching cap", "Leave empty to let vLLM choose. Match or exceed max_model_len for simple testing.", "8192"),
+        VllmProfileFieldSpec("vllm_cache_root", "Cache", "VLLM cache root", "Directory for vLLM cache files", "Use a large fast disk if available.", DEFAULT_VLLM_CACHE_ROOT),
+        VllmProfileFieldSpec("hf_home", "Cache", "HF home", "Hugging Face cache root", "Use the same cache root across tools to avoid repeated downloads.", DEFAULT_HF_HOME),
+        VllmProfileFieldSpec("transformers_cache", "Cache", "Transformers cache", "Transformers cache directory", "Usually the same as HF_HOME for this suite.", DEFAULT_TRANSFORMERS_CACHE),
+        VllmProfileFieldSpec("extra_args", "Advanced", "Extra args", "Opaque advanced vLLM serve arguments split with shlex", "Leave empty unless you know the exact vLLM serve option. Quotes are allowed.", "--served-model-name local-model"),
     ]
 
 
