@@ -115,6 +115,26 @@ def load_vllm_profile_draft(
     return _read_vllm_profile_payload(Path(profile_path))
 
 
+def delete_vllm_profile_draft(
+    *,
+    profile_id: str = "custom-draft",
+    store_root: str | Path | None = None,
+    confirmed: bool = False,
+) -> VllmProfileStoreResult:
+    profile_path = default_vllm_profile_path(profile_id, store_root=store_root)
+    if not confirmed:
+        return VllmProfileStoreResult(False, None, profile_path, ["vLLM profile draft delete cancelled: explicit confirmation is required"])
+
+    path = Path(profile_path)
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return VllmProfileStoreResult(False, None, profile_path, [f"vLLM profile draft delete failed: file not found: {profile_path}"])
+    except Exception as exc:
+        return VllmProfileStoreResult(False, None, profile_path, [f"vLLM profile draft delete failed: {exc}"])
+    return VllmProfileStoreResult(True, None, profile_path, [f"vLLM profile draft deleted: {profile_path}"])
+
+
 def _read_vllm_profile_payload(path: Path) -> VllmProfileStoreResult:
     profile_path = str(path.expanduser())
     try:

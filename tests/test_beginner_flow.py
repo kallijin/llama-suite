@@ -625,6 +625,23 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertFalse(missing.ok)
         self.assertIn("does not exist", "\n".join(missing.messages))
 
+    def test_vllm_profile_draft_store_deletes_only_with_confirmation(self) -> None:
+        from modules.vllm_profile_store import delete_vllm_profile_draft, load_vllm_profile_draft, save_vllm_profile_draft
+        from modules.vllm_profiles import VllmProfile
+
+        with TemporaryDirectory() as directory:
+            save_vllm_profile_draft(VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct"), profile_id="smoke", store_root=directory)
+            cancelled = delete_vllm_profile_draft(profile_id="smoke", store_root=directory, confirmed=False)
+            still_loaded = load_vllm_profile_draft(profile_id="smoke", store_root=directory)
+            deleted = delete_vllm_profile_draft(profile_id="smoke", store_root=directory, confirmed=True)
+            missing = load_vllm_profile_draft(profile_id="smoke", store_root=directory)
+
+        self.assertFalse(cancelled.ok)
+        self.assertIn("explicit confirmation", "\n".join(cancelled.messages))
+        self.assertTrue(still_loaded.ok, still_loaded.messages)
+        self.assertTrue(deleted.ok, deleted.messages)
+        self.assertFalse(missing.ok)
+
     def test_vllm_script_preview_builds_shell_script_for_valid_profile(self) -> None:
         from modules.vllm_profiles import VllmProfile
         from modules.vllm_script_builder import build_vllm_script_preview
@@ -1183,6 +1200,67 @@ class BeginnerFlowTests(unittest.TestCase):
         mocked_load.assert_not_called()
         self.assertIs(loaded, profile)
         self.assertEqual(loaded_id, "custom-draft")
+
+    def test_vllm_profile_menu_can_delete_saved_custom_profile_from_list(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profile_store import VllmProfileListResult, VllmProfileStoreResult, VllmStoredProfileInfo
+        from modules.vllm_profiles import VllmProfile
+        from unittest.mock import Mock, patch
+
+        profile = VllmProfile(model="current-model")
+        list_result = VllmProfileListResult(
+            True,
+            [VllmStoredProfileInfo("30b-q4", "/tmp/30b-q4.json", "Local/ThirtyB", [])],
+            "/tmp/profiles",
+            [],
+        )
+        delete_result = VllmProfileStoreResult(True, None, "/tmp/30b-q4.json", ["deleted"])
+        mocked_delete = Mock(return_value=delete_result)
+        stdout = StringIO()
+
+        with (
+            patch.object(launcher, "list_vllm_profile_drafts", Mock(return_value=list_result)),
+            patch.object(launcher, "delete_vllm_profile_draft", mocked_delete),
+            patch("builtins.input", side_effect=["11", "1", "delete"]),
+            contextlib.redirect_stdout(stdout),
+        ):
+            returned_profile, returned_id = launcher.show_vllm_profile_menu(profile, "30b-q4", return_profile_id=True)
+
+        mocked_delete.assert_called_once_with(profile_id="30b-q4", confirmed=True)
+        self.assertIs(returned_profile, profile)
+        self.assertEqual(returned_id, "custom-draft")
+        self.assertIn("[11] delete saved custom profile from list", stdout.getvalue())
+
+    def test_vllm_profile_menu_delete_cancel_does_not_call_delete(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profile_store import VllmProfileListResult, VllmStoredProfileInfo
+        from modules.vllm_profiles import VllmProfile
+        from unittest.mock import Mock, patch
+
+        profile = VllmProfile(model="current-model")
+        list_result = VllmProfileListResult(
+            True,
+            [VllmStoredProfileInfo("30b-q4", "/tmp/30b-q4.json", "Local/ThirtyB", [])],
+            "/tmp/profiles",
+            [],
+        )
+        mocked_delete = Mock()
+
+        with (
+            patch.object(launcher, "list_vllm_profile_drafts", Mock(return_value=list_result)),
+            patch.object(launcher, "delete_vllm_profile_draft", mocked_delete),
+            patch("builtins.input", side_effect=["11", "1", "no"]),
+            contextlib.redirect_stdout(StringIO()),
+        ):
+            returned_profile, returned_id = launcher.show_vllm_profile_menu(profile, "30b-q4", return_profile_id=True)
+
+        mocked_delete.assert_not_called()
+        self.assertIs(returned_profile, profile)
+        self.assertEqual(returned_id, "30b-q4")
 
     def test_vllm_profile_menu_can_preview_custom_script(self) -> None:
         launcher = load_launcher_module()
