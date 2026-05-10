@@ -103,6 +103,25 @@ vLLM tuning language:
 
 The same UI may expose both families later, but profile schemas, validation, and command generation must remain backend-specific.
 
+## Hermes + vLLM runtime findings
+
+Hermes Agent integration is stricter than a plain OpenAI-compatible API smoke test.
+
+Observed with local `qwen2.5-14b-awq`:
+
+- vLLM API smoke can pass while Hermes Agent still fails.
+- Hermes sends `tool_choice=auto`; vLLM must be launched with tool-call support, for example `--enable-auto-tool-choice --tool-call-parser hermes`.
+- Hermes requires `model.context_length` metadata of at least 64K, and also checks auxiliary compression context metadata.
+- Metadata override alone is not enough. The actual vLLM `max_model_len` must be large enough for the Hermes system/tool prompt.
+- 2048 and 8192 contexts were not enough for Hermes Agent smoke in this environment.
+- 16384 context did not fit the current 2x16G VRAM state for the 14B AWQ profile with `gpu_memory_utilization=0.55`.
+
+Practical conclusion:
+
+- Treat `vLLM API smoke passed` and `Hermes Agent smoke passed` as separate readiness levels.
+- Do not assume a model that serves `/v1/chat/completions` is large-context enough for Hermes Agent.
+- Future UI should show Hermes readiness as an additional layer: API reachable, tool parser enabled, Hermes context metadata synced, and actual prompt context large enough.
+
 ## vLLM autonomous expansion boundary
 
 Stable baseline:
