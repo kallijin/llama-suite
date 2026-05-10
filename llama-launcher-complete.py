@@ -1654,6 +1654,46 @@ def initial_vllm_profile_selection() -> tuple[Any, str]:
     return default_vllm_profile(), "custom-draft"
 
 
+def choose_llama_cpp_menu_action() -> str:
+    print("\n  ── LLM / llama.cpp 세팅 ──")
+    print("  [1] 불러오기")
+    print("  [2] 모델 변경")
+    print("  [3] 설정 변경 / 현재 설정 저장")
+    print("  [4] llama.cpp 파라미터")
+    print("  [5] llama.cpp 최종 미리보기")
+    print("  [6] llama.cpp 1회 실행")
+    print("  [7] llama.cpp 새 스크립트 생성")
+    print("  [8] 스크립트 관리")
+    choice = input("  선택 > ").strip()
+    return {
+        "1": "L",
+        "2": "M",
+        "3": "A",
+        "4": "K",
+        "5": "P",
+        "6": "O",
+        "7": "G",
+        "8": "S",
+    }.get(choice, "")
+
+
+def choose_vllm_menu_action() -> str:
+    print("\n  ── vLLM 세팅 ──")
+    print("  [1] vLLM profile")
+    print("  [2] vLLM API smoke")
+    print("  [3] vLLM smoke launch")
+    print("  [4] vLLM latest run status/log/stop")
+    print("  [5] vLLM doctor")
+    choice = input("  선택 > ").strip()
+    return {
+        "1": "B",
+        "2": "W",
+        "3": "Y",
+        "4": "Z",
+        "5": "V",
+    }.get(choice, "")
+
+
 # ─── 메인 루프 ─────────────────────────────────────────
 
 def main() -> None:
@@ -1693,23 +1733,13 @@ def main() -> None:
         existing_scripts = list_scripts()
         script_info = f" ({len(existing_scripts)}개)" if existing_scripts else ""
 
-        print("\n  [L] 불러오기")
-        print("  [M] 모델 변경")
-        print("  [A] 설정 변경 / 현재 설정 저장")
-        print("  [K] llama.cpp 파라미터")
-        print("  [B] vLLM profile")
-        print("  [W] vLLM API smoke")
-        print("  [Y] vLLM smoke launch")
-        print("  [Z] vLLM latest run status/log/stop")
-        print("  [P] llama.cpp 최종 미리보기")
-        print("  [O] llama.cpp 1회 실행")
-        print("  [G] llama.cpp 새 스크립트 생성")
+        print("\n  [LL] LLM / llama.cpp 세팅")
+        print("  [VL] vLLM 세팅")
         print(f"  [S] 스크립트 관리{script_info}")
         print("  [E] Hermes 등록")
         print("  [C] OpenClaw 등록")
         print("  [H] 서버 상태 확인")
         print("  [I] 시스템 정보")
-        print("  [V] vLLM doctor")
         print("  [T] no-thinking 채팅 테스트")
         print("  [R] 모델 목록 새로고침")
         print("  [Q] 취소\n")
@@ -1728,6 +1758,20 @@ def main() -> None:
         if upper == "Q":
             print("\n👋 안녕!\n")
             break
+
+        if upper == "LL":
+            upper = choose_llama_cpp_menu_action()
+            if not upper:
+                print("  취소했습니다.")
+                pause()
+                continue
+
+        if upper == "VL":
+            upper = choose_vllm_menu_action()
+            if not upper:
+                print("  취소했습니다.")
+                pause()
+                continue
 
         if upper == "L":
             print("\n  [L] 불러오기")

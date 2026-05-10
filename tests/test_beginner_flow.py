@@ -231,18 +231,39 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("실행 예정 요약", completed.stdout)
         self.assertIn("Recent vLLM run:", completed.stdout)
         self.assertIn("Selected vLLM profile: custom-draft / (empty model) / http://127.0.0.1:8000/v1", completed.stdout)
-        self.assertIn("[K] llama.cpp 파라미터", completed.stdout)
-        self.assertIn("[P] llama.cpp 최종 미리보기", completed.stdout)
-        self.assertIn("[O] llama.cpp 1회 실행", completed.stdout)
-        self.assertIn("[G] llama.cpp 새 스크립트 생성", completed.stdout)
-        self.assertIn("[B] vLLM profile", completed.stdout)
-        self.assertIn("[W] vLLM API smoke", completed.stdout)
-        self.assertIn("[Y] vLLM smoke launch", completed.stdout)
-        self.assertIn("[Z] vLLM latest run status/log/stop", completed.stdout)
-        self.assertIn("[V] vLLM doctor", completed.stdout)
-        self.assertIn("[A] 설정 변경 / 현재 설정 저장", completed.stdout)
+        self.assertIn("[LL] LLM / llama.cpp 세팅", completed.stdout)
+        self.assertIn("[VL] vLLM 세팅", completed.stdout)
+        self.assertNotIn("[K] llama.cpp 파라미터", completed.stdout)
+        self.assertNotIn("[P] llama.cpp 최종 미리보기", completed.stdout)
+        self.assertNotIn("[O] llama.cpp 1회 실행", completed.stdout)
+        self.assertNotIn("[G] llama.cpp 새 스크립트 생성", completed.stdout)
+        self.assertNotIn("[B] vLLM profile", completed.stdout)
+        self.assertNotIn("[W] vLLM API smoke", completed.stdout)
+        self.assertNotIn("[Y] vLLM smoke launch", completed.stdout)
+        self.assertNotIn("[Z] vLLM latest run status/log/stop", completed.stdout)
+        self.assertNotIn("[V] vLLM doctor", completed.stdout)
         self.assertNotIn("\n  [W] 현재 설정 저장", completed.stdout)
         self.assertNotIn("[X] 새 스크립트 생성 후 실행", completed.stdout)
+
+    def test_main_backend_submenus_dispatch_to_existing_actions(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from unittest.mock import patch
+
+        stdout = StringIO()
+        with patch("builtins.input", side_effect=["4"]), contextlib.redirect_stdout(stdout):
+            llama_action = launcher.choose_llama_cpp_menu_action()
+        with patch("builtins.input", side_effect=["5"]), contextlib.redirect_stdout(stdout):
+            vllm_action = launcher.choose_vllm_menu_action()
+
+        self.assertEqual(llama_action, "K")
+        self.assertEqual(vllm_action, "V")
+        output = stdout.getvalue()
+        self.assertIn("LLM / llama.cpp 세팅", output)
+        self.assertIn("[4] llama.cpp 파라미터", output)
+        self.assertIn("vLLM 세팅", output)
+        self.assertIn("[5] vLLM doctor", output)
 
     def test_recent_vllm_run_summary_line_renders_no_record(self) -> None:
         launcher = load_launcher_module()
