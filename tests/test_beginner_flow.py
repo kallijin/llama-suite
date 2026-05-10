@@ -697,6 +697,7 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(data["base_url"], "http://127.0.0.1:8000/v1")
         self.assertEqual(data["model"], "served-qwen")
         self.assertEqual(data["context_length"], 64000)
+        self.assertEqual(data["auxiliary"]["compression"]["context_length"], 64000)
         self.assertEqual(data["temperature"], 0.2)
 
     def test_hermes_vllm_sync_preserves_nested_model_block(self) -> None:
@@ -714,6 +715,12 @@ class BeginnerFlowTests(unittest.TestCase):
             "providers:\n"
             "  other:\n"
             "    model: should-not-change\n"
+            "auxiliary:\n"
+            "  compression:\n"
+            "    provider: auto\n"
+            "    context_length: 2048\n"
+            "  vision:\n"
+            "    model: vision-model\n"
         )
 
         updated = update_hermes_config_text(
@@ -730,6 +737,8 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("  context_length: 64000", updated)
         self.assertIn("  name: served-qwen", updated)
         self.assertIn("    model: should-not-change", updated)
+        self.assertIn("  compression:\n    provider: auto\n    context_length: 64000", updated)
+        self.assertIn("  vision:\n    model: vision-model", updated)
 
     def test_hermes_vllm_smoke_plan_uses_ready_latest_run(self) -> None:
         from modules.hermes_runner import build_hermes_vllm_smoke_plan

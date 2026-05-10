@@ -129,6 +129,15 @@ def update_hermes_config_text(original: str, *, base_url: str, model_id: str, co
         data["base_url"] = base_url
         data["model"] = model_id
         data["context_length"] = HERMES_MIN_CONTEXT_LENGTH
+        auxiliary = data.setdefault("auxiliary", {})
+        if not isinstance(auxiliary, dict):
+            auxiliary = {}
+            data["auxiliary"] = auxiliary
+        compression = auxiliary.setdefault("compression", {})
+        if not isinstance(compression, dict):
+            compression = {}
+            auxiliary["compression"] = compression
+        compression["context_length"] = HERMES_MIN_CONTEXT_LENGTH
         return json.dumps(data, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
 
     lines = original.splitlines()
@@ -143,6 +152,7 @@ def update_hermes_config_text(original: str, *, base_url: str, model_id: str, co
             updated_lines.append(f"model: {model_id}")
         if not seen_context:
             updated_lines.append(f"context_length: {HERMES_MIN_CONTEXT_LENGTH}")
+    updated_lines = _ensure_yamlish_auxiliary_compression_context(updated_lines)
     return "\n".join(updated_lines) + "\n"
 
 
@@ -212,6 +222,70 @@ def _update_yamlish_lines(lines: list[str], *, base_url: str, model_id: str) -> 
         updated.append(f"{root_model_indent}context_length: {HERMES_MIN_CONTEXT_LENGTH}")
         seen_context = True
     return updated, seen_base, seen_model, seen_context
+
+
+def _ensure_yamlish_auxiliary_compression_context(lines: list[str]) -> list[str]:
+    updated: list[str] = []
+    in_auxiliary = False
+    in_compression = False
+    saw_auxiliary = False
+    saw_compression = False
+    saw_context = False
+
+    def close_compression_block() -> None:
+        nonlocal in_compression, saw_context
+        if in_compression and not saw_context:
+            updated.append(f"    context_length: {HERMES_MIN_CONTEXT_LENGTH}")
+            saw_context = True
+        in_compression = False
+
+    def close_auxiliary_block() -> None:
+        nonlocal in_auxiliary, saw_compression, saw_context
+        close_compression_block()
+        if in_auxiliary and not saw_compression:
+            updated.append("  compression:")
+            updated.append(f"    context_length: {HERMES_MIN_CONTEXT_LENGTH}")
+            saw_compression = True
+            saw_context = True
+        in_auxiliary = False
+
+    for line in lines:
+        stripped = line.lstrip()
+        indent = line[: len(line) - len(stripped)]
+        if not indent and stripped:
+            if in_auxiliary and stripped != "auxiliary:":
+                close_auxiliary_block()
+            if stripped == "auxiliary:":
+                in_auxiliary = True
+                saw_auxiliary = True
+                saw_compression = False
+                saw_context = False
+                updated.append(line)
+                continue
+        if in_auxiliary and indent == "  " and stripped:
+            if in_compression and stripped != "compression:":
+                close_compression_block()
+            if stripped == "compression:":
+                in_compression = True
+                saw_compression = True
+                saw_context = False
+                updated.append(line)
+                continue
+        if in_compression and indent == "    " and stripped.startswith("context_length:"):
+            updated.append(f"{indent}context_length: {HERMES_MIN_CONTEXT_LENGTH}")
+            saw_context = True
+            continue
+        updated.append(line)
+
+    if in_auxiliary:
+        close_auxiliary_block()
+    if not saw_auxiliary:
+        if updated and updated[-1].strip():
+            updated.append("")
+        updated.append("auxiliary:")
+        updated.append("  compression:")
+        updated.append(f"    context_length: {HERMES_MIN_CONTEXT_LENGTH}")
+    return updated
 
 
 def _empty_plan(messages: list[str], *, config_path: str | None = None) -> HermesVllmSyncPlan:
