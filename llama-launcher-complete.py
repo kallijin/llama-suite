@@ -459,24 +459,35 @@ def save_working_draft(cfg: dict[str, Any], draft: dict[str, Any]) -> tuple[bool
     return True, "현재 설정을 저장했습니다.", updated
 
 
+def safe_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def safe_dict(value: Any) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
 def draft_from_config(cfg: dict[str, Any], models: dict[str, str]) -> dict[str, Any]:
     model_name = cfg.get("last_model") if cfg.get("last_model") in models else None
     model_path = models.get(model_name) if model_name else None
     return {
         "model_name": model_name,
         "model_path": model_path,
-        "ctx_size": int(cfg.get("ctx_size", 95000)),
+        "ctx_size": safe_int(cfg.get("ctx_size", 95000), 95000),
         "host": cfg.get("host", "127.0.0.1"),
-        "port": int(cfg.get("port", 8080)),
+        "port": safe_int(cfg.get("port", 8080), 8080),
         "llama_bin": cfg.get("llama_bin"),
         "jinja": bool(cfg.get("jinja", True)),
         "alias_by_file": bool(cfg.get("alias_by_file", True)),
         "reasoning": cfg.get("reasoning", "off"),
-        "reasoning_budget": int(cfg.get("reasoning_budget", 0)),
+        "reasoning_budget": safe_int(cfg.get("reasoning_budget", 0), 0),
         "enable_thinking": bool(cfg.get("enable_thinking", False)),
         "extra_args": normalize_extra_args(cfg.get("extra_args", [])),
         "custom_args": normalize_extra_args(cfg.get("custom_args", [])),
-        "param_sources": dict(cfg.get("param_sources", {})),
+        "param_sources": safe_dict(cfg.get("param_sources", {})),
         "dirty": False,
         "loaded_from": "defaults/profile",
         "status": "저장된 profile/config에서 불러온 값입니다.",
@@ -487,18 +498,18 @@ def draft_snapshot(draft: dict[str, Any]) -> dict[str, Any]:
     return {
         "model_name": draft.get("model_name"),
         "model_path": draft.get("model_path"),
-        "ctx_size": int(draft.get("ctx_size", 95000)),
+        "ctx_size": safe_int(draft.get("ctx_size", 95000), 95000),
         "host": draft.get("host", "127.0.0.1"),
-        "port": int(draft.get("port", 8080)),
+        "port": safe_int(draft.get("port", 8080), 8080),
         "llama_bin": draft.get("llama_bin"),
         "jinja": bool(draft.get("jinja", True)),
         "alias_by_file": bool(draft.get("alias_by_file", True)),
         "reasoning": draft.get("reasoning", "off"),
-        "reasoning_budget": int(draft.get("reasoning_budget", 0)),
+        "reasoning_budget": safe_int(draft.get("reasoning_budget", 0), 0),
         "enable_thinking": bool(draft.get("enable_thinking", False)),
         "extra_args": normalize_extra_args(draft.get("extra_args", [])),
         "custom_args": normalize_extra_args(draft.get("custom_args", [])),
-        "param_sources": dict(draft.get("param_sources", {})),
+        "param_sources": safe_dict(draft.get("param_sources", {})),
     }
 
 

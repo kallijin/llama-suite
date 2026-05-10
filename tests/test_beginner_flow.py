@@ -207,6 +207,24 @@ class BeginnerFlowTests(unittest.TestCase):
 
         self.assertIn("OpenClaw inspection: 활성화 준비됨", text)
 
+    def test_draft_from_config_tolerates_bad_startup_values(self) -> None:
+        launcher = load_launcher_module()
+
+        draft = launcher.draft_from_config(
+            {
+                "ctx_size": "bad",
+                "port": "bad",
+                "reasoning_budget": "bad",
+                "param_sources": ["bad"],
+            },
+            {},
+        )
+
+        self.assertEqual(draft["ctx_size"], 95000)
+        self.assertEqual(draft["port"], 8080)
+        self.assertEqual(draft["reasoning_budget"], 0)
+        self.assertEqual(draft["param_sources"], {})
+
     def test_launcher_starts_without_models_or_valid_llama_bin(self) -> None:
         with TemporaryDirectory() as home:
             model_dir = Path(home) / "models"
@@ -3013,6 +3031,37 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(restored["custom_args"], ["--no-warmup"])
         self.assertTrue(restored["dirty"])
         self.assertIn("마지막 실행 기록", restored["status"])
+
+    def test_last_run_record_tolerates_bad_numeric_values(self) -> None:
+        launcher = load_launcher_module()
+        with TemporaryDirectory() as directory:
+            record_path = Path(directory) / "last-run.json"
+            model_path = Path(directory) / "Dummy-7B.gguf"
+            model_path.write_text("")
+            record_path.write_text(
+                json.dumps(
+                    {
+                        "schema": "llama-suite-last-run-v1",
+                        "saved_at": "2026-05-11T00:00:00",
+                        "draft": {
+                            "model_name": "Dummy-7B",
+                            "model_path": str(model_path),
+                            "ctx_size": "bad",
+                            "port": "bad",
+                            "reasoning_budget": "bad",
+                            "param_sources": ["bad"],
+                        },
+                    }
+                )
+            )
+            restored: dict = {}
+            loaded, message = launcher.load_last_run_record({"Dummy-7B": str(model_path)}, restored, path=record_path)
+
+        self.assertTrue(loaded, message)
+        self.assertEqual(restored["ctx_size"], 95000)
+        self.assertEqual(restored["port"], 8080)
+        self.assertEqual(restored["reasoning_budget"], 0)
+        self.assertEqual(restored["param_sources"], {})
 
 
 if __name__ == "__main__":
