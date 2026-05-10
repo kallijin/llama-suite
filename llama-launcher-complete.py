@@ -1479,6 +1479,7 @@ def print_vllm_launch_result(result: Any) -> None:
     print(f"  run_id: {result.run_id or '-'}")
     print(f"  log_path: {result.log_path or '-'}")
     print(f"  record_path: {result.record_path or '-'}")
+    print(f"  profile_path: {getattr(result, 'profile_path', None) or '-'}")
     print(f"  host: {result.host or '-'}")
     print(f"  port: {result.port if result.port is not None else '-'}")
     if result.command:

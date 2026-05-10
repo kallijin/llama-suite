@@ -1764,6 +1764,37 @@ class BeginnerFlowTests(unittest.TestCase):
         mocked_launch.assert_called_once_with(profile, confirmed=False, preset_id="30b-q4", profile_path=launcher.default_vllm_profile_path("30b-q4"))
         self.assertIs(result, profile)
 
+    def test_vllm_launch_result_prints_profile_path(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+
+        launch_result = type(
+            "Launch",
+            (),
+            {
+                "ok": True,
+                "preset_id": "30b-q4",
+                "pid": 123,
+                "run_id": "vllm-30b-q4-20260511-010203",
+                "log_path": "/tmp/vllm.log",
+                "record_path": "/tmp/vllm.json",
+                "profile_path": "/tmp/profiles/30b-q4.json",
+                "host": "127.0.0.1",
+                "port": 8000,
+                "command": ["/home/kalijin/bin/vllm-rocm", "serve", "local-model"],
+                "messages": ["started"],
+            },
+        )()
+        stdout = StringIO()
+
+        with contextlib.redirect_stdout(stdout):
+            launcher.print_vllm_launch_result(launch_result)
+
+        output = stdout.getvalue()
+        self.assertIn("profile_path: /tmp/profiles/30b-q4.json", output)
+        self.assertIn("record_path: /tmp/vllm.json", output)
+
     def test_vllm_smoke_launch_preview_is_not_read_only_profile_text(self) -> None:
         launcher = load_launcher_module()
         from modules.vllm_profiles import VllmPreflightCheck
