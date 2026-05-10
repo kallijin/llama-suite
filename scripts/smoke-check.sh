@@ -26,6 +26,7 @@ modules = [
     "modules.script_builder",
     "modules.system_info",
     "modules.backend_inspector",
+    "modules.vllm_doctor",
 ]
 
 for name in modules:

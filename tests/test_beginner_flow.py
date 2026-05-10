@@ -228,9 +228,58 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("[E] Hermes 등록", completed.stdout)
         self.assertIn("Hermes 설정 변경: 비활성화", completed.stdout)
         self.assertIn("실행 예정 요약", completed.stdout)
+        self.assertIn("[V] vLLM doctor", completed.stdout)
         self.assertIn("[A] 설정 변경 / 현재 설정 저장", completed.stdout)
         self.assertNotIn("\n  [W] 현재 설정 저장", completed.stdout)
         self.assertNotIn("[X] 새 스크립트 생성 후 실행", completed.stdout)
+
+    def test_vllm_doctor_reports_missing_wrapper_and_python(self) -> None:
+        from modules.vllm_doctor import run_vllm_doctor
+
+        with TemporaryDirectory() as directory:
+            missing_wrapper = str(Path(directory) / "vllm-rocm")
+            missing_python = str(Path(directory) / "python")
+            report = run_vllm_doctor(wrapper_path=missing_wrapper, python_path=missing_python, env={})
+
+        summaries = "\n".join(check.summary for check in report.checks)
+        self.assertFalse(report.ok)
+        self.assertIn("missing:", summaries)
+
+    def test_vllm_doctor_uses_wrapper_for_version_and_python_for_torch_hip(self) -> None:
+        from modules.vllm_doctor import run_vllm_doctor
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            wrapper = root / "vllm-rocm"
+            python = root / "python"
+            marker = root / "python-args.txt"
+
+            wrapper.write_text("#!/usr/bin/env bash\nprintf '0.20.2+rocm721\\n'\n")
+            wrapper.chmod(0o755)
+            python.write_text(
+                "#!/usr/bin/env bash\n"
+                "printf '%s\\n' \"$*\" > \"$VLLM_TEST_MARKER\"\n"
+                "case \"$LD_LIBRARY_PATH\" in\n"
+                "  *rocm721*) ;;\n"
+                "  *) exit 7 ;;\n"
+                "esac\n"
+                "printf '%s\\n' '{\"torch\":\"2.10.0+fake\",\"hip\":\"7.2.53211\",\"cuda_available\":true,\"device_count\":2,\"device0\":\"AMD Radeon RX 9060 XT\"}'\n"
+            )
+            python.chmod(0o755)
+
+            report = run_vllm_doctor(
+                wrapper_path=str(wrapper),
+                python_path=str(python),
+                env={"VLLM_TEST_MARKER": str(marker)},
+            )
+            python_args = marker.read_text()
+
+        self.assertTrue(report.ok)
+        summaries = "\n".join(check.summary for check in report.checks)
+        self.assertIn("0.20.2+rocm721", summaries)
+        self.assertIn("hip=7.2.53211", summaries)
+        self.assertIn("device0=AMD Radeon RX 9060 XT", summaries)
+        self.assertIn("-c", python_args)
 
     def test_script_generation_action_is_unified(self) -> None:
         launcher = load_launcher_module()

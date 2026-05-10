@@ -38,6 +38,7 @@ from modules.probes import quick_no_think_test, show_status
 from modules.runner_tmux import get_running_model, get_running_servers, run_script
 from modules.script_builder import command_preview, generate_script, parse_generated_script, resolve_ctx_size
 from modules.system_info import collect_system_info
+from modules.vllm_doctor import format_vllm_doctor_report, run_vllm_doctor
 
 
 # ─── 설정 ──────────────────────────────────────────────
@@ -1030,6 +1031,14 @@ def show_system_info() -> None:
         print("  warnings: none")
 
 
+def show_vllm_doctor() -> None:
+    print("\n  ── vLLM doctor ──")
+    print("  모델은 실행하지 않고 wrapper/version/Torch HIP 상태만 확인합니다.")
+    report = run_vllm_doctor()
+    for line in format_vllm_doctor_report(report).splitlines():
+        print(f"  {line}" if line else "")
+
+
 # ─── 메인 루프 ─────────────────────────────────────────
 
 def main() -> None:
@@ -1078,6 +1087,7 @@ def main() -> None:
         print("  [C] OpenClaw 등록")
         print("  [H] 서버 상태 확인")
         print("  [I] 시스템 정보")
+        print("  [V] vLLM doctor")
         print("  [T] no-thinking 채팅 테스트")
         print("  [R] 모델 목록 새로고침")
         print("  [Q] 취소\n")
@@ -1217,6 +1227,11 @@ def main() -> None:
 
         if upper == "I":
             show_system_info()
+            pause()
+            continue
+
+        if upper == "V":
+            show_vllm_doctor()
             pause()
             continue
 
