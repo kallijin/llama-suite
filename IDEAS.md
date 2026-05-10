@@ -141,33 +141,47 @@ This boundary marks where the project moved from vLLM foundation MVP into custom
 
 ## 분류
 
-### Now
-지금 구현해도 되는 작고 안전한 것.
+### Startup-critical
+기동과 기본 운영을 막는 문제. 작게 재현하고 먼저 고친다.
 
-- v0.4-scope-freeze 이후 기준에 맞춰 README와 IDEAS의 현재 상태, 구현됨/예정/보류 구분, public release 여부를 명확히 정리한다.
+- 런처가 시작되지 않거나 main menu에 들어가지 못하는 문제.
+- 저장된 vLLM profile JSON이 깨져 profile 화면을 열 수 없는 문제.
+- latest run record가 손상되어 status/log/stop이 예외를 내는 문제.
+- launch 전 validation/preflight/confirmation이 우회되는 문제.
+- root 상태에서 제한 메뉴 접근 시 경고 메시지가 너무 빨리 지나가는 문제는 먼저 재현 여부를 확인한다. 재현되면 사용자가 읽을 수 있도록 확인 입력을 받거나 메뉴 복귀 전 대기 처리를 검토한다.
+
+### Small safe next
+기능 가치를 높이지만 backend 경계를 크게 흔들지 않는 것.
+
+- vLLM latest run/status/log/stop/API smoke의 용어를 smoke 전용처럼 보이지 않게 계속 정리한다.
+- vLLM profile 입력 UX를 초보자 기준으로 다듬는다. 설명은 짧게, 입력 필드는 명확하게, validation은 바로 보이게 한다.
+- vLLM local HF/safetensors 모델 디렉터리에 tokenizer 관련 파일이 있는지 문법 수준으로 확인하고 경고한다. tokenizer를 다운로드하거나 생성하지 않는다.
 - 이미 구현된 메뉴와 모듈이 현재 로컬 환경에서 실행 가능한지 확인하고, 결과만 문서나 기록으로 남긴다.
-- root 상태에서 제한 메뉴 접근 시 경고 메시지가 너무 빨리 지나가는 문제는 먼저 재현 여부를 확인한다. 재현 확인 전에는 바로 고치지 않는다.
-- py_compile, git status, git diff처럼 코드 변경 없이 가능한 검증 명령을 수행한다. 일부는 `scripts/smoke-check.sh`로 실현했다.
+- py_compile, unittest, smoke-check처럼 코드 변경 없이 가능한 검증 명령을 계속 기본 검증 루프로 유지한다.
 
-### Next
-곧 필요하지만 설계가 먼저 필요한 것.
+### Needs design / larger coding
+필요하지만 전체 구조를 건드릴 수 있으므로 설계 후 단계적으로 한다.
 
-- 핵심 우선순위: GGUF 모델이 실제 코딩/도구 사용에 적합한지 검증하고 보여주는 방식을 설계한다. direct tool-call, Hermes tool-call, chat template, reasoning 설정, 간단한 coding command intent 결과를 분리해서 표시하고, profiles 기록과 연결한다.
-- root 상태에서 실행 후 스크립트 관리 등 제한 메뉴로 접근했을 때 경고 메시지가 약 0.1초 만에 지나가 진입이 안 되는 버그처럼 보이는 문제는 재현 확인이 먼저 필요하다. 재현되면 경고 후 사용자가 읽을 수 있도록 확인 입력을 받거나 메뉴로 돌아가기 전 대기 처리를 검토한다.
-- 런처가 떠 있는 동안 Hugging Face 등에서 새 모델을 다운로드한 뒤, 이를 반영할 마땅한 메뉴 흐름이 부족하다. 모델 목록 새로고침, 모델 디렉터리 재스캔, 새 모델 프로필 생성, 실행 스크립트 생성까지 이어지는 수동 메뉴 흐름을 고려한다.
-- 모델 기본 지식 파일을 만들어 모델 선택/검색 시 초기 파라미터 후보를 제공하는 방안을 고려한다. 모델명, 버전, 계열, 출시 기준값, 일반 사용 파라미터, 코딩용 파라미터, 추론용 파라미터, chat template/tool-call/reasoning 힌트를 담고, 정확한 정보가 없으면 가까운 계열/버전의 값을 낮은 신뢰도 후보로 제시한다. 이 값은 로컬 모델이나 사용자의 판단을 돕는 정비 수첩이지 정답이 아니며, 자동 적용하지 않고 최종 선택은 사용자에게 맡긴다.
+- 공통 action layer를 backend-aware로 정리한다. parameters, preview, script generation, run은 backend-specific handler로 dispatch되어야 한다.
+- llama.cpp도 vLLM과 같은 run record 구조로 정리한다. 그 전까지 `Recent engine` 같은 전체 엔진 요약 문구는 쓰지 않는다.
+- CLI control `--json`과 MCP adapter는 TUI와 분리된 control surface가 생긴 뒤 추가한다.
+- 모델 기본 지식 파일을 만들어 모델 선택/검색 시 초기 파라미터 후보를 제공하는 방안을 고려한다. 이 값은 정답이 아니라 정비 수첩이며 자동 적용하지 않는다.
+- GGUF 모델이 실제 코딩/도구 사용에 적합한지 검증하고 보여주는 방식을 설계한다. direct tool-call, Hermes tool-call, chat template, reasoning 설정, 간단한 coding command intent 결과를 분리해서 표시한다.
 
-### Later
-좋지만 지금 하면 프로젝트가 커지는 것.
+### Deferred
+좋지만 기동과 운영 안정화 이후로 미룬다.
 
-- 언어장벽을 넘기 위한 유니코드화.
+- 언어장벽을 넘기 위한 광범위한 유니코드화.
+- tmux/WezTerm layout generator. 프로세스와 로그 관리 표준화가 먼저이고, terminal workspace 생성은 선택적 편의 기능이다.
+- Rust shell. Python core가 안정된 뒤 조종석 역할로 검토한다.
 
-### Dangerous
-재밌지만 시스템을 망가뜨릴 수 있는 것.
+### Dangerous / manual approval
+재밌지만 시스템을 망가뜨릴 수 있거나 비용이 큰 것.
 
 - `resolv.conf` 등 네트워크 설정을 참고해 endpoint 설정을 자동 추정하는 방안. 네트워크/시스템 경로 탐색이므로 fuel limit과 수동 승인 없이는 구현하지 않는다.
 - 모델 디렉터리 검색 메뉴를 추가하는 방안. 기존 llama.cpp/backend discovery 계열 탐색 모듈과 연동하거나 별도 로직으로 만들 수 있지만, 대용량 경로 탐색이므로 수동 선택 root와 fuel limit 없이는 구현하지 않는다.
 - 모든 세팅을 완료한 뒤 런처에서 OpenCode, Aider, Hermes Agent 같은 외부 에이전트에 파라미터를 넘기고 실행시키는 메뉴를 추가하는 방안. 외부 프로세스 실행 기능이므로 dry-run으로 실행 명령을 먼저 보여주고, 수동 승인 없이는 실행하지 않는다.
+- vLLM 20B~40B급 이상 모델 launch, model download, GGUF launch, parallel benchmark는 명시 승인을 받은 뒤 별도 검증 루프로만 진행한다.
 
 ### Rejected
 철학에 맞지 않아 버린 것.
