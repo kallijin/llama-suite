@@ -748,6 +748,35 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(loaded.profile.to_dict(), profile.to_dict())
         self.assertEqual(json.loads(second_preview), json.loads(first_preview))
 
+    def test_vllm_30b_template_draft_save_load_validate_and_command_preview(self) -> None:
+        from modules.vllm_profile_store import load_vllm_profile_draft, save_vllm_profile_draft
+        from modules.vllm_profiles import build_vllm_command, local_30b_q4_vllm_profile, validate_vllm_profile
+
+        profile = local_30b_q4_vllm_profile()
+        profile_id = "draft-from-template-30b-q4-local"
+
+        with TemporaryDirectory() as directory:
+            saved = save_vllm_profile_draft(profile, profile_id=profile_id, store_root=directory)
+            loaded = load_vllm_profile_draft(profile_id=profile_id, store_root=directory)
+            assert loaded.profile is not None
+            command, messages = build_vllm_command(loaded.profile)
+
+        self.assertTrue(saved.ok, saved.messages)
+        self.assertTrue(loaded.ok, loaded.messages)
+        self.assertEqual(loaded.profile_id, profile_id)
+        self.assertEqual(loaded.profile.to_dict(), profile.to_dict())
+        self.assertEqual(validate_vllm_profile(loaded.profile), [])
+        self.assertEqual(messages, [])
+        self.assertIsNotNone(command)
+        assert command is not None
+        self.assertIn("/mnt/data_main/downloads/models/local-30b-q4-hf", command)
+        self.assertIn("--max-model-len", command)
+        self.assertIn("8192", command)
+        self.assertIn("--max-num-seqs", command)
+        self.assertIn("1", command)
+        self.assertIn("--max-num-batched-tokens", command)
+        self.assertIn("--served-model-name", command)
+
     def test_vllm_selected_profile_state_saves_and_loads_profile_id(self) -> None:
         from modules.vllm_profile_store import load_selected_vllm_profile_id, save_selected_vllm_profile_id
 
