@@ -1149,6 +1149,7 @@ def show_vllm_profile_menu(profile: Any, profile_id: str = "custom-draft", *, re
     print("  [12] profile JSON preview")
     print("  [13] import profile JSON file")
     print("  [14] validate profile JSON file")
+    print("  [15] copy built-in preset to custom draft")
     print("  Script / launch")
     print("  [6] custom script preview")
     print("  [7] save custom script")
@@ -1210,6 +1211,9 @@ def show_vllm_profile_menu(profile: Any, profile_id: str = "custom-draft", *, re
     if choice == "14":
         validate_vllm_profile_json_file_from_menu()
         return _vllm_profile_menu_return(profile, profile_id, return_profile_id)
+    if choice == "15":
+        copied_profile, copied_profile_id = copy_vllm_builtin_preset_to_draft(profile, profile_id)
+        return _vllm_profile_menu_return(copied_profile, copied_profile_id, return_profile_id)
 
     print("  취소했습니다.")
     return _vllm_profile_menu_return(profile, profile_id, return_profile_id)
@@ -1365,6 +1369,29 @@ def validate_vllm_profile_json_file_from_menu() -> None:
         return
     result = validate_vllm_profile_json_file(raw_path)
     print_vllm_profile_store_result(result)
+
+
+def copy_vllm_builtin_preset_to_draft(profile: Any, profile_id: str) -> tuple[Any, str]:
+    presets = builtin_vllm_profile_presets()
+    print("\n  vLLM built-in presets:")
+    for index, preset in enumerate(presets, 1):
+        print(f"  [{index}] {preset.id}: {preset.label}")
+        print(f"      {preset.description}")
+    raw = input("  copy preset number > ").strip()
+    try:
+        selected_index = int(raw)
+    except ValueError:
+        print("  취소했습니다.")
+        return profile, profile_id
+    if not 1 <= selected_index <= len(presets):
+        print("  취소했습니다.")
+        return profile, profile_id
+
+    selected = presets[selected_index - 1]
+    copied_profile_id = f"draft-from-{selected.id}"
+    print(f"  copied built-in preset to in-memory custom draft: {copied_profile_id}")
+    print("  저장/launch는 하지 않았습니다. 필요하면 [4] save custom profile draft를 사용하세요.")
+    return selected.profile, copied_profile_id
 
 
 def print_vllm_script_preview(preview: Any) -> None:

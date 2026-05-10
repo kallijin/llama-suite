@@ -1604,6 +1604,35 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("[14] validate profile JSON file", stdout.getvalue())
         self.assertIn("vLLM profile draft store", stdout.getvalue())
 
+    def test_vllm_profile_menu_can_copy_30b_template_to_custom_draft(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profiles import VllmProfile
+        from unittest.mock import Mock, patch
+
+        save_mock = Mock()
+        launch_mock = Mock()
+        stdout = StringIO()
+
+        with (
+            patch.object(launcher, "save_vllm_profile_draft", save_mock),
+            patch.object(launcher, "launch_vllm_profile_once", launch_mock),
+            patch("builtins.input", side_effect=["15", "3"]),
+            contextlib.redirect_stdout(stdout),
+        ):
+            profile, profile_id = launcher.show_vllm_profile_menu(VllmProfile(), "custom-draft", return_profile_id=True)
+
+        save_mock.assert_not_called()
+        launch_mock.assert_not_called()
+        self.assertEqual(profile_id, "draft-from-template-30b-q4-local")
+        self.assertIn("/mnt/data_main/downloads/models/local-30b-q4-hf", profile.model)
+        self.assertEqual(profile.max_model_len, 8192)
+        self.assertEqual(profile.max_num_seqs, 1)
+        self.assertIn("[15] copy built-in preset to custom draft", stdout.getvalue())
+        self.assertIn("copied built-in preset to in-memory custom draft", stdout.getvalue())
+        self.assertIn("저장/launch는 하지 않았습니다", stdout.getvalue())
+
     def test_vllm_profile_menu_delete_cancel_does_not_call_delete(self) -> None:
         launcher = load_launcher_module()
         from io import StringIO
