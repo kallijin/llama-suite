@@ -1436,27 +1436,40 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("new value for model", stdout.getvalue())
         self.assertIn("Memory", stdout.getvalue())
 
-    def test_vllm_profile_menu_can_save_and_load_custom_profile_draft(self) -> None:
+    def test_vllm_profile_menu_can_save_and_load_custom_profile_draft_from_list(self) -> None:
         launcher = load_launcher_module()
         from io import StringIO
         import contextlib
-        from modules.vllm_profile_store import VllmProfileStoreResult
+        from modules.vllm_profile_store import VllmProfileListResult, VllmProfileStoreResult, VllmStoredProfileInfo
         from modules.vllm_profiles import VllmProfile
         from unittest.mock import Mock, patch
 
         profile = VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct")
         loaded_profile = VllmProfile(model="loaded-model")
         save_result = VllmProfileStoreResult(True, profile, "/tmp/custom-draft.json", ["saved"])
+        list_result = VllmProfileListResult(
+            True,
+            [VllmStoredProfileInfo("named-profile", "/tmp/named-profile.json", "saved-model", [])],
+            "/tmp/profiles",
+            [],
+        )
         load_result = VllmProfileStoreResult(True, loaded_profile, "/tmp/custom-draft.json", ["loaded"])
         mocked_save = Mock(return_value=save_result)
+        mocked_list = Mock(return_value=list_result)
         mocked_load = Mock(return_value=load_result)
 
         with patch.object(launcher, "save_vllm_profile_draft", mocked_save), patch("builtins.input", side_effect=["4", "named-profile"]), contextlib.redirect_stdout(StringIO()):
             after_save = launcher.show_vllm_profile_menu(profile)
-        with patch.object(launcher, "load_vllm_profile_draft", mocked_load), patch("builtins.input", side_effect=["5", "named-profile"]), contextlib.redirect_stdout(StringIO()):
+        with (
+            patch.object(launcher, "list_vllm_profile_drafts", mocked_list),
+            patch.object(launcher, "load_vllm_profile_draft", mocked_load),
+            patch("builtins.input", side_effect=["10", "1"]),
+            contextlib.redirect_stdout(StringIO()),
+        ):
             after_load = launcher.show_vllm_profile_menu(profile)
 
         mocked_save.assert_called_once_with(profile, profile_id="named-profile")
+        mocked_list.assert_called_once_with()
         mocked_load.assert_called_once_with(profile_id="named-profile")
         self.assertIs(after_save, profile)
         self.assertEqual(after_load.model, "loaded-model")
@@ -1465,21 +1478,33 @@ class BeginnerFlowTests(unittest.TestCase):
         launcher = load_launcher_module()
         from io import StringIO
         import contextlib
-        from modules.vllm_profile_store import VllmProfileStoreResult
+        from modules.vllm_profile_store import VllmProfileListResult, VllmProfileStoreResult, VllmStoredProfileInfo
         from modules.vllm_profiles import VllmProfile
         from unittest.mock import Mock, patch
 
         profile = VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct")
         loaded_profile = VllmProfile(model="loaded-model")
         save_result = VllmProfileStoreResult(True, profile, "/tmp/large-q4.json", ["saved"])
+        list_result = VllmProfileListResult(
+            True,
+            [VllmStoredProfileInfo("large-q4", "/tmp/large-q4.json", "saved-model", [])],
+            "/tmp/profiles",
+            [],
+        )
         load_result = VllmProfileStoreResult(True, loaded_profile, "/tmp/large-q4.json", ["loaded"])
         mocked_save = Mock(return_value=save_result)
+        mocked_list = Mock(return_value=list_result)
         mocked_load = Mock(return_value=load_result)
         stdout = StringIO()
 
         with patch.object(launcher, "save_vllm_profile_draft", mocked_save), patch("builtins.input", side_effect=["4", "large-q4"]), contextlib.redirect_stdout(stdout):
             saved_profile, saved_id = launcher.show_vllm_profile_menu(profile, "custom-draft", return_profile_id=True)
-        with patch.object(launcher, "load_vllm_profile_draft", mocked_load), patch("builtins.input", side_effect=["5", "large-q4"]), contextlib.redirect_stdout(stdout):
+        with (
+            patch.object(launcher, "list_vllm_profile_drafts", mocked_list),
+            patch.object(launcher, "load_vllm_profile_draft", mocked_load),
+            patch("builtins.input", side_effect=["10", "1"]),
+            contextlib.redirect_stdout(stdout),
+        ):
             loaded, loaded_id = launcher.show_vllm_profile_menu(profile, saved_id, return_profile_id=True)
 
         self.assertIs(saved_profile, profile)
@@ -1537,7 +1562,7 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("Custom draft", output)
         self.assertIn("Script / launch", output)
 
-    def test_vllm_profile_menu_save_and_load_default_profile_id(self) -> None:
+    def test_vllm_profile_menu_save_uses_default_profile_id_and_no_duplicate_load_menu(self) -> None:
         launcher = load_launcher_module()
         from io import StringIO
         import contextlib
@@ -1548,15 +1573,14 @@ class BeginnerFlowTests(unittest.TestCase):
         profile = VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct")
         store_result = VllmProfileStoreResult(True, profile, "/tmp/custom-draft.json", ["ok"])
         mocked_save = Mock(return_value=store_result)
-        mocked_load = Mock(return_value=store_result)
+        stdout = StringIO()
 
-        with patch.object(launcher, "save_vllm_profile_draft", mocked_save), patch("builtins.input", side_effect=["4", ""]), contextlib.redirect_stdout(StringIO()):
-            launcher.show_vllm_profile_menu(profile)
-        with patch.object(launcher, "load_vllm_profile_draft", mocked_load), patch("builtins.input", side_effect=["5", ""]), contextlib.redirect_stdout(StringIO()):
+        with patch.object(launcher, "save_vllm_profile_draft", mocked_save), patch("builtins.input", side_effect=["4", ""]), contextlib.redirect_stdout(stdout):
             launcher.show_vllm_profile_menu(profile)
 
         mocked_save.assert_called_once_with(profile, profile_id="custom-draft")
-        mocked_load.assert_called_once_with(profile_id="custom-draft")
+        self.assertNotIn("[5] load custom profile draft", stdout.getvalue())
+        self.assertIn("[10] load saved custom profile from list", stdout.getvalue())
 
     def test_vllm_profile_menu_can_list_saved_custom_profiles(self) -> None:
         launcher = load_launcher_module()

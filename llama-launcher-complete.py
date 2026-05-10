@@ -1146,7 +1146,6 @@ def show_vllm_profile_menu(profile: Any, profile_id: str = "custom-draft", *, re
     print("  Custom draft")
     print("  [3] edit custom profile draft")
     print("  [4] save custom profile draft")
-    print("  [5] load custom profile draft")
     print("  [9] list saved custom profiles")
     print("  [10] load saved custom profile from list")
     print("  [11] delete saved custom profile from list")
@@ -1176,13 +1175,6 @@ def show_vllm_profile_menu(profile: Any, profile_id: str = "custom-draft", *, re
         print_vllm_profile_store_result(result)
         if result.ok:
             profile_id = updated_profile_id
-        return _vllm_profile_menu_return(profile, profile_id, return_profile_id)
-    if choice == "5":
-        updated_profile_id = prompt_vllm_profile_id(profile_id)
-        result = load_vllm_profile_draft(profile_id=updated_profile_id)
-        print_vllm_profile_store_result(result)
-        if result.ok and result.profile:
-            return _vllm_profile_menu_return(result.profile, updated_profile_id, return_profile_id)
         return _vllm_profile_menu_return(profile, profile_id, return_profile_id)
     if choice == "6":
         preview = build_vllm_script_preview(profile)
