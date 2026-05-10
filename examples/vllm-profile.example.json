@@ -6,7 +6,7 @@
     "hf_home": "/mnt/data_main/ai-cache/huggingface",
     "host": "127.0.0.1",
     "kv_cache_dtype": "auto",
-    "max_model_len": 4096,
+    "max_model_len": "",
     "max_num_batched_tokens": "",
     "max_num_seqs": "",
     "model": "Qwen/Qwen2.5-0.5B-Instruct",

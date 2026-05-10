@@ -40,7 +40,7 @@ class VllmProfile:
     host: str = "127.0.0.1"
     port: int = 8000
     dtype: str = "auto"
-    max_model_len: int = 4096
+    max_model_len: int | str = ""
     gpu_memory_utilization: float = 0.70
     tensor_parallel_size: int = 1
     kv_cache_dtype: str = "auto"
@@ -110,11 +110,9 @@ def smoke_vllm_profile() -> VllmProfile:
 def local_large_q4_vllm_profile() -> VllmProfile:
     return VllmProfile(
         model=f"{DEFAULT_MODEL_DOWNLOAD_ROOT}/local-large-q4-hf",
-        max_model_len=8192,
         gpu_memory_utilization=0.82,
         kv_cache_dtype="auto",
         max_num_seqs=1,
-        max_num_batched_tokens=8192,
         extra_args="--served-model-name local-large-q4",
     )
 
@@ -157,12 +155,12 @@ def editable_vllm_profile_field_specs() -> list[VllmProfileFieldSpec]:
         VllmProfileFieldSpec("host", "Network", "Host", "Address the server binds to", "127.0.0.1 is local-only. Use a Tailscale IP for private LAN-style access.", "127.0.0.1"),
         VllmProfileFieldSpec("port", "Network", "Port", "OpenAI-compatible API port", "Use 1-65535. 8000 is common; choose another free port if occupied.", "8000"),
         VllmProfileFieldSpec("dtype", "Memory", "DType", "vLLM dtype value", "auto is the safest default. vLLM usually deals in FP16/BF16, FP8, INT8, AWQ/GPTQ/Int4 rather than GGUF Q names.", "auto"),
-        VllmProfileFieldSpec("max_model_len", "Memory", "Max model length", "Maximum context length vLLM should allocate for", "Larger values can use much more VRAM. Start conservative and increase after success.", "4096"),
+        VllmProfileFieldSpec("max_model_len", "Memory", "Max model length", "Optional maximum context length vLLM should allocate for", "Leave empty or use auto for server-style operation. Direct numeric values are advanced and can make startup fail.", "auto"),
         VllmProfileFieldSpec("gpu_memory_utilization", "Memory", "GPU memory utilization", "Fraction of memory vLLM may reserve per GPU", "Applied per GPU, not to total combined VRAM. Desktop systems should start around 0.55-0.65 and raise after success.", "0.60"),
         VllmProfileFieldSpec("tensor_parallel_size", "Parallelism", "Tensor parallel size", "Number of GPUs used for tensor parallelism", "Use 1 for a single GPU workstation.", "1"),
         VllmProfileFieldSpec("kv_cache_dtype", "Memory", "KV cache dtype", "KV cache precision/memory setting", "auto unless you are intentionally tuning KV cache memory.", "auto"),
         VllmProfileFieldSpec("max_num_seqs", "Throughput", "Max sequences", "Optional concurrency cap", "Leave empty to let vLLM choose. Use 1 for conservative single-user testing.", "1"),
-        VllmProfileFieldSpec("max_num_batched_tokens", "Throughput", "Max batched tokens", "Optional batching cap", "Leave empty to let vLLM choose. Match or exceed max_model_len for simple testing.", "8192"),
+        VllmProfileFieldSpec("max_num_batched_tokens", "Throughput", "Max batched tokens", "Optional batching cap", "Leave empty to let vLLM choose. Direct values are advanced throughput tuning.", "8192"),
         VllmProfileFieldSpec("vllm_cache_root", "Cache", "VLLM cache root", "Directory for vLLM cache files", "Use a large fast disk if available.", DEFAULT_VLLM_CACHE_ROOT),
         VllmProfileFieldSpec("hf_home", "Cache", "HF home", "Hugging Face cache root", "Use the same cache root across tools to avoid repeated downloads.", DEFAULT_HF_HOME),
         VllmProfileFieldSpec("transformers_cache", "Cache", "Transformers cache", "Transformers cache directory", "Usually the same as HF_HOME for this suite.", DEFAULT_TRANSFORMERS_CACHE),
@@ -187,7 +185,7 @@ def vllm_profile_from_dict(data: dict[str, Any]) -> VllmProfile:
         if key in data:
             setattr(profile, key, data[key])
     profile.port = _coerce_int(profile.port, default=8000)
-    profile.max_model_len = _coerce_int(profile.max_model_len, default=4096)
+    profile.max_model_len = _coerce_optional_model_len(profile.max_model_len)
     profile.tensor_parallel_size = _coerce_int(profile.tensor_parallel_size, default=1)
     profile.gpu_memory_utilization = _coerce_float(profile.gpu_memory_utilization, default=0.70)
     profile.kv_cache_dtype = str(profile.kv_cache_dtype or "")
@@ -217,9 +215,9 @@ def validate_vllm_profile(profile: VllmProfile) -> list[str]:
     if tensor_parallel_size is None or tensor_parallel_size < 1:
         errors.append("tensor_parallel_size should be >= 1")
 
-    max_model_len = _try_int(profile.max_model_len)
-    if max_model_len is None or max_model_len <= 0:
-        errors.append("max_model_len should be > 0")
+    max_model_len = _try_optional_model_len(profile.max_model_len)
+    if max_model_len is None or (max_model_len != "" and max_model_len < 1):
+        errors.append("max_model_len should be empty/auto or > 0")
 
     max_num_seqs = _try_optional_int(profile.max_num_seqs)
     if max_num_seqs is None or (max_num_seqs != "" and max_num_seqs < 1):
@@ -252,13 +250,14 @@ def build_vllm_command(profile: VllmProfile) -> tuple[list[str] | None, list[str
         str(profile.port),
         "--dtype",
         str(profile.dtype),
-        "--max-model-len",
-        str(profile.max_model_len),
         "--gpu-memory-utilization",
         str(profile.gpu_memory_utilization),
         "--tensor-parallel-size",
         str(profile.tensor_parallel_size),
     ]
+    max_model_len = _try_optional_model_len(profile.max_model_len)
+    if max_model_len != "":
+        command.extend(["--max-model-len", str(max_model_len)])
     if str(profile.kv_cache_dtype or "").strip():
         command.extend(["--kv-cache-dtype", str(profile.kv_cache_dtype).strip()])
     if str(profile.max_num_seqs).strip():
@@ -448,6 +447,8 @@ def large_model_guidance_lines() -> list[str]:
         "Create one filesystem-safe directory per model under the download root.",
         "vLLM model memory classes are usually FP16/BF16, FP8, INT8, AWQ/GPTQ/Int4; they are not the same as llama.cpp GGUF Q4/Q5/Q8 names.",
         "For local large vLLM profiles, prefer HF/safetensors quantized models such as AWQ/GPTQ/Int4.",
+        "For vLLM server-style operation, leave max_model_len empty/auto first and verify the returned /v1/models max_model_len after READY.",
+        "Only set max_model_len manually when vLLM's automatic model/context choice fails or you are intentionally limiting context.",
         "gpu_memory_utilization is applied per GPU. With two 16G GPUs, 0.88 means about 14G requested on each GPU, not 28G pooled freely.",
         "For local large llama.cpp profiles, prefer GGUF Q4_K_M-class models.",
         "vLLM GGUF remains experimental and requires separate approval before launch.",
@@ -542,6 +543,16 @@ def _coerce_optional_int(value: Any) -> int | str:
         return str(value)
 
 
+def _coerce_optional_model_len(value: Any) -> int | str:
+    text = str(value).strip() if value is not None else ""
+    if not text or text.lower() == "auto":
+        return ""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return text
+
+
 def _try_int(value: Any) -> int | None:
     try:
         return int(value)
@@ -558,5 +569,12 @@ def _try_float(value: Any) -> float | None:
 
 def _try_optional_int(value: Any) -> int | str | None:
     if value is None or str(value).strip() == "":
+        return ""
+    return _try_int(value)
+
+
+def _try_optional_model_len(value: Any) -> int | str | None:
+    text = str(value).strip() if value is not None else ""
+    if not text or text.lower() == "auto":
         return ""
     return _try_int(value)

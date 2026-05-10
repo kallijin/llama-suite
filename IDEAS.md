@@ -116,10 +116,19 @@ Observed with local `qwen2.5-14b-awq`:
 - 2048 and 8192 contexts were not enough for Hermes Agent smoke in this environment.
 - 16384 context did not fit the current 2x16G VRAM state for the 14B AWQ profile with `gpu_memory_utilization=0.55`.
 
+Observed with local `cyankiwi-gemma-4-26B-A4B-it-AWQ-4bit`:
+
+- Manual numeric `max_model_len` values around the Hermes 64K target can make startup fail before the server reaches READY.
+- Leaving `max_model_len` empty let vLLM choose the server context for this model.
+- The successful run reported `max_model_len: 262144` from `/v1/models`, and Hermes Agent smoke passed with `context_length: 64000`.
+- The working Hermes-oriented extra args were `--served-model-name gemma4-26b-awq-auto --enforce-eager --enable-auto-tool-choice --tool-call-parser hermes`.
+
 Practical conclusion:
 
 - Treat `vLLM API smoke passed` and `Hermes Agent smoke passed` as separate readiness levels.
 - Do not assume a model that serves `/v1/chat/completions` is large-context enough for Hermes Agent.
+- For large local vLLM server profiles, prefer empty/auto `max_model_len` first, then verify the returned `/v1/models` `max_model_len` after READY.
+- Only force numeric `max_model_len` when vLLM's automatic choice fails or when intentionally limiting context.
 - Future UI should show Hermes readiness as an additional layer: API reachable, tool parser enabled, Hermes context metadata synced, and actual prompt context large enough.
 
 ## vLLM autonomous expansion boundary
