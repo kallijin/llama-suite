@@ -1258,7 +1258,7 @@ class BeginnerFlowTests(unittest.TestCase):
 
             checks = inspect_vllm_model_source(str(model_dir))
 
-            self.assertTrue(any(check.name == "tokenizer" and check.level == "WARN" for check in checks))
+            self.assertTrue(any(check.name == "tokenizer" and check.level == "FAIL" for check in checks))
             self.assertTrue(any("토크나이저 파일이 존재하지 않습니다" in check.message for check in checks))
 
         gguf_checks = inspect_vllm_model_source("/mnt/data_main/downloads/models/model.gguf")

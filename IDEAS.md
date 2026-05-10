@@ -148,6 +148,7 @@ This boundary marks where the project moved from vLLM foundation MVP into custom
 - 저장된 vLLM profile JSON이 깨져 profile 화면을 열 수 없는 문제.
 - latest run record가 손상되어 status/log/stop이 예외를 내는 문제.
 - launch 전 validation/preflight/confirmation이 우회되는 문제.
+- vLLM local HF/safetensors 모델 디렉터리에 config/tokenizer/weights 같은 기동 필수 파일이 빠진 경우 launch preflight에서 실패로 보고한다. tokenizer를 다운로드하거나 생성하지 않는다.
 - root 상태에서 제한 메뉴 접근 시 경고 메시지가 너무 빨리 지나가는 문제는 먼저 재현 여부를 확인한다. 재현되면 사용자가 읽을 수 있도록 확인 입력을 받거나 메뉴 복귀 전 대기 처리를 검토한다.
 
 ### Small safe next
@@ -155,7 +156,7 @@ This boundary marks where the project moved from vLLM foundation MVP into custom
 
 - vLLM latest run/status/log/stop/API smoke의 용어를 smoke 전용처럼 보이지 않게 계속 정리한다.
 - vLLM profile 입력 UX를 초보자 기준으로 다듬는다. 설명은 짧게, 입력 필드는 명확하게, validation은 바로 보이게 한다.
-- vLLM local HF/safetensors 모델 디렉터리에 tokenizer 관련 파일이 있는지 문법 수준으로 확인하고 경고한다. tokenizer를 다운로드하거나 생성하지 않는다.
+- vLLM local HF/safetensors 모델 디렉터리 검사 메시지를 초보자 기준으로 더 직관적으로 다듬는다.
 - 이미 구현된 메뉴와 모듈이 현재 로컬 환경에서 실행 가능한지 확인하고, 결과만 문서나 기록으로 남긴다.
 - py_compile, unittest, smoke-check처럼 코드 변경 없이 가능한 검증 명령을 계속 기본 검증 루프로 유지한다.
 
@@ -167,7 +168,7 @@ This boundary marks where the project moved from vLLM foundation MVP into custom
 - CLI control `--json`과 MCP adapter는 TUI와 분리된 control surface가 생긴 뒤 추가한다.
 - 모델 기본 지식 파일을 만들어 모델 선택/검색 시 초기 파라미터 후보를 제공하는 방안을 고려한다. 이 값은 정답이 아니라 정비 수첩이며 자동 적용하지 않는다.
 - GGUF 모델이 실제 코딩/도구 사용에 적합한지 검증하고 보여주는 방식을 설계한다. direct tool-call, Hermes tool-call, chat template, reasoning 설정, 간단한 coding command intent 결과를 분리해서 표시한다.
-- vLLM local HF/safetensors 모델에서 tokenizer/config/generation_config 같은 기능 파일이 빠져 테스트를 막는 경우, 나중에 HF repo metadata와 sibling file 목록을 따라 필요한 파일을 수집/보완하는 도구를 검토한다. 지금은 런처 자동 기능으로 만들지 않고, 수동으로 HF 제공 파일을 확인해 보완한 과정을 기록한다.
+- vLLM local HF/safetensors 모델에서 tokenizer/config/generation_config 같은 기능 파일이 빠져 테스트를 막는 경우, HF repo metadata와 sibling file 목록을 따라 필요한 파일을 수집/보완하는 도구를 검토한다. 지금은 launch preflight에서 차단하고, 수동으로 HF 제공 파일을 확인해 보완한 과정을 기록한다.
 
 ### Deferred
 좋지만 기동과 운영 안정화 이후로 미룬다.

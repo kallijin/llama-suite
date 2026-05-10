@@ -279,7 +279,7 @@ def cache_env_preview_lines(profile: VllmProfile) -> list[str]:
 def inspect_vllm_model_source(model: Any) -> list[VllmModelSourceCheck]:
     model_text = str(model or "").strip()
     if not model_text:
-        return [VllmModelSourceCheck("WARN", "model source", "model is empty")]
+        return [VllmModelSourceCheck("FAIL", "model source", "model is empty")]
 
     if _looks_like_hf_model_id(model_text):
         return [VllmModelSourceCheck("INFO", "model source", "Hugging Face model ID; local file inspection skipped")]
@@ -289,10 +289,10 @@ def inspect_vllm_model_source(model: Any) -> list[VllmModelSourceCheck]:
         return [VllmModelSourceCheck("WARN", "model source", "single-file GGUF detected; vLLM GGUF is experimental and llama.cpp is usually safer")]
 
     if not path.exists():
-        return [VllmModelSourceCheck("WARN", "model source", f"local model path does not exist: {path}")]
+        return [VllmModelSourceCheck("FAIL", "model source", f"local model path does not exist: {path}")]
 
     if not path.is_dir():
-        return [VllmModelSourceCheck("WARN", "model source", f"local model path is not a directory: {path}")]
+        return [VllmModelSourceCheck("FAIL", "model source", f"local model path is not a directory: {path}")]
 
     checks = [
         _directory_file_check(path, "config", ["config.json"], "config.json exists", "config.json is missing"),
@@ -382,9 +382,9 @@ def run_vllm_preflight(profile: VllmProfile, port_check: Any = None) -> VllmPref
 
 def _model_source_preflight_check(model: Any) -> VllmPreflightCheck:
     source_checks = inspect_vllm_model_source(model)
-    warning_checks = [check for check in source_checks if check.level == "WARN"]
+    blocking_checks = [check for check in source_checks if check.level not in {"PASS", "INFO"}]
     message = "; ".join(f"{check.name}: {check.message}" for check in source_checks)
-    return VllmPreflightCheck("model source inspection", not warning_checks, message)
+    return VllmPreflightCheck("model source inspection", not blocking_checks, message)
 
 
 def host_access_note(host: str) -> str:
@@ -487,11 +487,11 @@ def _looks_like_hf_model_id(model: str) -> bool:
     return len(parts) == 2 and all(part.strip() for part in parts)
 
 
-def _directory_file_check(path: Path, name: str, patterns: list[str], ok_message: str, warn_message: str) -> VllmModelSourceCheck:
+def _directory_file_check(path: Path, name: str, patterns: list[str], ok_message: str, fail_message: str) -> VllmModelSourceCheck:
     for pattern in patterns:
         if any(path.glob(pattern)):
             return VllmModelSourceCheck("PASS", name, ok_message)
-    return VllmModelSourceCheck("WARN", name, warn_message)
+    return VllmModelSourceCheck("FAIL", name, fail_message)
 
 
 def _coerce_int(value: Any, *, default: int) -> int:
