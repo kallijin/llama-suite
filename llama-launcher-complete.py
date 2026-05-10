@@ -39,6 +39,7 @@ from modules.runner_tmux import get_running_model, get_running_servers, run_scri
 from modules.script_builder import command_preview, generate_script, parse_generated_script, resolve_ctx_size
 from modules.system_info import collect_system_info
 from modules.vllm_doctor import format_vllm_doctor_report, run_vllm_doctor
+from modules.vllm_profiles import default_vllm_profile, host_guidance_lines, validate_vllm_profile
 
 
 # ─── 설정 ──────────────────────────────────────────────
@@ -1039,6 +1040,35 @@ def show_vllm_doctor() -> None:
         print(f"  {line}" if line else "")
 
 
+def vllm_profile_preview_text() -> str:
+    profile = default_vllm_profile()
+    errors = validate_vllm_profile(profile)
+    lines = [
+        "vLLM profile preview (read-only)",
+        "이 화면은 vLLM 전용 profile 미리보기입니다. llama.cpp 파라미터와 별개입니다.",
+        "",
+        "vLLM-only fields:",
+    ]
+    for key, value in profile.to_dict().items():
+        lines.append(f"- {key}: {value if value != '' else '-'}")
+    lines.extend(["", "Validation messages:"])
+    if errors:
+        for error in errors:
+            lines.append(f"- {error}")
+    else:
+        lines.append("- none")
+    lines.extend(["", "Host guidance:"])
+    for guidance in host_guidance_lines():
+        lines.append(f"- {guidance}")
+    return "\n".join(lines)
+
+
+def show_vllm_profile_preview() -> None:
+    print("\n  ── vLLM profile preview ──")
+    for line in vllm_profile_preview_text().splitlines():
+        print(f"  {line}" if line else "")
+
+
 # ─── 메인 루프 ─────────────────────────────────────────
 
 def main() -> None:
@@ -1079,6 +1109,7 @@ def main() -> None:
         print("  [M] 모델 변경")
         print("  [A] 설정 변경 / 현재 설정 저장")
         print("  [K] 파라미터")
+        print("  [B] vLLM profile")
         print("  [P] 최종 미리보기")
         print("  [O] 1회 실행")
         print("  [G] 새 스크립트 생성")
@@ -1152,6 +1183,11 @@ def main() -> None:
             if draft != before:
                 draft["dirty"] = True
                 draft["status"] = "파라미터 변경으로 생긴 임시 작업 설정입니다."
+            pause()
+            continue
+
+        if upper == "B":
+            show_vllm_profile_preview()
             pause()
             continue
 

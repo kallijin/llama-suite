@@ -228,6 +228,7 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("[E] Hermes 등록", completed.stdout)
         self.assertIn("Hermes 설정 변경: 비활성화", completed.stdout)
         self.assertIn("실행 예정 요약", completed.stdout)
+        self.assertIn("[B] vLLM profile", completed.stdout)
         self.assertIn("[V] vLLM doctor", completed.stdout)
         self.assertIn("[A] 설정 변경 / 현재 설정 저장", completed.stdout)
         self.assertNotIn("\n  [W] 현재 설정 저장", completed.stdout)
@@ -365,6 +366,26 @@ class BeginnerFlowTests(unittest.TestCase):
 
         text = "\n".join(host_guidance_lines())
 
+        self.assertIn("127.0.0.1 = local only", text)
+        self.assertIn("Tailscale IP = private remote access", text)
+        self.assertIn("0.0.0.0 = advanced/exposed", text)
+
+    def test_vllm_profile_preview_is_read_only_and_separate(self) -> None:
+        launcher = load_launcher_module()
+
+        text = launcher.vllm_profile_preview_text()
+
+        self.assertIn("vLLM profile preview (read-only)", text)
+        self.assertIn("vLLM 전용 profile", text)
+        self.assertIn("llama.cpp 파라미터와 별개", text)
+        self.assertIn("vLLM-only fields:", text)
+        self.assertIn("- wrapper_path: ~/bin/vllm-rocm", text)
+        self.assertIn("- host: 127.0.0.1", text)
+        self.assertIn("- port: 8000", text)
+        self.assertIn("- dtype: auto", text)
+        self.assertIn("- tensor_parallel_size: 1", text)
+        self.assertIn("Validation messages:", text)
+        self.assertIn("- model should not be empty", text)
         self.assertIn("127.0.0.1 = local only", text)
         self.assertIn("Tailscale IP = private remote access", text)
         self.assertIn("0.0.0.0 = advanced/exposed", text)
