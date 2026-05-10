@@ -39,7 +39,7 @@ from modules.runner_tmux import get_running_model, get_running_servers, run_scri
 from modules.script_builder import command_preview, generate_script, parse_generated_script, resolve_ctx_size
 from modules.system_info import collect_system_info
 from modules.vllm_doctor import format_vllm_doctor_report, run_vllm_doctor
-from modules.vllm_profiles import build_vllm_command, builtin_vllm_profile_presets, cache_env_preview_lines, future_launch_preset_id, host_guidance_lines, run_vllm_preflight, validate_vllm_profile
+from modules.vllm_profiles import build_vllm_command, builtin_vllm_profile_presets, cache_env_preview_lines, future_launch_preset_id, host_guidance_lines, launch_confirmation_guidance_lines, run_vllm_preflight, validate_vllm_profile
 
 
 # ─── 설정 ──────────────────────────────────────────────
@@ -1082,8 +1082,16 @@ def vllm_profile_preview_text(port_check: Any = None) -> str:
         f"Selected for future launch: {future_launch_preset_id()}",
         "Read-only placeholder only. 실제 launch 선택 상태는 아직 구현하지 않았습니다.",
         "",
-        "Available built-in vLLM profiles:",
+        "Future launch confirmation wording:",
     ]
+    for guidance in launch_confirmation_guidance_lines():
+        lines.append(f"- {guidance}")
+    lines.extend(
+        [
+            "",
+            "Available built-in vLLM profiles:",
+        ]
+    )
     for preset in presets:
         lines.append(f"- {preset.id}: {preset.label} - {preset.description}")
     lines.extend(["", "현재는 read-only registry입니다. 선택/저장/실행은 아직 하지 않습니다."])

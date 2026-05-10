@@ -216,6 +216,19 @@ def host_guidance_lines() -> list[str]:
     ]
 
 
+def launch_confirmation_guidance_lines() -> list[str]:
+    return [
+        "This is guidance only; no launch button is implemented yet.",
+        "vLLM launch may download model files if they are not cached.",
+        "vLLM may use GPU memory immediately.",
+        "vLLM may run torch compile / graph capture on first launch.",
+        "The selected host/port will be bound by the server.",
+        "127.0.0.1 is local-only.",
+        "Tailscale IP is for private remote access.",
+        "0.0.0.0 is advanced/exposed.",
+    ]
+
+
 def _wrapper_preflight_check(wrapper_path: Any) -> VllmPreflightCheck:
     path_text = str(wrapper_path or "").strip()
     if not path_text:

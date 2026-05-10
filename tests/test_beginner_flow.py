@@ -549,13 +549,22 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(host_access_note("0.0.0.0"), "0.0.0.0 = advanced/exposed")
 
     def test_vllm_host_guidance_mentions_access_modes(self) -> None:
-        from modules.vllm_profiles import host_guidance_lines
+        from modules.vllm_profiles import host_guidance_lines, launch_confirmation_guidance_lines
 
         text = "\n".join(host_guidance_lines())
 
         self.assertIn("127.0.0.1 = local only", text)
         self.assertIn("Tailscale IP = private remote access", text)
         self.assertIn("0.0.0.0 = advanced/exposed", text)
+        confirmation = "\n".join(launch_confirmation_guidance_lines())
+        self.assertIn("download model files", confirmation)
+        self.assertIn("GPU memory", confirmation)
+        self.assertIn("torch compile / graph capture", confirmation)
+        self.assertIn("host/port will be bound", confirmation)
+        self.assertIn("127.0.0.1 is local-only", confirmation)
+        self.assertIn("Tailscale IP is for private remote access", confirmation)
+        self.assertIn("0.0.0.0 is advanced/exposed", confirmation)
+        self.assertIn("no launch button", confirmation)
 
     def test_vllm_profile_preview_is_read_only_and_separate(self) -> None:
         launcher = load_launcher_module()
@@ -575,6 +584,11 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("Selected for future launch: smoke-qwen-0.5b", text)
         self.assertIn("Read-only placeholder only", text)
         self.assertIn("launch 선택 상태는 아직 구현하지 않았습니다", text)
+        self.assertIn("Future launch confirmation wording:", text)
+        self.assertIn("download model files", text)
+        self.assertIn("GPU memory", text)
+        self.assertIn("torch compile / graph capture", text)
+        self.assertIn("host/port will be bound", text)
         self.assertIn("Available built-in vLLM profiles:", text)
         self.assertIn("default: Default vLLM profile", text)
         self.assertIn("smoke-qwen-0.5b: Smoke Qwen 0.5B", text)
