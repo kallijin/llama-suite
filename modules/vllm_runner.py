@@ -486,6 +486,10 @@ def check_tcp_listening(host: str, port: int | str, timeout: float = 1.0) -> Any
     return VllmSmokeStatusPortCheck(False, f"{host_text}:{port_number} is not listening")
 
 
+def check_vllm_run_status(**kwargs: Any) -> VllmSmokeStatusResult:
+    return check_vllm_smoke_status(**kwargs)
+
+
 def latest_vllm_run_summary(
     *,
     latest_record: Any = None,
@@ -496,7 +500,7 @@ def latest_vllm_run_summary(
         return VllmLatestRunSummary(False, None, None, None, "UNKNOWN", latest.messages)
 
     record = latest.record
-    check_status = status_check or check_vllm_smoke_status
+    check_status = status_check or check_vllm_run_status
     status = check_status(
         pid=record.pid,
         run_id=record.run_id,
@@ -542,6 +546,10 @@ def read_vllm_smoke_log(log_path: str, *, last_lines: int = 80) -> VllmSmokeLogR
     return VllmSmokeLogResult(True, expanded_log_path, lines[-line_count:] if line_count else [], [])
 
 
+def read_vllm_run_log(log_path: str, *, last_lines: int = 80) -> VllmSmokeLogResult:
+    return read_vllm_smoke_log(log_path, last_lines=last_lines)
+
+
 def stop_vllm_smoke(
     *,
     pid: int | str | None,
@@ -583,6 +591,10 @@ def stop_vllm_smoke(
         FUTURE_LAUNCH_PRESET_ID,
         [f"SIGTERM sent to process group for pid {pid_number}"],
     )
+
+
+def stop_vllm_run(**kwargs: Any) -> VllmSmokeStopResult:
+    return stop_vllm_smoke(**kwargs)
 
 
 def sanitize_run_id_part(value: Any) -> str:

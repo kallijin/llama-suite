@@ -42,7 +42,7 @@ from modules.vllm_api_probe import run_vllm_api_smoke
 from modules.vllm_doctor import format_vllm_doctor_report, run_vllm_doctor
 from modules.vllm_profile_store import default_vllm_profile_path, delete_vllm_profile_draft, format_vllm_profile_draft_json, list_vllm_profile_drafts, load_selected_vllm_profile_draft, load_vllm_profile_draft, load_vllm_profile_json_file, save_selected_vllm_profile_id, save_vllm_profile_draft, validate_vllm_profile_json_file
 from modules.vllm_profiles import builtin_vllm_profile_presets, default_vllm_profile, editable_vllm_profile_field_specs, editable_vllm_profile_fields, format_vllm_profile_report, future_launch_preset_id, host_guidance_lines, large_model_guidance_lines, launch_confirmation_guidance_lines, update_vllm_profile_field
-from modules.vllm_runner import check_vllm_smoke_status, latest_vllm_run_record, latest_vllm_run_summary, launch_vllm_profile_once, launch_vllm_smoke_once, read_vllm_run_record, read_vllm_smoke_log, stop_vllm_smoke
+from modules.vllm_runner import check_vllm_run_status, latest_vllm_run_record, latest_vllm_run_summary, launch_vllm_profile_once, launch_vllm_smoke_once, read_vllm_run_log, read_vllm_run_record, stop_vllm_run
 from modules.vllm_script_builder import build_vllm_script_preview, save_vllm_script
 
 
@@ -1546,7 +1546,7 @@ def show_vllm_smoke_manage() -> None:
             log_path = input("  log_path > ").strip()
             host = input("  host [127.0.0.1] > ").strip() or "127.0.0.1"
             port = input("  port [8000] > ").strip() or "8000"
-        result = check_vllm_smoke_status(pid=pid, run_id=run_id, log_path=log_path, host=host, port=port)
+        result = check_vllm_run_status(pid=pid, run_id=run_id, log_path=log_path, host=host, port=port)
         print_vllm_status_result(result)
         return
 
@@ -1558,7 +1558,7 @@ def show_vllm_smoke_manage() -> None:
             last_lines = int(raw_lines) if raw_lines else 80
         except ValueError:
             last_lines = 80
-        result = read_vllm_smoke_log(log_path, last_lines=last_lines)
+        result = read_vllm_run_log(log_path, last_lines=last_lines)
         print_vllm_log_result(result)
         return
 
@@ -1572,7 +1572,7 @@ def show_vllm_smoke_manage() -> None:
             run_id = input("  run_id > ").strip()
         print("  계속하려면 stop 또는 STOP 를 정확히 입력하세요.")
         confirm = input("  confirmation > ").strip()
-        result = stop_vllm_smoke(pid=pid, run_id=run_id, confirmed=(confirm.lower() == "stop"))
+        result = stop_vllm_run(pid=pid, run_id=run_id, confirmed=(confirm.lower() == "stop"))
         print_vllm_stop_result(result)
         return
 
@@ -1621,7 +1621,7 @@ def print_vllm_status_result(result: Any) -> None:
 
 
 def print_vllm_log_result(result: Any) -> None:
-    print("\n  vLLM smoke log:")
+    print("\n  vLLM latest run log:")
     print(f"  ok: {result.ok}")
     print(f"  log_path: {result.log_path or '-'}")
     for message in result.messages:
@@ -1631,7 +1631,7 @@ def print_vllm_log_result(result: Any) -> None:
 
 
 def print_vllm_stop_result(result: Any) -> None:
-    print("\n  vLLM smoke stop:")
+    print("\n  vLLM latest run stop:")
     print(f"  ok: {result.ok}")
     print(f"  preset_id: {result.preset_id}")
     print(f"  pid: {result.pid if result.pid is not None else '-'}")

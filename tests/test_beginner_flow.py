@@ -2596,6 +2596,18 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertFalse(dead.alive)
         self.assertIn("process is not alive", "\n".join(dead.messages))
 
+    def test_vllm_latest_run_helper_aliases_keep_smoke_lifecycle_compatibility(self) -> None:
+        from modules.vllm_runner import check_vllm_run_status, read_vllm_run_log, stop_vllm_run
+
+        status = check_vllm_run_status(pid=1234, run_id="run-a", log_path="/tmp/missing.log", alive_check=lambda pid: True, port_check=lambda host, port: False)
+        log = read_vllm_run_log("/tmp/llama-suite-missing-vllm.log", last_lines=10)
+        stop = stop_vllm_run(pid=1234, run_id="run-a", confirmed=False)
+
+        self.assertTrue(status.ok)
+        self.assertFalse(log.ok)
+        self.assertFalse(stop.ok)
+        self.assertIn("explicit confirmation", "\n".join(stop.messages))
+
     def test_vllm_smoke_status_reports_log_exists_and_optional_port(self) -> None:
         from modules.vllm_profiles import VllmPreflightCheck
         from modules.vllm_runner import check_vllm_smoke_status
@@ -2749,7 +2761,7 @@ class BeginnerFlowTests(unittest.TestCase):
         mocked_status = Mock(return_value=type("Status", (), {"ok": True, "preset_id": "smoke-qwen-0.5b", "pid": 1234, "run_id": "run-latest", "log_path": "/tmp/latest.log", "alive": True, "log_exists": False, "port_listening": None, "messages": []})())
         stdout = StringIO()
 
-        with patch.object(launcher, "latest_vllm_run_record", return_value=latest), patch.object(launcher, "check_vllm_smoke_status", mocked_status), patch("builtins.input", side_effect=["1", ""]), contextlib.redirect_stdout(stdout):
+        with patch.object(launcher, "latest_vllm_run_record", return_value=latest), patch.object(launcher, "check_vllm_run_status", mocked_status), patch("builtins.input", side_effect=["1", ""]), contextlib.redirect_stdout(stdout):
             launcher.show_vllm_smoke_manage()
 
         mocked_status.assert_called_once_with(pid="1234", run_id="run-latest", log_path="/tmp/latest.log", host="100.68.40.87", port=8010)
@@ -2766,7 +2778,7 @@ class BeginnerFlowTests(unittest.TestCase):
         mocked_status = Mock(return_value=type("Status", (), {"ok": True, "preset_id": "smoke-qwen-0.5b", "pid": 1234, "run_id": "manual-run", "log_path": "/tmp/manual.log", "alive": True, "log_exists": False, "port_listening": None, "messages": []})())
         stdout = StringIO()
 
-        with patch.object(launcher, "latest_vllm_run_record", return_value=latest), patch.object(launcher, "check_vllm_smoke_status", mocked_status), patch("builtins.input", side_effect=["1", "", "1234", "manual-run", "/tmp/manual.log", "127.0.0.1", "8000"]), contextlib.redirect_stdout(stdout):
+        with patch.object(launcher, "latest_vllm_run_record", return_value=latest), patch.object(launcher, "check_vllm_run_status", mocked_status), patch("builtins.input", side_effect=["1", "", "1234", "manual-run", "/tmp/manual.log", "127.0.0.1", "8000"]), contextlib.redirect_stdout(stdout):
             launcher.show_vllm_smoke_manage()
 
         mocked_status.assert_called_once_with(pid="1234", run_id="manual-run", log_path="/tmp/manual.log", host="127.0.0.1", port="8000")
@@ -2795,7 +2807,7 @@ class BeginnerFlowTests(unittest.TestCase):
         latest = VllmRunRecordResult(True, record, "/tmp/latest.json", [])
         mocked_status = Mock(return_value=type("Status", (), {"ok": True, "preset_id": "smoke-qwen-0.5b", "pid": 2222, "run_id": "manual-run", "log_path": "/tmp/manual.log", "alive": True, "log_exists": False, "port_listening": None, "messages": []})())
 
-        with patch.object(launcher, "latest_vllm_run_record", return_value=latest), patch.object(launcher, "check_vllm_smoke_status", mocked_status), patch("builtins.input", side_effect=["1", "-", "2222", "manual-run", "/tmp/manual.log", "0.0.0.0", "8020"]), contextlib.redirect_stdout(StringIO()):
+        with patch.object(launcher, "latest_vllm_run_record", return_value=latest), patch.object(launcher, "check_vllm_run_status", mocked_status), patch("builtins.input", side_effect=["1", "-", "2222", "manual-run", "/tmp/manual.log", "0.0.0.0", "8020"]), contextlib.redirect_stdout(StringIO()):
             launcher.show_vllm_smoke_manage()
 
         mocked_status.assert_called_once_with(pid="2222", run_id="manual-run", log_path="/tmp/manual.log", host="0.0.0.0", port="8020")
@@ -2823,7 +2835,7 @@ class BeginnerFlowTests(unittest.TestCase):
         latest = VllmRunRecordResult(True, record, "/tmp/latest.json", [])
         mocked_stop = Mock(return_value=type("Stop", (), {"ok": False, "preset_id": "smoke-qwen-0.5b", "pid": 1234, "run_id": "run-latest", "messages": ["cancelled"]})())
 
-        with patch.object(launcher, "latest_vllm_run_record", return_value=latest), patch.object(launcher, "stop_vllm_smoke", mocked_stop), patch("builtins.input", side_effect=["3", "", "no"]), contextlib.redirect_stdout(StringIO()):
+        with patch.object(launcher, "latest_vllm_run_record", return_value=latest), patch.object(launcher, "stop_vllm_run", mocked_stop), patch("builtins.input", side_effect=["3", "", "no"]), contextlib.redirect_stdout(StringIO()):
             launcher.show_vllm_smoke_manage()
 
         mocked_stop.assert_called_once_with(pid="1234", run_id="run-latest", confirmed=False)
