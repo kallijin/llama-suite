@@ -472,7 +472,7 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIsNotNone(command)
         self.assertIn("Qwen/Qwen2.5-0.5B-Instruct", command)
 
-    def test_vllm_builtin_preset_registry_includes_default_and_smoke(self) -> None:
+    def test_vllm_builtin_preset_registry_includes_default_smoke_and_30b_template(self) -> None:
         from modules.vllm_profiles import builtin_vllm_profile_presets, future_launch_preset_id
 
         presets = builtin_vllm_profile_presets()
@@ -480,10 +480,18 @@ class BeginnerFlowTests(unittest.TestCase):
 
         self.assertIn("default", by_id)
         self.assertIn("smoke-qwen-0.5b", by_id)
+        self.assertIn("template-30b-q4-local", by_id)
         self.assertEqual(by_id["default"].label, "Default vLLM profile")
         self.assertEqual(by_id["smoke-qwen-0.5b"].label, "Smoke Qwen 0.5B")
         self.assertIn("read-only", by_id["smoke-qwen-0.5b"].description)
         self.assertEqual(by_id["smoke-qwen-0.5b"].profile.model, "Qwen/Qwen2.5-0.5B-Instruct")
+        self.assertEqual(by_id["template-30b-q4-local"].label, "Local 30B Q4 template")
+        self.assertIn("Read-only template", by_id["template-30b-q4-local"].description)
+        self.assertIn("/mnt/data_main/downloads/models/local-30b-q4-hf", by_id["template-30b-q4-local"].profile.model)
+        self.assertEqual(by_id["template-30b-q4-local"].profile.max_model_len, 8192)
+        self.assertEqual(by_id["template-30b-q4-local"].profile.gpu_memory_utilization, 0.82)
+        self.assertEqual(by_id["template-30b-q4-local"].profile.max_num_seqs, 1)
+        self.assertEqual(by_id["template-30b-q4-local"].profile.max_num_batched_tokens, 8192)
         self.assertEqual(future_launch_preset_id(), "smoke-qwen-0.5b")
 
     def test_vllm_profile_validation_reports_structured_messages(self) -> None:
@@ -1174,8 +1182,12 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("Available built-in vLLM profiles:", text)
         self.assertIn("default: Default vLLM profile", text)
         self.assertIn("smoke-qwen-0.5b: Smoke Qwen 0.5B", text)
+        self.assertIn("template-30b-q4-local: Local 30B Q4 template", text)
         self.assertIn("현재는 read-only registry", text)
         self.assertIn("Preset default: Default vLLM profile", text)
+        self.assertIn("30B local template preset (read-only)", text)
+        self.assertIn("/mnt/data_main/downloads/models/local-30b-q4-hf", text)
+        self.assertIn("HF/safetensors Q4", text)
         self.assertIn("vLLM-only fields:", text)
         self.assertIn("- wrapper_path: ~/bin/vllm-rocm", text)
         self.assertIn("- host: 127.0.0.1", text)
