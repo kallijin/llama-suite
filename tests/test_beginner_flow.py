@@ -231,8 +231,8 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("실행 예정 요약", completed.stdout)
         self.assertIn("Recent vLLM run:", completed.stdout)
         self.assertIn("Selected vLLM profile: custom-draft / (empty model) / http://127.0.0.1:8000/v1", completed.stdout)
-        self.assertIn("[LL] LLM / llama.cpp 세팅", completed.stdout)
-        self.assertIn("[VL] vLLM 세팅", completed.stdout)
+        self.assertIn("[L] llama.cpp 세팅", completed.stdout)
+        self.assertIn("[V] vLLM 세팅", completed.stdout)
         self.assertNotIn("[K] llama.cpp 파라미터", completed.stdout)
         self.assertNotIn("[P] llama.cpp 최종 미리보기", completed.stdout)
         self.assertNotIn("[O] llama.cpp 1회 실행", completed.stdout)
@@ -252,15 +252,18 @@ class BeginnerFlowTests(unittest.TestCase):
         from unittest.mock import patch
 
         stdout = StringIO()
+        with patch("builtins.input", side_effect=["1"]), contextlib.redirect_stdout(stdout):
+            load_action = launcher.choose_llama_cpp_menu_action()
         with patch("builtins.input", side_effect=["4"]), contextlib.redirect_stdout(stdout):
             llama_action = launcher.choose_llama_cpp_menu_action()
         with patch("builtins.input", side_effect=["5"]), contextlib.redirect_stdout(stdout):
             vllm_action = launcher.choose_vllm_menu_action()
 
+        self.assertEqual(load_action, "LOAD")
         self.assertEqual(llama_action, "K")
-        self.assertEqual(vllm_action, "V")
+        self.assertEqual(vllm_action, "VLLM_DOCTOR")
         output = stdout.getvalue()
-        self.assertIn("LLM / llama.cpp 세팅", output)
+        self.assertIn("llama.cpp 세팅", output)
         self.assertIn("[4] llama.cpp 파라미터", output)
         self.assertIn("vLLM 세팅", output)
         self.assertIn("[5] vLLM doctor", output)

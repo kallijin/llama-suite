@@ -1655,7 +1655,7 @@ def initial_vllm_profile_selection() -> tuple[Any, str]:
 
 
 def choose_llama_cpp_menu_action() -> str:
-    print("\n  ── LLM / llama.cpp 세팅 ──")
+    print("\n  ── llama.cpp 세팅 ──")
     print("  [1] 불러오기")
     print("  [2] 모델 변경")
     print("  [3] 설정 변경 / 현재 설정 저장")
@@ -1666,7 +1666,7 @@ def choose_llama_cpp_menu_action() -> str:
     print("  [8] 스크립트 관리")
     choice = input("  선택 > ").strip()
     return {
-        "1": "L",
+        "1": "LOAD",
         "2": "M",
         "3": "A",
         "4": "K",
@@ -1690,7 +1690,7 @@ def choose_vllm_menu_action() -> str:
         "2": "W",
         "3": "Y",
         "4": "Z",
-        "5": "V",
+        "5": "VLLM_DOCTOR",
     }.get(choice, "")
 
 
@@ -1733,8 +1733,8 @@ def main() -> None:
         existing_scripts = list_scripts()
         script_info = f" ({len(existing_scripts)}개)" if existing_scripts else ""
 
-        print("\n  [LL] LLM / llama.cpp 세팅")
-        print("  [VL] vLLM 세팅")
+        print("\n  [L] llama.cpp 세팅")
+        print("  [V] vLLM 세팅")
         print(f"  [S] 스크립트 관리{script_info}")
         print("  [E] Hermes 등록")
         print("  [C] OpenClaw 등록")
@@ -1759,21 +1759,21 @@ def main() -> None:
             print("\n👋 안녕!\n")
             break
 
-        if upper == "LL":
+        if upper == "L":
             upper = choose_llama_cpp_menu_action()
             if not upper:
                 print("  취소했습니다.")
                 pause()
                 continue
 
-        if upper == "VL":
+        if upper == "V":
             upper = choose_vllm_menu_action()
             if not upper:
                 print("  취소했습니다.")
                 pause()
                 continue
 
-        if upper == "L":
+        if upper == "LOAD":
             print("\n  [L] 불러오기")
             print("  [1] saved profile/config")
             print("  [2] existing generated script")
@@ -1925,7 +1925,7 @@ def main() -> None:
             pause()
             continue
 
-        if upper == "V":
+        if upper == "VLLM_DOCTOR":
             show_vllm_doctor()
             pause()
             continue
