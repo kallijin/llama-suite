@@ -134,8 +134,8 @@ def builtin_vllm_profile_presets() -> list[VllmProfilePreset]:
         ),
         VllmProfilePreset(
             id="template-30b-q4-local",
-            label="Local 30B Q4 template",
-            description="Read-only template for a local 30B-36B HF/safetensors quantized model directory. It is not a launch target.",
+            label="Local large Q4 template",
+            description="Read-only template for a local large HF/safetensors quantized model directory. It is not a launch target.",
             profile=local_30b_q4_vllm_profile(),
         ),
     ]
@@ -415,8 +415,8 @@ def large_model_guidance_lines() -> list[str]:
     return [
         f"Approved model download root: {DEFAULT_MODEL_DOWNLOAD_ROOT}",
         "Create one filesystem-safe directory per model under the download root.",
-        "For 30B-36B vLLM profiles, prefer HF/safetensors quantized models such as AWQ/GPTQ/Int4.",
-        "For 30B-36B llama.cpp profiles, prefer GGUF Q4_K_M-class models.",
+        "For local large vLLM profiles, prefer HF/safetensors quantized models such as AWQ/GPTQ/Int4.",
+        "For local large llama.cpp profiles, prefer GGUF Q4_K_M-class models.",
         "vLLM GGUF remains experimental and requires separate approval before launch.",
         "Do not download models into $HOME, the repo, or default Hugging Face cache unless explicitly approved.",
     ]

@@ -1098,13 +1098,13 @@ def vllm_profile_preview_text(port_check: Any = None) -> str:
             lines.append("Smoke profile preset (read-only)")
             lines.append("이미 이 시스템에서 성공한 작은 vLLM 확인용 preset입니다. 실행하지 않습니다.")
         if preset.id == "template-30b-q4-local":
-            lines.append("30B local template preset (read-only)")
+            lines.append("Local large Q4 template preset (read-only)")
             lines.append("다운로드/launch 없이 /mnt/data_main/downloads/models 아래 HF/safetensors Q4급 디렉터리 형태만 제안합니다.")
         lines.extend(format_vllm_profile_section(f"Preset {preset.id}: {preset.label}", preset.profile, port_check=port_check))
     lines.extend(["", "Host guidance:"])
     for guidance in host_guidance_lines():
         lines.append(f"- {guidance}")
-    lines.extend(["", "30B / quantized model guidance:"])
+    lines.extend(["", "Local / quantized model guidance:"])
     for guidance in large_model_guidance_lines():
         lines.append(f"- {guidance}")
     return "\n".join(lines)
@@ -1128,7 +1128,7 @@ def vllm_custom_profile_text(profile: Any, port_check: Any = None) -> str:
     lines.extend(["", "Host guidance:"])
     for guidance in host_guidance_lines():
         lines.append(f"- {guidance}")
-    lines.extend(["", "30B / quantized model guidance:"])
+    lines.extend(["", "Local / quantized model guidance:"])
     for guidance in large_model_guidance_lines():
         lines.append(f"- {guidance}")
     return "\n".join(lines)
