@@ -181,4 +181,32 @@ def format_vllm_doctor_report(report: VllmDoctorReport) -> str:
         if check.stderr:
             first_warning = check.stderr.splitlines()[0]
             lines.append(f"       stderr: {first_warning}")
+    lines.extend(["", format_vllm_model_guidance()])
     return "\n".join(lines)
+
+
+def format_vllm_model_guidance() -> str:
+    return "\n".join(
+        [
+            "vLLM 모델 형식 안내",
+            "",
+            "권장:",
+            "- Hugging Face 모델 ID",
+            "- 로컬 Hugging Face/safetensors 모델 디렉터리",
+            "",
+            "실험적:",
+            "- 단일 파일 GGUF",
+            "",
+            "주의:",
+            "vLLM은 일부 GGUF 모델을 불러올 수 있지만, GGUF 지원은 아직 실험적이며 최적화가 부족하거나 일부 vLLM 기능과 호환되지 않을 수 있습니다.",
+            "",
+            "GGUF 모델은 일반적으로 llama.cpp 백엔드가 더 안전하고 성숙한 선택입니다.",
+            "",
+            "vLLM에서 GGUF를 사용할 때는 호환성 테스트, 메모리 절감 실험, 특수한 경우로 제한하는 것을 권장합니다.",
+            "",
+            "GGUF를 vLLM에서 사용할 경우:",
+            "- 여러 조각으로 나뉜 GGUF가 아니라 단일 GGUF 파일을 사용하세요.",
+            "- 가능한 한 원본/base 모델의 tokenizer를 함께 지정하세요.",
+            "- llama.cpp 수준의 GGUF 호환성을 기대하지 마세요.",
+        ]
+    )

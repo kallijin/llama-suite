@@ -246,7 +246,7 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("missing:", summaries)
 
     def test_vllm_doctor_uses_wrapper_for_version_and_python_for_torch_hip(self) -> None:
-        from modules.vllm_doctor import run_vllm_doctor
+        from modules.vllm_doctor import format_vllm_doctor_report, run_vllm_doctor
 
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -280,6 +280,13 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("hip=7.2.53211", summaries)
         self.assertIn("device0=AMD Radeon RX 9060 XT", summaries)
         self.assertIn("-c", python_args)
+
+        text = format_vllm_doctor_report(report)
+        self.assertIn("Hugging Face 모델 ID", text)
+        self.assertIn("로컬 Hugging Face/safetensors", text)
+        self.assertIn("단일 파일 GGUF", text)
+        self.assertIn("llama.cpp 백엔드", text)
+        self.assertIn("tokenizer", text)
 
     def test_script_generation_action_is_unified(self) -> None:
         launcher = load_launcher_module()
