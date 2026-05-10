@@ -1608,6 +1608,20 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(loaded_id, "custom-draft")
         self.assertEqual(loaded_profile.model, "")
 
+    def test_vllm_initial_profile_selection_treats_missing_selected_state_as_quiet_default(self) -> None:
+        launcher = load_launcher_module()
+        from modules.vllm_profile_store import VllmProfileStoreResult
+        from unittest.mock import Mock, patch
+
+        result = VllmProfileStoreResult(False, None, "/tmp/latest.json", ["no selected vLLM profile saved yet"])
+
+        with patch.object(launcher, "load_selected_vllm_profile_draft", Mock(return_value=result)):
+            loaded_profile, loaded_id, messages = launcher.initial_vllm_profile_selection_with_messages()
+
+        self.assertEqual(loaded_id, "custom-draft")
+        self.assertEqual(loaded_profile.model, "")
+        self.assertEqual(messages, [])
+
     def test_vllm_initial_profile_selection_reports_fallback_messages(self) -> None:
         launcher = load_launcher_module()
         from modules.vllm_profile_store import VllmProfileStoreResult

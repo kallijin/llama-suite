@@ -161,6 +161,8 @@ def load_selected_vllm_profile_id(*, store_root: str | Path | None = None) -> Vl
     state_path = default_vllm_selected_profile_path(store_root=store_root)
     try:
         payload = json.loads(Path(state_path).read_text())
+    except FileNotFoundError:
+        return VllmSelectedProfileResult(False, None, state_path, ["no selected vLLM profile saved yet"])
     except Exception as exc:
         return VllmSelectedProfileResult(False, None, state_path, [f"selected vLLM profile load failed: {exc}"])
 

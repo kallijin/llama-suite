@@ -1699,6 +1699,8 @@ def initial_vllm_profile_selection_with_messages() -> tuple[Any, str, list[str]]
     result = load_selected_vllm_profile_draft()
     if result.ok and result.profile and result.profile_id:
         return result.profile, result.profile_id, []
+    if result.messages == ["no selected vLLM profile saved yet"]:
+        return default_vllm_profile(), "custom-draft", []
     messages = ["selected vLLM profile could not be loaded; using custom-draft defaults"]
     messages.extend(result.messages)
     return default_vllm_profile(), "custom-draft", messages
