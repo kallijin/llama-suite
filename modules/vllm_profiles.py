@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shlex
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -74,6 +75,45 @@ def validate_vllm_profile(profile: VllmProfile) -> list[str]:
         errors.append("max_model_len should be > 0")
 
     return errors
+
+
+def build_vllm_command(profile: VllmProfile) -> tuple[list[str] | None, list[str]]:
+    messages = validate_vllm_profile(profile)
+    if messages:
+        return None, messages
+
+    try:
+        extra_args = shlex.split(str(profile.extra_args or ""))
+    except ValueError as exc:
+        return None, [f"extra_args could not be parsed: {exc}"]
+
+    command = [
+        str(profile.wrapper_path),
+        "serve",
+        str(profile.model),
+        "--host",
+        str(profile.host),
+        "--port",
+        str(profile.port),
+        "--dtype",
+        str(profile.dtype),
+        "--max-model-len",
+        str(profile.max_model_len),
+        "--gpu-memory-utilization",
+        str(profile.gpu_memory_utilization),
+        "--tensor-parallel-size",
+        str(profile.tensor_parallel_size),
+    ]
+    command.extend(extra_args)
+    return command, []
+
+
+def cache_env_preview_lines(profile: VllmProfile) -> list[str]:
+    return [
+        f"VLLM_CACHE_ROOT={profile.vllm_cache_root}",
+        f"HF_HOME={profile.hf_home}",
+        f"TRANSFORMERS_CACHE={profile.transformers_cache}",
+    ]
 
 
 def host_guidance_lines() -> list[str]:

@@ -39,7 +39,7 @@ from modules.runner_tmux import get_running_model, get_running_servers, run_scri
 from modules.script_builder import command_preview, generate_script, parse_generated_script, resolve_ctx_size
 from modules.system_info import collect_system_info
 from modules.vllm_doctor import format_vllm_doctor_report, run_vllm_doctor
-from modules.vllm_profiles import default_vllm_profile, host_guidance_lines, validate_vllm_profile
+from modules.vllm_profiles import build_vllm_command, cache_env_preview_lines, default_vllm_profile, host_guidance_lines, validate_vllm_profile
 
 
 # ─── 설정 ──────────────────────────────────────────────
@@ -1043,6 +1043,7 @@ def show_vllm_doctor() -> None:
 def vllm_profile_preview_text() -> str:
     profile = default_vllm_profile()
     errors = validate_vllm_profile(profile)
+    command, command_messages = build_vllm_command(profile)
     lines = [
         "vLLM profile preview (read-only)",
         "이 화면은 vLLM 전용 profile 미리보기입니다. llama.cpp 파라미터와 별개입니다.",
@@ -1057,6 +1058,16 @@ def vllm_profile_preview_text() -> str:
             lines.append(f"- {error}")
     else:
         lines.append("- none")
+    lines.extend(["", "Cache environment preview:"])
+    for env_line in cache_env_preview_lines(profile):
+        lines.append(f"- {env_line}")
+    lines.extend(["", "Command preview / dry-run:"])
+    if command:
+        lines.append(" ".join(shlex.quote(part) for part in command))
+    else:
+        lines.append("No runnable command preview because the profile needs attention:")
+        for message in command_messages:
+            lines.append(f"- {message}")
     lines.extend(["", "Host guidance:"])
     for guidance in host_guidance_lines():
         lines.append(f"- {guidance}")

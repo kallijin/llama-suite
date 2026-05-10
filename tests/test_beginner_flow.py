@@ -361,6 +361,74 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(profile.tensor_parallel_size, 2)
         self.assertEqual(profile.extra_args, "--trust-remote-code --served-model-name local")
 
+    def test_vllm_command_preview_builds_expected_command_list(self) -> None:
+        from modules.vllm_profiles import VllmProfile, build_vllm_command
+
+        profile = VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct")
+
+        command, messages = build_vllm_command(profile)
+
+        self.assertEqual(messages, [])
+        self.assertEqual(
+            command,
+            [
+                "~/bin/vllm-rocm",
+                "serve",
+                "Qwen/Qwen2.5-0.5B-Instruct",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "8000",
+                "--dtype",
+                "auto",
+                "--max-model-len",
+                "4096",
+                "--gpu-memory-utilization",
+                "0.7",
+                "--tensor-parallel-size",
+                "1",
+            ],
+        )
+
+    def test_vllm_command_preview_returns_validation_messages_for_invalid_profile(self) -> None:
+        from modules.vllm_profiles import VllmProfile, build_vllm_command
+
+        command, messages = build_vllm_command(VllmProfile(model=""))
+
+        self.assertIsNone(command)
+        self.assertIn("model should not be empty", messages)
+
+    def test_vllm_command_preview_splits_extra_args_with_shlex(self) -> None:
+        from modules.vllm_profiles import VllmProfile, build_vllm_command
+
+        profile = VllmProfile(
+            model="local-model",
+            extra_args="--served-model-name 'local alias' --trust-remote-code",
+        )
+
+        command, messages = build_vllm_command(profile)
+
+        self.assertEqual(messages, [])
+        self.assertIsNotNone(command)
+        self.assertEqual(command[-3:], ["--served-model-name", "local alias", "--trust-remote-code"])
+
+    def test_vllm_command_preview_reports_malformed_extra_args(self) -> None:
+        from modules.vllm_profiles import VllmProfile, build_vllm_command
+
+        command, messages = build_vllm_command(VllmProfile(model="local-model", extra_args="'unterminated"))
+
+        self.assertIsNone(command)
+        self.assertTrue(any("extra_args could not be parsed" in message for message in messages))
+
+    def test_vllm_cache_env_preview_lines_are_separate_from_command(self) -> None:
+        from modules.vllm_profiles import VllmProfile, cache_env_preview_lines
+
+        lines = cache_env_preview_lines(VllmProfile(model="local-model"))
+
+        self.assertIn("VLLM_CACHE_ROOT=/mnt/data_main/ai-cache/vllm", lines)
+        self.assertIn("HF_HOME=/mnt/data_main/ai-cache/huggingface", lines)
+        self.assertIn("TRANSFORMERS_CACHE=/mnt/data_main/ai-cache/huggingface", lines)
+
     def test_vllm_host_guidance_mentions_access_modes(self) -> None:
         from modules.vllm_profiles import host_guidance_lines
 
@@ -386,6 +454,12 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("- tensor_parallel_size: 1", text)
         self.assertIn("Validation messages:", text)
         self.assertIn("- model should not be empty", text)
+        self.assertIn("Cache environment preview:", text)
+        self.assertIn("VLLM_CACHE_ROOT", text)
+        self.assertIn("HF_HOME", text)
+        self.assertIn("TRANSFORMERS_CACHE", text)
+        self.assertIn("Command preview / dry-run", text)
+        self.assertIn("No runnable command preview", text)
         self.assertIn("127.0.0.1 = local only", text)
         self.assertIn("Tailscale IP = private remote access", text)
         self.assertIn("0.0.0.0 = advanced/exposed", text)
