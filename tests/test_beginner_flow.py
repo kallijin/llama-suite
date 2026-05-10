@@ -3,6 +3,7 @@ import os
 import subprocess
 import sys
 import unittest
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -983,6 +984,49 @@ class BeginnerFlowTests(unittest.TestCase):
         assert result.record is not None
         self.assertEqual(result.record.pid, 2)
 
+    def test_vllm_latest_run_record_reports_missing_latest_gracefully(self) -> None:
+        from modules.vllm_runner import latest_vllm_run_record
+
+        with TemporaryDirectory() as directory:
+            result = latest_vllm_run_record(state_root=directory)
+
+        self.assertFalse(result.ok)
+        self.assertIsNone(result.record)
+        self.assertIn("no vLLM run records found", "\n".join(result.messages))
+
+    def test_vllm_run_record_rejects_invalid_schema_and_backend(self) -> None:
+        from modules.vllm_runner import read_vllm_run_record
+
+        with TemporaryDirectory() as directory:
+            schema_path = Path(directory) / "bad-schema.json"
+            backend_path = Path(directory) / "bad-backend.json"
+            base = {
+                "schema": "wrong",
+                "backend": "vllm",
+                "preset_id": "smoke-qwen-0.5b",
+                "run_id": "run-a",
+                "pid": 1234,
+                "command": ["cmd"],
+                "env_preview": {},
+                "log_path": "/tmp/vllm.log",
+                "host": "127.0.0.1",
+                "port": 8000,
+                "started_at": "2026-05-10T19:31:00+09:00",
+                "status_hint": "started",
+            }
+            schema_path.write_text(json.dumps(base))
+            base["schema"] = "llama-suite.run.v1"
+            base["backend"] = "llama.cpp"
+            backend_path.write_text(json.dumps(base))
+
+            schema_result = read_vllm_run_record(str(schema_path))
+            backend_result = read_vllm_run_record(str(backend_path))
+
+        self.assertFalse(schema_result.ok)
+        self.assertIn("invalid run record schema", "\n".join(schema_result.messages))
+        self.assertFalse(backend_result.ok)
+        self.assertIn("invalid run record backend", "\n".join(backend_result.messages))
+
     def test_vllm_smoke_launch_refuses_without_confirmation(self) -> None:
         from modules.vllm_runner import launch_vllm_smoke_once
 
@@ -1162,7 +1206,129 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertTrue(result.ok)
         self.assertTrue(result.log_exists)
         self.assertTrue(result.port_listening)
-        self.assertIn("port 8000 listening: True", "\n".join(result.messages))
+        self.assertIn("port 8000 listening on 127.0.0.1: True", "\n".join(result.messages))
+
+    def test_vllm_smoke_status_uses_record_host_and_port(self) -> None:
+        from modules.vllm_profiles import VllmPreflightCheck
+        from modules.vllm_runner import check_vllm_smoke_status
+
+        calls: list[tuple] = []
+
+        result = check_vllm_smoke_status(
+            pid=1234,
+            run_id="run-a",
+            log_path="/tmp/missing.log",
+            host="100.68.40.87",
+            port=8010,
+            alive_check=lambda pid: True,
+            port_check=lambda host, port: calls.append((host, port)) or VllmPreflightCheck("port availability", True, "ok"),
+        )
+
+        self.assertTrue(result.ok)
+        self.assertEqual(calls, [("100.68.40.87", 8010)])
+
+    def test_vllm_smoke_manage_uses_latest_record_for_status_defaults(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_runner import VllmRunRecord, VllmRunRecordResult
+        from unittest.mock import Mock, patch
+
+        record = VllmRunRecord(
+            backend="vllm",
+            preset_id="smoke-qwen-0.5b",
+            run_id="run-latest",
+            pid=1234,
+            command=["cmd"],
+            env_preview={},
+            log_path="/tmp/latest.log",
+            host="100.68.40.87",
+            port=8010,
+            started_at="2026-05-10T19:31:00+09:00",
+            status_hint="started",
+        )
+        latest = VllmRunRecordResult(True, record, "/tmp/latest.json", [])
+        mocked_status = Mock(return_value=type("Status", (), {"ok": True, "preset_id": "smoke-qwen-0.5b", "pid": 1234, "run_id": "run-latest", "log_path": "/tmp/latest.log", "alive": True, "log_exists": False, "port_listening": None, "messages": []})())
+        stdout = StringIO()
+
+        with patch.object(launcher, "latest_vllm_run_record", return_value=latest), patch.object(launcher, "check_vllm_smoke_status", mocked_status), patch("builtins.input", side_effect=["1", ""]), contextlib.redirect_stdout(stdout):
+            launcher.show_vllm_smoke_manage()
+
+        mocked_status.assert_called_once_with(pid="1234", run_id="run-latest", log_path="/tmp/latest.log", host="100.68.40.87", port=8010)
+        self.assertIn("latest run record", stdout.getvalue())
+
+    def test_vllm_smoke_manage_missing_latest_falls_back_to_manual_status(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_runner import VllmRunRecordResult
+        from unittest.mock import Mock, patch
+
+        latest = VllmRunRecordResult(False, None, None, ["no vLLM run records found under /tmp/runs"])
+        mocked_status = Mock(return_value=type("Status", (), {"ok": True, "preset_id": "smoke-qwen-0.5b", "pid": 1234, "run_id": "manual-run", "log_path": "/tmp/manual.log", "alive": True, "log_exists": False, "port_listening": None, "messages": []})())
+        stdout = StringIO()
+
+        with patch.object(launcher, "latest_vllm_run_record", return_value=latest), patch.object(launcher, "check_vllm_smoke_status", mocked_status), patch("builtins.input", side_effect=["1", "", "1234", "manual-run", "/tmp/manual.log", "127.0.0.1", "8000"]), contextlib.redirect_stdout(stdout):
+            launcher.show_vllm_smoke_manage()
+
+        mocked_status.assert_called_once_with(pid="1234", run_id="manual-run", log_path="/tmp/manual.log", host="127.0.0.1", port="8000")
+        self.assertIn("latest.json이 없거나 유효하지 않으면", stdout.getvalue())
+
+    def test_vllm_smoke_manage_manual_override_still_works_with_latest_record(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_runner import VllmRunRecord, VllmRunRecordResult
+        from unittest.mock import Mock, patch
+
+        record = VllmRunRecord(
+            backend="vllm",
+            preset_id="smoke-qwen-0.5b",
+            run_id="run-latest",
+            pid=1234,
+            command=["cmd"],
+            env_preview={},
+            log_path="/tmp/latest.log",
+            host="127.0.0.1",
+            port=8000,
+            started_at="2026-05-10T19:31:00+09:00",
+            status_hint="started",
+        )
+        latest = VllmRunRecordResult(True, record, "/tmp/latest.json", [])
+        mocked_status = Mock(return_value=type("Status", (), {"ok": True, "preset_id": "smoke-qwen-0.5b", "pid": 2222, "run_id": "manual-run", "log_path": "/tmp/manual.log", "alive": True, "log_exists": False, "port_listening": None, "messages": []})())
+
+        with patch.object(launcher, "latest_vllm_run_record", return_value=latest), patch.object(launcher, "check_vllm_smoke_status", mocked_status), patch("builtins.input", side_effect=["1", "-", "2222", "manual-run", "/tmp/manual.log", "0.0.0.0", "8020"]), contextlib.redirect_stdout(StringIO()):
+            launcher.show_vllm_smoke_manage()
+
+        mocked_status.assert_called_once_with(pid="2222", run_id="manual-run", log_path="/tmp/manual.log", host="0.0.0.0", port="8020")
+
+    def test_vllm_smoke_manage_stop_with_latest_still_requires_confirmation(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_runner import VllmRunRecord, VllmRunRecordResult
+        from unittest.mock import Mock, patch
+
+        record = VllmRunRecord(
+            backend="vllm",
+            preset_id="smoke-qwen-0.5b",
+            run_id="run-latest",
+            pid=1234,
+            command=["cmd"],
+            env_preview={},
+            log_path="/tmp/latest.log",
+            host="127.0.0.1",
+            port=8000,
+            started_at="2026-05-10T19:31:00+09:00",
+            status_hint="started",
+        )
+        latest = VllmRunRecordResult(True, record, "/tmp/latest.json", [])
+        mocked_stop = Mock(return_value=type("Stop", (), {"ok": False, "preset_id": "smoke-qwen-0.5b", "pid": 1234, "run_id": "run-latest", "messages": ["cancelled"]})())
+
+        with patch.object(launcher, "latest_vllm_run_record", return_value=latest), patch.object(launcher, "stop_vllm_smoke", mocked_stop), patch("builtins.input", side_effect=["3", "", "no"]), contextlib.redirect_stdout(StringIO()):
+            launcher.show_vllm_smoke_manage()
+
+        mocked_stop.assert_called_once_with(pid="1234", run_id="run-latest", confirmed=False)
 
     def test_vllm_smoke_log_reports_missing_file(self) -> None:
         from modules.vllm_runner import read_vllm_smoke_log

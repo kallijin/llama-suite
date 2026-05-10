@@ -40,7 +40,7 @@ from modules.script_builder import command_preview, generate_script, parse_gener
 from modules.system_info import collect_system_info
 from modules.vllm_doctor import format_vllm_doctor_report, run_vllm_doctor
 from modules.vllm_profiles import build_vllm_command, builtin_vllm_profile_presets, cache_env_preview_lines, future_launch_preset_id, host_guidance_lines, launch_confirmation_guidance_lines, run_vllm_preflight, validate_vllm_profile
-from modules.vllm_runner import check_vllm_smoke_status, launch_vllm_smoke_once, read_vllm_run_record, read_vllm_smoke_log, stop_vllm_smoke
+from modules.vllm_runner import check_vllm_smoke_status, latest_vllm_run_record, launch_vllm_smoke_once, read_vllm_run_record, read_vllm_smoke_log, stop_vllm_smoke
 
 
 # ─── 설정 ──────────────────────────────────────────────
@@ -1173,29 +1173,40 @@ def print_vllm_launch_result(result: Any) -> None:
 
 def show_vllm_smoke_manage() -> None:
     print("\n  ── vLLM smoke status/log/stop ──")
-    print("  launch 결과에 표시된 pid/run_id/log_path를 수동으로 입력합니다.")
-    print("  record_path를 입력하면 pid/run_id/log_path를 record에서 불러옵니다.")
+    latest_result = latest_vllm_run_record()
+    latest_record = latest_result.record if latest_result.ok else None
+    if latest_record:
+        print("  latest run record:")
+        print_vllm_record_summary(latest_record)
+    else:
+        for message in latest_result.messages:
+            print(f"  - {message}")
+        print("  latest.json이 없거나 유효하지 않으면 수동 입력으로 진행합니다.")
     print("  [1] status")
     print("  [2] log")
     print("  [3] stop")
     choice = input("  선택 > ").strip()
 
     if choice == "1":
-        record = prompt_vllm_run_record()
+        record = prompt_vllm_run_record(latest_record)
         if record:
             pid = str(record.pid)
             run_id = record.run_id
             log_path = record.log_path
+            host = record.host
+            port = record.port
         else:
             pid = input("  pid > ").strip()
             run_id = input("  run_id > ").strip()
             log_path = input("  log_path > ").strip()
-        result = check_vllm_smoke_status(pid=pid, run_id=run_id, log_path=log_path)
+            host = input("  host [127.0.0.1] > ").strip() or "127.0.0.1"
+            port = input("  port [8000] > ").strip() or "8000"
+        result = check_vllm_smoke_status(pid=pid, run_id=run_id, log_path=log_path, host=host, port=port)
         print_vllm_status_result(result)
         return
 
     if choice == "2":
-        record = prompt_vllm_run_record()
+        record = prompt_vllm_run_record(latest_record)
         log_path = record.log_path if record else input("  log_path > ").strip()
         raw_lines = input("  last N lines [80] > ").strip()
         try:
@@ -1207,7 +1218,7 @@ def show_vllm_smoke_manage() -> None:
         return
 
     if choice == "3":
-        record = prompt_vllm_run_record()
+        record = prompt_vllm_run_record(latest_record)
         if record:
             pid = str(record.pid)
             run_id = record.run_id
@@ -1223,8 +1234,15 @@ def show_vllm_smoke_manage() -> None:
     print("  취소했습니다.")
 
 
-def prompt_vllm_run_record() -> Any:
-    record_path = input("  record_path [manual 입력은 빈 값] > ").strip()
+def prompt_vllm_run_record(default_record: Any = None) -> Any:
+    if default_record:
+        record_path = input("  record_path [Enter=latest, manual=빈 값 대신 -] > ").strip()
+        if not record_path:
+            return default_record
+        if record_path == "-":
+            return None
+    else:
+        record_path = input("  record_path [manual 입력은 빈 값] > ").strip()
     if not record_path:
         return None
     result = read_vllm_run_record(record_path)
@@ -1233,6 +1251,14 @@ def prompt_vllm_run_record() -> Any:
     for message in result.messages:
         print(f"  - {message}")
     return None
+
+
+def print_vllm_record_summary(record: Any) -> None:
+    print(f"    run_id: {record.run_id}")
+    print(f"    pid: {record.pid}")
+    print(f"    log_path: {record.log_path}")
+    print(f"    host: {record.host}")
+    print(f"    port: {record.port}")
 
 
 def print_vllm_status_result(result: Any) -> None:

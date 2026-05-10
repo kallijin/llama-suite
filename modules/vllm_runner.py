@@ -288,7 +288,29 @@ def read_vllm_run_record(record_path: str) -> VllmRunRecordResult:
         )
     except Exception as exc:
         return VllmRunRecordResult(False, None, expanded_path, [f"run record read failed: {exc}"])
+    validation_messages = validate_vllm_run_record(record)
+    if validation_messages:
+        return VllmRunRecordResult(False, record, expanded_path, validation_messages)
     return VllmRunRecordResult(True, record, expanded_path, [])
+
+
+def validate_vllm_run_record(record: VllmRunRecord) -> list[str]:
+    messages: list[str] = []
+    if record.schema != "llama-suite.run.v1":
+        messages.append("invalid run record schema")
+    if record.backend != "vllm":
+        messages.append("invalid run record backend")
+    if not record.run_id:
+        messages.append("run_id is required")
+    if record.pid <= 0:
+        messages.append("pid should be a positive integer")
+    if not record.log_path:
+        messages.append("log_path is required")
+    if not record.host:
+        messages.append("host is required")
+    if record.port <= 0:
+        messages.append("port should be a positive integer")
+    return messages
 
 
 def latest_vllm_run_record(*, state_root: str | Path | None = None) -> VllmRunRecordResult:
@@ -310,6 +332,8 @@ def check_vllm_smoke_status(
     pid: int | str | None,
     run_id: str = "",
     log_path: str = "",
+    host: str = "127.0.0.1",
+    port: int | str = 8000,
     alive_check: Any = None,
     port_check: Any = None,
 ) -> VllmSmokeStatusResult:
@@ -332,10 +356,10 @@ def check_vllm_smoke_status(
     port_listening: bool | None = None
     if port_check is not None:
         try:
-            port_result = port_check("127.0.0.1", 8000)
+            port_result = port_check(host, port)
             port_listening = bool(getattr(port_result, "ok", port_result))
             detail = getattr(port_result, "message", "")
-            messages.append(f"port 8000 listening: {port_listening}" + (f" ({detail})" if detail else ""))
+            messages.append(f"port {port} listening on {host}: {port_listening}" + (f" ({detail})" if detail else ""))
         except Exception as exc:
             messages.append(f"port check failed: {exc}")
 
