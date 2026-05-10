@@ -11,6 +11,7 @@ DEFAULT_WRAPPER_PATH = "~/bin/vllm-rocm"
 DEFAULT_VLLM_CACHE_ROOT = "/mnt/data_main/ai-cache/vllm"
 DEFAULT_HF_HOME = "/mnt/data_main/ai-cache/huggingface"
 DEFAULT_TRANSFORMERS_CACHE = "/mnt/data_main/ai-cache/huggingface"
+DEFAULT_MODEL_DOWNLOAD_ROOT = "/mnt/data_main/downloads/models"
 FUTURE_LAUNCH_PRESET_ID = "smoke-qwen-0.5b"
 VLLM_EDITABLE_PROFILE_FIELDS = [
     "wrapper_path",
@@ -288,6 +289,17 @@ def launch_confirmation_guidance_lines() -> list[str]:
         "127.0.0.1 is local-only.",
         "Tailscale IP is for private remote access.",
         "0.0.0.0 is advanced/exposed.",
+    ]
+
+
+def large_model_guidance_lines() -> list[str]:
+    return [
+        f"Approved model download root: {DEFAULT_MODEL_DOWNLOAD_ROOT}",
+        "Create one filesystem-safe directory per model under the download root.",
+        "For 30B-36B vLLM profiles, prefer HF/safetensors quantized models such as AWQ/GPTQ/Int4.",
+        "For 30B-36B llama.cpp profiles, prefer GGUF Q4_K_M-class models.",
+        "vLLM GGUF remains experimental and requires separate approval before launch.",
+        "Do not download models into $HOME, the repo, or default Hugging Face cache unless explicitly approved.",
     ]
 
 

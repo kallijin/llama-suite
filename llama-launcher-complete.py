@@ -40,7 +40,7 @@ from modules.script_builder import command_preview, generate_script, parse_gener
 from modules.system_info import collect_system_info
 from modules.vllm_api_probe import run_vllm_api_smoke
 from modules.vllm_doctor import format_vllm_doctor_report, run_vllm_doctor
-from modules.vllm_profiles import builtin_vllm_profile_presets, default_vllm_profile, editable_vllm_profile_fields, format_vllm_profile_report, future_launch_preset_id, host_guidance_lines, launch_confirmation_guidance_lines, update_vllm_profile_field
+from modules.vllm_profiles import builtin_vllm_profile_presets, default_vllm_profile, editable_vllm_profile_fields, format_vllm_profile_report, future_launch_preset_id, host_guidance_lines, large_model_guidance_lines, launch_confirmation_guidance_lines, update_vllm_profile_field
 from modules.vllm_runner import check_vllm_smoke_status, latest_vllm_run_record, latest_vllm_run_summary, launch_vllm_smoke_once, read_vllm_run_record, read_vllm_smoke_log, stop_vllm_smoke
 
 
@@ -1088,6 +1088,9 @@ def vllm_profile_preview_text(port_check: Any = None) -> str:
     lines.extend(["", "Host guidance:"])
     for guidance in host_guidance_lines():
         lines.append(f"- {guidance}")
+    lines.extend(["", "30B / quantized model guidance:"])
+    for guidance in large_model_guidance_lines():
+        lines.append(f"- {guidance}")
     return "\n".join(lines)
 
 
@@ -1104,6 +1107,9 @@ def vllm_custom_profile_text(profile: Any, port_check: Any = None) -> str:
         lines.append(f"- {field_name}")
     lines.extend(["", "Host guidance:"])
     for guidance in host_guidance_lines():
+        lines.append(f"- {guidance}")
+    lines.extend(["", "30B / quantized model guidance:"])
+    for guidance in large_model_guidance_lines():
         lines.append(f"- {guidance}")
     return "\n".join(lines)
 

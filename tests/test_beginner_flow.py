@@ -746,7 +746,7 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(host_access_note("0.0.0.0"), "0.0.0.0 = advanced/exposed")
 
     def test_vllm_host_guidance_mentions_access_modes(self) -> None:
-        from modules.vllm_profiles import host_guidance_lines, launch_confirmation_guidance_lines
+        from modules.vllm_profiles import host_guidance_lines, large_model_guidance_lines, launch_confirmation_guidance_lines
 
         text = "\n".join(host_guidance_lines())
 
@@ -762,6 +762,13 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("Tailscale IP is for private remote access", confirmation)
         self.assertIn("0.0.0.0 is advanced/exposed", confirmation)
         self.assertIn("no launch button", confirmation)
+        large_model = "\n".join(large_model_guidance_lines())
+        self.assertIn("/mnt/data_main/downloads/models", large_model)
+        self.assertIn("30B-36B vLLM", large_model)
+        self.assertIn("HF/safetensors", large_model)
+        self.assertIn("AWQ/GPTQ/Int4", large_model)
+        self.assertIn("GGUF Q4_K_M", large_model)
+        self.assertIn("vLLM GGUF remains experimental", large_model)
 
     def test_vllm_profile_preview_is_read_only_and_separate(self) -> None:
         launcher = load_launcher_module()
@@ -811,6 +818,9 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("127.0.0.1 = local only", text)
         self.assertIn("Tailscale IP = private remote access", text)
         self.assertIn("0.0.0.0 = advanced/exposed", text)
+        self.assertIn("30B / quantized model guidance:", text)
+        self.assertIn("/mnt/data_main/downloads/models", text)
+        self.assertIn("vLLM GGUF remains experimental", text)
 
     def test_vllm_profile_preview_includes_read_only_smoke_preset(self) -> None:
         launcher = load_launcher_module()
@@ -854,6 +864,8 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("Launch preflight:", text)
         self.assertIn("[PASS] profile validation", text)
         self.assertIn("Qwen/Qwen2.5-0.5B-Instruct", text)
+        self.assertIn("30B / quantized model guidance:", text)
+        self.assertIn("HF/safetensors", text)
 
     def test_vllm_profile_menu_can_edit_custom_profile_draft(self) -> None:
         launcher = load_launcher_module()
