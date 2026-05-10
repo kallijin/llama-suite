@@ -960,7 +960,13 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("Qwen/Qwen2.5-0.5B-Instruct", command)
 
     def test_vllm_builtin_preset_registry_includes_default_smoke_and_local_large_template(self) -> None:
-        from modules.vllm_profiles import builtin_vllm_profile_presets, future_launch_preset_id
+        from modules.vllm_profiles import (
+            VERIFIED_GEMMA4_26B_AWQ_MODEL_PATH,
+            VERIFIED_GEMMA4_26B_AWQ_SERVED_MODEL,
+            build_vllm_command,
+            builtin_vllm_profile_presets,
+            future_launch_preset_id,
+        )
 
         presets = builtin_vllm_profile_presets()
         by_id = {preset.id: preset for preset in presets}
@@ -968,6 +974,7 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("default", by_id)
         self.assertIn("smoke-qwen-0.5b", by_id)
         self.assertIn("template-local-large-q4", by_id)
+        self.assertIn("verified-gemma4-26b-awq-auto", by_id)
         self.assertEqual(by_id["default"].label, "Default vLLM profile")
         self.assertEqual(by_id["smoke-qwen-0.5b"].label, "Smoke Qwen 0.5B")
         self.assertIn("read-only", by_id["smoke-qwen-0.5b"].description)
@@ -979,6 +986,23 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(by_id["template-local-large-q4"].profile.gpu_memory_utilization, 0.82)
         self.assertEqual(by_id["template-local-large-q4"].profile.max_num_seqs, 1)
         self.assertEqual(by_id["template-local-large-q4"].profile.max_num_batched_tokens, "")
+        verified = by_id["verified-gemma4-26b-awq-auto"].profile
+        verified_command, verified_messages = build_vllm_command(verified)
+        self.assertEqual(verified.model, VERIFIED_GEMMA4_26B_AWQ_MODEL_PATH)
+        self.assertEqual(verified.dtype, "bfloat16")
+        self.assertEqual(verified.max_model_len, "")
+        self.assertEqual(verified.gpu_memory_utilization, 0.88)
+        self.assertEqual(verified.tensor_parallel_size, 2)
+        self.assertEqual(verified.kv_cache_dtype, "fp8")
+        self.assertEqual(verified.max_num_seqs, 1)
+        self.assertIn(VERIFIED_GEMMA4_26B_AWQ_SERVED_MODEL, verified.extra_args)
+        self.assertEqual(verified_messages, [])
+        self.assertIsNotNone(verified_command)
+        assert verified_command is not None
+        self.assertNotIn("--max-model-len", verified_command)
+        self.assertIn("--enable-auto-tool-choice", verified_command)
+        self.assertIn("--tool-call-parser", verified_command)
+        self.assertIn("hermes", verified_command)
         self.assertEqual(future_launch_preset_id(), "smoke-qwen-0.5b")
 
     def test_vllm_profile_validation_reports_structured_messages(self) -> None:
@@ -1831,12 +1855,17 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("default: Default vLLM profile", text)
         self.assertIn("smoke-qwen-0.5b: Smoke Qwen 0.5B", text)
         self.assertIn("template-local-large-q4: Local large Q4 template", text)
+        self.assertIn("verified-gemma4-26b-awq-auto: Verified Gemma4 26B AWQ auto", text)
         self.assertIn("Built-in presets are read-only templates", text)
         self.assertIn("Custom drafts can be copied, edited, saved, and launched separately", text)
         self.assertIn("Preset default: Default vLLM profile", text)
         self.assertIn("Local large Q4 template preset (read-only)", text)
         self.assertIn("/mnt/data_main/downloads/models/local-large-q4-hf", text)
         self.assertIn("HF/safetensors Q4", text)
+        self.assertIn("Verified local Gemma4 26B AWQ profile (read-only)", text)
+        self.assertIn("vLLM + Hermes Agent smoke", text)
+        self.assertIn("gemma4-26b-awq-auto", text)
+        self.assertIn("--enable-auto-tool-choice --tool-call-parser hermes", text)
         self.assertIn("vLLM-only fields:", text)
         self.assertIn("- wrapper_path: ~/bin/vllm-rocm", text)
         self.assertIn("- host: 127.0.0.1", text)
@@ -2370,6 +2399,32 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("next [4] save default profile id: draft-from-template-local-large-q4", stdout.getvalue())
         self.assertIn("draft-from-template-local-large-q4.json", stdout.getvalue())
         self.assertIn("저장/launch는 하지 않았습니다", stdout.getvalue())
+
+    def test_vllm_profile_menu_can_copy_verified_gemma4_profile_to_custom_draft(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profiles import VERIFIED_GEMMA4_26B_AWQ_MODEL_PATH, VllmProfile
+        from unittest.mock import Mock, patch
+
+        stdout = StringIO()
+
+        with (
+            patch.object(launcher, "save_vllm_profile_draft", Mock()),
+            patch.object(launcher, "launch_vllm_profile_once", Mock()),
+            patch("builtins.input", side_effect=["8", "4", "4"]),
+            contextlib.redirect_stdout(stdout),
+        ):
+            profile, profile_id = launcher.show_vllm_profile_menu(VllmProfile(), "custom-draft", return_profile_id=True)
+
+        self.assertEqual(profile_id, "draft-from-verified-gemma4-26b-awq-auto")
+        self.assertEqual(profile.model, VERIFIED_GEMMA4_26B_AWQ_MODEL_PATH)
+        self.assertEqual(profile.dtype, "bfloat16")
+        self.assertEqual(profile.tensor_parallel_size, 2)
+        self.assertEqual(profile.max_model_len, "")
+        self.assertIn("--tool-call-parser hermes", profile.extra_args)
+        self.assertIn("Verified Gemma4 26B AWQ auto", stdout.getvalue())
+        self.assertIn("draft-from-verified-gemma4-26b-awq-auto.json", stdout.getvalue())
 
     def test_vllm_profile_menu_delete_cancel_does_not_call_delete(self) -> None:
         launcher = load_launcher_module()

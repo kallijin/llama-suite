@@ -1206,6 +1206,9 @@ def vllm_profile_preview_text(port_check: Any = None) -> str:
         if preset.id == "template-local-large-q4":
             lines.append("Local large Q4 template preset (read-only)")
             lines.append("다운로드/launch 없이 /mnt/data_main/downloads/models 아래 HF/safetensors Q4급 디렉터리 형태만 제안합니다.")
+        if preset.id == "verified-gemma4-26b-awq-auto":
+            lines.append("Verified local Gemma4 26B AWQ profile (read-only)")
+            lines.append("이 시스템에서 vLLM + Hermes Agent smoke까지 통과한 profile입니다. 실행하려면 custom draft로 복사하세요.")
         lines.extend(format_vllm_profile_section(f"Preset {preset.id}: {preset.label}", preset.profile, port_check=port_check))
     lines.extend(["", "Host guidance:"])
     for guidance in host_guidance_lines():

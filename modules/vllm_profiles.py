@@ -13,6 +13,8 @@ DEFAULT_VLLM_CACHE_ROOT = "/mnt/data_main/ai-cache/vllm"
 DEFAULT_HF_HOME = "/mnt/data_main/ai-cache/huggingface"
 DEFAULT_TRANSFORMERS_CACHE = "/mnt/data_main/ai-cache/huggingface"
 DEFAULT_MODEL_DOWNLOAD_ROOT = "/mnt/data_main/downloads/models"
+VERIFIED_GEMMA4_26B_AWQ_MODEL_PATH = f"{DEFAULT_MODEL_DOWNLOAD_ROOT}/cyankiwi-gemma-4-26B-A4B-it-AWQ-4bit"
+VERIFIED_GEMMA4_26B_AWQ_SERVED_MODEL = "gemma4-26b-awq-auto"
 FUTURE_LAUNCH_PRESET_ID = "smoke-qwen-0.5b"
 VLLM_EDITABLE_PROFILE_FIELDS = [
     "wrapper_path",
@@ -117,6 +119,18 @@ def local_large_q4_vllm_profile() -> VllmProfile:
     )
 
 
+def verified_gemma4_26b_awq_vllm_profile() -> VllmProfile:
+    return VllmProfile(
+        model=VERIFIED_GEMMA4_26B_AWQ_MODEL_PATH,
+        dtype="bfloat16",
+        gpu_memory_utilization=0.88,
+        tensor_parallel_size=2,
+        kv_cache_dtype="fp8",
+        max_num_seqs=1,
+        extra_args=f"--served-model-name {VERIFIED_GEMMA4_26B_AWQ_SERVED_MODEL} --enforce-eager --enable-auto-tool-choice --tool-call-parser hermes",
+    )
+
+
 def builtin_vllm_profile_presets() -> list[VllmProfilePreset]:
     return [
         VllmProfilePreset(
@@ -136,6 +150,12 @@ def builtin_vllm_profile_presets() -> list[VllmProfilePreset]:
             label="Local large Q4 template",
             description="Read-only template for a local large HF/safetensors quantized model directory. It is not a launch target.",
             profile=local_large_q4_vllm_profile(),
+        ),
+        VllmProfilePreset(
+            id="verified-gemma4-26b-awq-auto",
+            label="Verified Gemma4 26B AWQ auto",
+            description="Read-only local profile from the successful vLLM/Hermes test on this workstation. Copy to a custom draft before launch.",
+            profile=verified_gemma4_26b_awq_vllm_profile(),
         ),
     ]
 
