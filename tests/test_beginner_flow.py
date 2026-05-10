@@ -1065,6 +1065,38 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertNotIn("--max-num-seqs", command)
         self.assertNotIn("--max-num-batched-tokens", command)
 
+    def test_vllm_model_source_inspection_reports_hf_local_tokenizer_and_gguf_cases(self) -> None:
+        from modules.vllm_profiles import inspect_vllm_model_source
+
+        hf_checks = inspect_vllm_model_source("Qwen/Qwen2.5-0.5B-Instruct")
+        self.assertEqual(hf_checks[0].level, "INFO")
+        self.assertIn("Hugging Face model ID", hf_checks[0].message)
+
+        with TemporaryDirectory() as directory:
+            model_dir = Path(directory)
+            (model_dir / "config.json").write_text("{}\n")
+            (model_dir / "tokenizer.json").write_text("{}\n")
+            (model_dir / "model.safetensors").write_text("")
+
+            checks = inspect_vllm_model_source(str(model_dir))
+
+            self.assertEqual([check.level for check in checks], ["PASS", "PASS", "PASS"])
+            self.assertTrue(any(check.name == "tokenizer" and "exists" in check.message for check in checks))
+
+        with TemporaryDirectory() as directory:
+            model_dir = Path(directory)
+            (model_dir / "config.json").write_text("{}\n")
+            (model_dir / "model.safetensors").write_text("")
+
+            checks = inspect_vllm_model_source(str(model_dir))
+
+            self.assertTrue(any(check.name == "tokenizer" and check.level == "WARN" for check in checks))
+            self.assertTrue(any("tokenizer file is missing" in check.message for check in checks))
+
+        gguf_checks = inspect_vllm_model_source("/mnt/data_main/downloads/models/model.gguf")
+        self.assertEqual(gguf_checks[0].level, "WARN")
+        self.assertIn("vLLM GGUF is experimental", gguf_checks[0].message)
+
     def test_vllm_command_preview_expands_wrapper_path_for_execution(self) -> None:
         from modules.vllm_profiles import VllmProfile, build_vllm_command
         from unittest.mock import patch
@@ -1336,6 +1368,8 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("example: 4096", text)
         self.assertIn("- Cache / hf_home: /mnt/data_main/ai-cache/huggingface", text)
         self.assertIn("Command preview / dry-run", text)
+        self.assertIn("Model source inspection:", text)
+        self.assertIn("Hugging Face model ID; local file inspection skipped", text)
         self.assertIn("Launch preflight:", text)
         self.assertIn("[PASS] profile validation", text)
         self.assertIn("Qwen/Qwen2.5-0.5B-Instruct", text)
