@@ -1756,7 +1756,7 @@ def main() -> None:
         print_startup_warnings(startup_warnings + recent_vllm_run_startup_warnings(vllm_run_summary))
         if not models:
             print(f"\n  ⚠️  {MODELS_DIR} 에서 GGUF 파일을 찾을 수 없습니다.")
-            print("     그래도 [A] 설정 변경, [I] 시스템 정보, [E] Hermes 등록, [C] OpenClaw 등록은 사용할 수 있습니다.")
+            print("     그래도 [L] llama.cpp 세팅, [I] 시스템 정보, [E] Hermes 등록, [C] OpenClaw 등록은 사용할 수 있습니다.")
 
         if running:
             print(f"  🔴 실행 중: {running}\n")

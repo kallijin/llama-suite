@@ -225,7 +225,7 @@ class BeginnerFlowTests(unittest.TestCase):
 
         self.assertEqual(completed.returncode, 0)
         self.assertIn("GGUF 파일을 찾을 수 없습니다", completed.stdout)
-        self.assertIn("[A] 설정 변경", completed.stdout)
+        self.assertIn("[L] llama.cpp 세팅", completed.stdout)
         self.assertIn("[E] Hermes 등록", completed.stdout)
         self.assertIn("Hermes 설정 변경: 비활성화", completed.stdout)
         self.assertIn("실행 예정 요약", completed.stdout)
