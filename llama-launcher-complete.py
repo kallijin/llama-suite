@@ -1140,23 +1140,20 @@ def show_vllm_profile_menu(profile: Any, profile_id: str = "custom-draft", *, re
     print(f"  profile store root: {Path(default_vllm_profile_path()).parent}")
     print(f"  selected draft JSON path: {default_vllm_profile_path(profile_id)}")
     print(f"  selected model: {getattr(profile, 'model', '') or '(empty model)'}")
-    print("  Built-in / preview")
+    print("  View")
     print("  [1] built-in profile preview")
     print("  [2] custom profile draft preview")
-    print("  Custom draft")
+    print("  Draft / files")
     print("  [3] edit custom profile draft")
     print("  [4] save custom profile draft")
-    print("  [9] list saved custom profiles")
-    print("  [10] load saved custom profile from list")
-    print("  [11] delete saved custom profile from list")
-    print("  [12] profile JSON preview")
-    print("  [13] import profile JSON file")
-    print("  [14] validate profile JSON file")
-    print("  [15] copy built-in preset to custom draft")
+    print("  [5] list saved custom profiles")
+    print("  [6] load saved custom profile from list")
+    print("  [7] delete saved custom profile from list")
+    print("  [8] profile JSON import/validate/preview")
     print("  Script / launch")
-    print("  [6] custom script preview")
-    print("  [7] save custom script")
-    print("  [8] launch custom profile")
+    print("  [9] custom script preview")
+    print("  [10] save custom script")
+    print("  [11] launch custom profile")
     choice = input("  선택 > ").strip()
 
     if choice == "1":
@@ -1176,40 +1173,31 @@ def show_vllm_profile_menu(profile: Any, profile_id: str = "custom-draft", *, re
         if result.ok:
             profile_id = updated_profile_id
         return _vllm_profile_menu_return(profile, profile_id, return_profile_id)
-    if choice == "6":
-        preview = build_vllm_script_preview(profile)
-        print_vllm_script_preview(preview)
-        return _vllm_profile_menu_return(profile, profile_id, return_profile_id)
-    if choice == "7":
-        result = save_vllm_script(profile)
-        print_vllm_script_save_result(result)
-        return _vllm_profile_menu_return(profile, profile_id, return_profile_id)
-    if choice == "8":
-        show_vllm_custom_launch(profile, profile_id)
-        return _vllm_profile_menu_return(profile, profile_id, return_profile_id)
-    if choice == "9":
+    if choice == "5":
         print_vllm_profile_list_result(list_vllm_profile_drafts(), selected_profile_id=profile_id)
         return _vllm_profile_menu_return(profile, profile_id, return_profile_id)
-    if choice == "10":
+    if choice == "6":
         loaded_profile, loaded_profile_id = load_vllm_profile_from_list(profile, profile_id)
         return _vllm_profile_menu_return(loaded_profile, loaded_profile_id, return_profile_id)
-    if choice == "11":
+    if choice == "7":
         deleted_profile_id = delete_vllm_profile_from_list(profile_id)
         if deleted_profile_id == profile_id:
             profile_id = "custom-draft"
         return _vllm_profile_menu_return(profile, profile_id, return_profile_id)
-    if choice == "12":
-        print_vllm_profile_json_preview(profile, profile_id)
+    if choice == "8":
+        profile, profile_id = show_vllm_profile_json_menu(profile, profile_id)
         return _vllm_profile_menu_return(profile, profile_id, return_profile_id)
-    if choice == "13":
-        imported_profile, imported_profile_id = import_vllm_profile_json_file(profile, profile_id)
-        return _vllm_profile_menu_return(imported_profile, imported_profile_id, return_profile_id)
-    if choice == "14":
-        validate_vllm_profile_json_file_from_menu()
+    if choice == "9":
+        preview = build_vllm_script_preview(profile)
+        print_vllm_script_preview(preview)
         return _vllm_profile_menu_return(profile, profile_id, return_profile_id)
-    if choice == "15":
-        copied_profile, copied_profile_id = copy_vllm_builtin_preset_to_draft(profile, profile_id)
-        return _vllm_profile_menu_return(copied_profile, copied_profile_id, return_profile_id)
+    if choice == "10":
+        result = save_vllm_script(profile)
+        print_vllm_script_save_result(result)
+        return _vllm_profile_menu_return(profile, profile_id, return_profile_id)
+    if choice == "11":
+        show_vllm_custom_launch(profile, profile_id)
+        return _vllm_profile_menu_return(profile, profile_id, return_profile_id)
 
     print("  취소했습니다.")
     return _vllm_profile_menu_return(profile, profile_id, return_profile_id)
@@ -1219,6 +1207,27 @@ def _vllm_profile_menu_return(profile: Any, profile_id: str, return_profile_id: 
     if return_profile_id:
         return profile, profile_id
     return profile
+
+
+def show_vllm_profile_json_menu(profile: Any, profile_id: str) -> tuple[Any, str]:
+    print("\n  ── vLLM profile JSON / preset ──")
+    print("  [1] profile JSON preview")
+    print("  [2] import profile JSON file")
+    print("  [3] validate profile JSON file")
+    print("  [4] copy built-in preset to custom draft")
+    choice = input("  선택 > ").strip()
+    if choice == "1":
+        print_vllm_profile_json_preview(profile, profile_id)
+        return profile, profile_id
+    if choice == "2":
+        return import_vllm_profile_json_file(profile, profile_id)
+    if choice == "3":
+        validate_vllm_profile_json_file_from_menu()
+        return profile, profile_id
+    if choice == "4":
+        return copy_vllm_builtin_preset_to_draft(profile, profile_id)
+    print("  취소했습니다.")
+    return profile, profile_id
 
 
 def edit_vllm_custom_profile(profile: Any) -> Any:
