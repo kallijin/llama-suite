@@ -37,6 +37,24 @@ Future modules:
 - `modules/vllm_control.py`: CLI/MCP-facing control surface
 - `modules/control_schema.py`: shared structured result/JSON schema
 
+## Agent-facing orientation help rule
+
+Files may include short orientation help when it helps a human, editor, or agent understand the suite's technical direction after opening the file.
+
+Allowed orientation help:
+
+- backend ownership and module boundary rules
+- profile/schema responsibility notes
+- launch safety and lifecycle direction
+- model-format guidance that prevents wrong backend usage
+- examples that show the intended editable file shape
+
+Do not add help text just because a line of code could be explained.
+Do not grow runtime code with broad tutorials, repeated warnings, or obvious comments.
+Do not place UI copy, CLI/MCP schema notes, or backend policy inside unrelated modules.
+
+The goal is directional help for files whose overall flow is otherwise hard to infer, not documentation noise.
+
 ## Backend-aware action ownership
 
 Common-looking actions must have a backend owner.
