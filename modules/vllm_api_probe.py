@@ -29,7 +29,7 @@ def run_vllm_api_smoke(
     *,
     latest_record: Any = None,
     opener: Any = None,
-    timeout: float = 2.0,
+    timeout: float = 15.0,
 ) -> VllmApiSmokeResult:
     latest = latest_record or latest_vllm_run_record()
     if not latest.ok or latest.record is None:
@@ -63,18 +63,26 @@ def run_vllm_api_smoke(
 
     base_url = f"http://{record.host}:{record.port}/v1"
     open_url = opener or request.urlopen
+    models_check, served_model_id = _get_models(base_url, open_url, timeout)
+    chat_model_id = served_model_id or model_id
     checks = [
-        _get_models(base_url, open_url, timeout),
-        _post_chat_completion(base_url, model_id, open_url, timeout),
+        models_check,
+        _post_chat_completion(base_url, chat_model_id, open_url, timeout),
     ]
     ok = all(check.ok for check in checks)
     messages = ["vLLM API smoke completed" if ok else "vLLM API smoke failed"]
-    return VllmApiSmokeResult(ok=ok, base_url=base_url, model_id=model_id, checks=checks, messages=messages)
+    return VllmApiSmokeResult(ok=ok, base_url=base_url, model_id=chat_model_id, checks=checks, messages=messages)
 
 
-def _get_models(base_url: str, opener: Any, timeout: float) -> VllmApiProbeCheck:
+def _get_models(base_url: str, opener: Any, timeout: float) -> tuple[VllmApiProbeCheck, str | None]:
     req = request.Request(f"{base_url}/models", method="GET")
-    return _json_request_check("GET /v1/models", req, opener, timeout, required_key="data")
+    check, payload = _json_request_check("GET /v1/models", req, opener, timeout, required_key="data")
+    if not check.ok:
+        return check, None
+    served_model_id = _first_served_model_id(payload)
+    if served_model_id:
+        return VllmApiProbeCheck(check.name, True, f"{check.message}; using served model id {served_model_id}", check.status_code), served_model_id
+    return check, None
 
 
 def _post_chat_completion(base_url: str, model_id: str, opener: Any, timeout: float) -> VllmApiProbeCheck:
@@ -91,10 +99,11 @@ def _post_chat_completion(base_url: str, model_id: str, opener: Any, timeout: fl
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    return _json_request_check("POST /v1/chat/completions", req, opener, timeout, required_key="choices")
+    check, _payload = _json_request_check("POST /v1/chat/completions", req, opener, timeout, required_key="choices")
+    return check
 
 
-def _json_request_check(name: str, req: request.Request, opener: Any, timeout: float, *, required_key: str) -> VllmApiProbeCheck:
+def _json_request_check(name: str, req: request.Request, opener: Any, timeout: float, *, required_key: str) -> tuple[VllmApiProbeCheck, dict[str, Any] | None]:
     try:
         response = opener(req, timeout=timeout)
         status_code = _status_code(response)
@@ -103,13 +112,25 @@ def _json_request_check(name: str, req: request.Request, opener: Any, timeout: f
             response.close()
         payload = json.loads(data.decode("utf-8") if isinstance(data, bytes) else str(data))
     except Exception as exc:
-        return VllmApiProbeCheck(name=name, ok=False, message=f"{name} failed: {exc}")
+        return VllmApiProbeCheck(name=name, ok=False, message=f"{name} failed: {exc}"), None
 
     if status_code is not None and not (200 <= status_code < 300):
-        return VllmApiProbeCheck(name=name, ok=False, message=f"{name} returned HTTP {status_code}", status_code=status_code)
+        return VllmApiProbeCheck(name=name, ok=False, message=f"{name} returned HTTP {status_code}", status_code=status_code), None
     if not isinstance(payload, dict) or required_key not in payload:
-        return VllmApiProbeCheck(name=name, ok=False, message=f"{name} response missing {required_key}", status_code=status_code)
-    return VllmApiProbeCheck(name=name, ok=True, message=f"{name} passed", status_code=status_code)
+        return VllmApiProbeCheck(name=name, ok=False, message=f"{name} response missing {required_key}", status_code=status_code), None
+    return VllmApiProbeCheck(name=name, ok=True, message=f"{name} passed", status_code=status_code), payload
+
+
+def _first_served_model_id(payload: dict[str, Any] | None) -> str | None:
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, list):
+        return None
+    for item in data:
+        if isinstance(item, dict):
+            model_id = str(item.get("id") or "").strip()
+            if model_id:
+                return model_id
+    return None
 
 
 def _status_code(response: Any) -> int | None:

@@ -443,6 +443,100 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn(b"Qwen/Qwen2.5-0.5B-Instruct", requests[1][2])
         self.assertIn(b'"max_tokens": 8', requests[1][2])
 
+    def test_vllm_api_smoke_uses_served_model_id_from_models_response(self) -> None:
+        from modules.vllm_api_probe import run_vllm_api_smoke
+        from modules.vllm_runner import VllmRunRecord, VllmRunRecordResult
+
+        class FakeResponse:
+            def __init__(self, payload: dict, status: int = 200):
+                self.payload = payload
+                self.status = status
+
+            def read(self):
+                return json.dumps(self.payload).encode("utf-8")
+
+            def close(self):
+                pass
+
+            def getcode(self):
+                return self.status
+
+        record = VllmRunRecord(
+            backend="vllm",
+            preset_id="qwen2.5-14b-awq",
+            run_id="run-latest",
+            pid=1234,
+            command=["/home/kalijin/bin/vllm-rocm", "serve", "/mnt/data_main/downloads/models/Qwen2.5-14B-Instruct-AWQ", "--served-model-name", "qwen2.5-14b-awq"],
+            env_preview={},
+            log_path="/tmp/latest.log",
+            host="127.0.0.1",
+            port=8000,
+            started_at="2026-05-10T19:31:00+09:00",
+            status_hint="started",
+        )
+        requests = []
+
+        def fake_opener(req, timeout):
+            requests.append((req.full_url, req.get_method(), getattr(req, "data", None), timeout))
+            if req.full_url.endswith("/models"):
+                return FakeResponse({"data": [{"id": "qwen2.5-14b-awq"}]})
+            return FakeResponse({"choices": [{"message": {"content": "ok"}}]})
+
+        result = run_vllm_api_smoke(
+            latest_record=VllmRunRecordResult(True, record, "/tmp/latest.json", []),
+            opener=fake_opener,
+            timeout=0.25,
+        )
+
+        self.assertTrue(result.ok, result.messages)
+        self.assertEqual(result.model_id, "qwen2.5-14b-awq")
+        self.assertIn(b"qwen2.5-14b-awq", requests[1][2])
+        self.assertNotIn(b"/mnt/data_main/downloads/models", requests[1][2])
+
+    def test_vllm_api_smoke_default_timeout_allows_larger_local_models(self) -> None:
+        from modules.vllm_api_probe import run_vllm_api_smoke
+        from modules.vllm_runner import VllmRunRecord, VllmRunRecordResult
+
+        class FakeResponse:
+            def __init__(self, payload: dict):
+                self.payload = payload
+                self.status = 200
+
+            def read(self):
+                return json.dumps(self.payload).encode("utf-8")
+
+            def close(self):
+                pass
+
+        record = VllmRunRecord(
+            backend="vllm",
+            preset_id="qwen2.5-14b-awq",
+            run_id="run-latest",
+            pid=1234,
+            command=["/home/kalijin/bin/vllm-rocm", "serve", "/mnt/data_main/downloads/models/Qwen2.5-14B-Instruct-AWQ"],
+            env_preview={},
+            log_path="/tmp/latest.log",
+            host="127.0.0.1",
+            port=8000,
+            started_at="2026-05-10T19:31:00+09:00",
+            status_hint="started",
+        )
+        timeouts = []
+
+        def fake_opener(req, timeout):
+            timeouts.append(timeout)
+            if req.full_url.endswith("/models"):
+                return FakeResponse({"data": [{"id": "qwen2.5-14b-awq"}]})
+            return FakeResponse({"choices": [{"message": {"content": "ok"}}]})
+
+        result = run_vllm_api_smoke(
+            latest_record=VllmRunRecordResult(True, record, "/tmp/latest.json", []),
+            opener=fake_opener,
+        )
+
+        self.assertTrue(result.ok, result.messages)
+        self.assertEqual(timeouts, [15.0, 15.0])
+
     def test_vllm_api_smoke_connection_failure_returns_structured_failure(self) -> None:
         from modules.vllm_api_probe import run_vllm_api_smoke
         from modules.vllm_runner import VllmRunRecord, VllmRunRecordResult
