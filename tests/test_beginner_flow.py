@@ -230,6 +230,7 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("실행 예정 요약", completed.stdout)
         self.assertIn("[B] vLLM profile", completed.stdout)
         self.assertIn("[Y] vLLM smoke launch", completed.stdout)
+        self.assertIn("[Z] vLLM smoke status/log/stop", completed.stdout)
         self.assertIn("[V] vLLM doctor", completed.stdout)
         self.assertIn("[A] 설정 변경 / 현재 설정 저장", completed.stdout)
         self.assertNotIn("\n  [W] 현재 설정 저장", completed.stdout)
@@ -1000,6 +1001,114 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("vLLM smoke launch", text)
         self.assertIn("confirmation", text)
         self.assertIn("not started", text)
+
+    def test_vllm_smoke_status_reports_alive_and_dead_with_injected_checker(self) -> None:
+        from modules.vllm_runner import check_vllm_smoke_status
+
+        alive = check_vllm_smoke_status(pid=1234, run_id="run-a", log_path="/tmp/missing.log", alive_check=lambda pid: True)
+        dead = check_vllm_smoke_status(pid=1234, run_id="run-a", log_path="/tmp/missing.log", alive_check=lambda pid: False)
+
+        self.assertTrue(alive.ok)
+        self.assertTrue(alive.alive)
+        self.assertFalse(alive.log_exists)
+        self.assertIn("process is alive", "\n".join(alive.messages))
+        self.assertTrue(dead.ok)
+        self.assertFalse(dead.alive)
+        self.assertIn("process is not alive", "\n".join(dead.messages))
+
+    def test_vllm_smoke_status_reports_log_exists_and_optional_port(self) -> None:
+        from modules.vllm_profiles import VllmPreflightCheck
+        from modules.vllm_runner import check_vllm_smoke_status
+
+        with TemporaryDirectory() as directory:
+            log_path = Path(directory) / "vllm.log"
+            log_path.write_text("ready\n")
+            result = check_vllm_smoke_status(
+                pid="1234",
+                run_id="run-a",
+                log_path=str(log_path),
+                alive_check=lambda pid: True,
+                port_check=lambda host, port: VllmPreflightCheck("port availability", True, f"port {port} is listening on {host}"),
+            )
+
+        self.assertTrue(result.ok)
+        self.assertTrue(result.log_exists)
+        self.assertTrue(result.port_listening)
+        self.assertIn("port 8000 listening: True", "\n".join(result.messages))
+
+    def test_vllm_smoke_log_reports_missing_file(self) -> None:
+        from modules.vllm_runner import read_vllm_smoke_log
+
+        result = read_vllm_smoke_log("/tmp/llama-suite-missing-vllm.log", last_lines=10)
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.lines, [])
+        self.assertIn("log file does not exist", "\n".join(result.messages))
+
+    def test_vllm_smoke_log_returns_last_n_lines(self) -> None:
+        from modules.vllm_runner import read_vllm_smoke_log
+
+        with TemporaryDirectory() as directory:
+            log_path = Path(directory) / "vllm.log"
+            log_path.write_text("one\ntwo\nthree\nfour\n")
+            result = read_vllm_smoke_log(str(log_path), last_lines=2)
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.lines, ["three", "four"])
+        self.assertEqual(result.messages, [])
+
+    def test_vllm_smoke_stop_refuses_without_confirmation(self) -> None:
+        from modules.vllm_runner import stop_vllm_smoke
+
+        calls: list[str] = []
+
+        result = stop_vllm_smoke(
+            pid=1234,
+            run_id="run-a",
+            confirmed=False,
+            getpgid_func=lambda pid: calls.append("getpgid") or 999,
+            killpg_func=lambda pgid, sig: calls.append("killpg"),
+        )
+
+        self.assertFalse(result.ok)
+        self.assertEqual(calls, [])
+        self.assertIn("explicit confirmation is required", "\n".join(result.messages))
+
+    def test_vllm_smoke_stop_sends_sigterm_to_process_group(self) -> None:
+        import signal
+        from modules.vllm_runner import stop_vllm_smoke
+
+        calls: list[tuple] = []
+
+        result = stop_vllm_smoke(
+            pid="1234",
+            run_id="run-a",
+            confirmed=True,
+            getpgid_func=lambda pid: calls.append(("getpgid", pid)) or 9876,
+            killpg_func=lambda pgid, sig: calls.append(("killpg", pgid, sig)),
+        )
+
+        self.assertTrue(result.ok, result.messages)
+        self.assertEqual(calls, [("getpgid", 1234), ("killpg", 9876, signal.SIGTERM)])
+        self.assertIn("SIGTERM sent", "\n".join(result.messages))
+
+    def test_vllm_smoke_stop_signal_errors_return_structured_failure(self) -> None:
+        from modules.vllm_runner import stop_vllm_smoke
+
+        def raise_os_error(_pgid, _sig):
+            raise OSError("permission denied")
+
+        result = stop_vllm_smoke(
+            pid=1234,
+            run_id="run-a",
+            confirmed=True,
+            getpgid_func=lambda pid: 9876,
+            killpg_func=raise_os_error,
+        )
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.pid, 1234)
+        self.assertIn("permission denied", "\n".join(result.messages))
 
     def test_script_generation_action_is_unified(self) -> None:
         launcher = load_launcher_module()

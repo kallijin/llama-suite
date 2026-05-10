@@ -40,7 +40,7 @@ from modules.script_builder import command_preview, generate_script, parse_gener
 from modules.system_info import collect_system_info
 from modules.vllm_doctor import format_vllm_doctor_report, run_vllm_doctor
 from modules.vllm_profiles import build_vllm_command, builtin_vllm_profile_presets, cache_env_preview_lines, future_launch_preset_id, host_guidance_lines, launch_confirmation_guidance_lines, run_vllm_preflight, validate_vllm_profile
-from modules.vllm_runner import launch_vllm_smoke_once
+from modules.vllm_runner import check_vllm_smoke_status, launch_vllm_smoke_once, read_vllm_smoke_log, stop_vllm_smoke
 
 
 # ─── 설정 ──────────────────────────────────────────────
@@ -1170,6 +1170,79 @@ def print_vllm_launch_result(result: Any) -> None:
             print(f"    - {message}")
 
 
+def show_vllm_smoke_manage() -> None:
+    print("\n  ── vLLM smoke status/log/stop ──")
+    print("  launch 결과에 표시된 pid/run_id/log_path를 수동으로 입력합니다.")
+    print("  [1] status")
+    print("  [2] log")
+    print("  [3] stop")
+    choice = input("  선택 > ").strip()
+
+    if choice == "1":
+        pid = input("  pid > ").strip()
+        run_id = input("  run_id > ").strip()
+        log_path = input("  log_path > ").strip()
+        result = check_vllm_smoke_status(pid=pid, run_id=run_id, log_path=log_path)
+        print_vllm_status_result(result)
+        return
+
+    if choice == "2":
+        log_path = input("  log_path > ").strip()
+        raw_lines = input("  last N lines [80] > ").strip()
+        try:
+            last_lines = int(raw_lines) if raw_lines else 80
+        except ValueError:
+            last_lines = 80
+        result = read_vllm_smoke_log(log_path, last_lines=last_lines)
+        print_vllm_log_result(result)
+        return
+
+    if choice == "3":
+        pid = input("  pid > ").strip()
+        run_id = input("  run_id > ").strip()
+        print("  계속하려면 stop 또는 STOP 를 정확히 입력하세요.")
+        confirm = input("  confirmation > ").strip()
+        result = stop_vllm_smoke(pid=pid, run_id=run_id, confirmed=(confirm.lower() == "stop"))
+        print_vllm_stop_result(result)
+        return
+
+    print("  취소했습니다.")
+
+
+def print_vllm_status_result(result: Any) -> None:
+    print("\n  vLLM smoke status:")
+    print(f"  ok: {result.ok}")
+    print(f"  preset_id: {result.preset_id}")
+    print(f"  pid: {result.pid if result.pid is not None else '-'}")
+    print(f"  run_id: {result.run_id or '-'}")
+    print(f"  log_path: {result.log_path or '-'}")
+    print(f"  alive: {result.alive if result.alive is not None else '-'}")
+    print(f"  log_exists: {result.log_exists}")
+    print(f"  port_listening: {result.port_listening if result.port_listening is not None else '-'}")
+    for message in result.messages:
+        print(f"  - {message}")
+
+
+def print_vllm_log_result(result: Any) -> None:
+    print("\n  vLLM smoke log:")
+    print(f"  ok: {result.ok}")
+    print(f"  log_path: {result.log_path or '-'}")
+    for message in result.messages:
+        print(f"  - {message}")
+    for line in result.lines:
+        print(f"  {line}")
+
+
+def print_vllm_stop_result(result: Any) -> None:
+    print("\n  vLLM smoke stop:")
+    print(f"  ok: {result.ok}")
+    print(f"  preset_id: {result.preset_id}")
+    print(f"  pid: {result.pid if result.pid is not None else '-'}")
+    print(f"  run_id: {result.run_id or '-'}")
+    for message in result.messages:
+        print(f"  - {message}")
+
+
 # ─── 메인 루프 ─────────────────────────────────────────
 
 def main() -> None:
@@ -1212,6 +1285,7 @@ def main() -> None:
         print("  [K] 파라미터")
         print("  [B] vLLM profile")
         print("  [Y] vLLM smoke launch")
+        print("  [Z] vLLM smoke status/log/stop")
         print("  [P] 최종 미리보기")
         print("  [O] 1회 실행")
         print("  [G] 새 스크립트 생성")
@@ -1295,6 +1369,11 @@ def main() -> None:
 
         if upper == "Y":
             show_vllm_smoke_launch_once()
+            pause()
+            continue
+
+        if upper == "Z":
+            show_vllm_smoke_manage()
             pause()
             continue
 

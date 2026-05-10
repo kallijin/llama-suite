@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime
@@ -48,6 +49,36 @@ class VllmLaunchResult:
     port: int | None
     preset_id: str
     command: list[str]
+    messages: list[str]
+
+
+@dataclass(frozen=True)
+class VllmSmokeStatusResult:
+    ok: bool
+    pid: int | None
+    run_id: str
+    log_path: str
+    preset_id: str
+    alive: bool | None
+    log_exists: bool
+    port_listening: bool | None
+    messages: list[str]
+
+
+@dataclass(frozen=True)
+class VllmSmokeLogResult:
+    ok: bool
+    log_path: str
+    lines: list[str]
+    messages: list[str]
+
+
+@dataclass(frozen=True)
+class VllmSmokeStopResult:
+    ok: bool
+    pid: int | None
+    run_id: str
+    preset_id: str
     messages: list[str]
 
 
@@ -171,6 +202,115 @@ def launch_vllm_smoke_once(
     )
 
 
+def check_vllm_smoke_status(
+    *,
+    pid: int | str | None,
+    run_id: str = "",
+    log_path: str = "",
+    alive_check: Any = None,
+    port_check: Any = None,
+) -> VllmSmokeStatusResult:
+    pid_number = _coerce_pid(pid)
+    messages: list[str] = []
+    alive: bool | None = None
+    if pid_number is None:
+        messages.append("pid is required")
+    else:
+        try:
+            alive = bool((alive_check or _pid_is_alive)(pid_number))
+            messages.append("process is alive" if alive else "process is not alive")
+        except Exception as exc:
+            messages.append(f"process status check failed: {exc}")
+
+    expanded_log_path = str(Path(log_path).expanduser()) if log_path else ""
+    log_exists = bool(expanded_log_path and Path(expanded_log_path).is_file())
+    messages.append(f"log file {'exists' if log_exists else 'does not exist'}: {expanded_log_path or '-'}")
+
+    port_listening: bool | None = None
+    if port_check is not None:
+        try:
+            port_result = port_check("127.0.0.1", 8000)
+            port_listening = bool(getattr(port_result, "ok", port_result))
+            detail = getattr(port_result, "message", "")
+            messages.append(f"port 8000 listening: {port_listening}" + (f" ({detail})" if detail else ""))
+        except Exception as exc:
+            messages.append(f"port check failed: {exc}")
+
+    ok = pid_number is not None and alive is not None
+    return VllmSmokeStatusResult(
+        ok=ok,
+        pid=pid_number,
+        run_id=str(run_id or ""),
+        log_path=expanded_log_path,
+        preset_id=FUTURE_LAUNCH_PRESET_ID,
+        alive=alive,
+        log_exists=log_exists,
+        port_listening=port_listening,
+        messages=messages,
+    )
+
+
+def read_vllm_smoke_log(log_path: str, *, last_lines: int = 80) -> VllmSmokeLogResult:
+    expanded_log_path = str(Path(log_path).expanduser()) if log_path else ""
+    if not expanded_log_path:
+        return VllmSmokeLogResult(False, "", [], ["log path is required"])
+
+    path = Path(expanded_log_path)
+    if not path.is_file():
+        return VllmSmokeLogResult(False, expanded_log_path, [], [f"log file does not exist: {expanded_log_path}"])
+
+    try:
+        line_count = max(0, int(last_lines))
+        lines = path.read_text(errors="replace").splitlines()
+    except Exception as exc:
+        return VllmSmokeLogResult(False, expanded_log_path, [], [f"log read failed: {exc}"])
+
+    return VllmSmokeLogResult(True, expanded_log_path, lines[-line_count:] if line_count else [], [])
+
+
+def stop_vllm_smoke(
+    *,
+    pid: int | str | None,
+    confirmed: bool,
+    run_id: str = "",
+    getpgid_func: Any = None,
+    killpg_func: Any = None,
+) -> VllmSmokeStopResult:
+    pid_number = _coerce_pid(pid)
+    if not confirmed:
+        return VllmSmokeStopResult(
+            False,
+            pid_number,
+            str(run_id or ""),
+            FUTURE_LAUNCH_PRESET_ID,
+            ["stop cancelled: explicit confirmation is required"],
+        )
+    if pid_number is None:
+        return VllmSmokeStopResult(False, None, str(run_id or ""), FUTURE_LAUNCH_PRESET_ID, ["pid is required"])
+
+    getpgid = getpgid_func or os.getpgid
+    killpg = killpg_func or os.killpg
+    try:
+        pgid = getpgid(pid_number)
+        killpg(pgid, signal.SIGTERM)
+    except Exception as exc:
+        return VllmSmokeStopResult(
+            False,
+            pid_number,
+            str(run_id or ""),
+            FUTURE_LAUNCH_PRESET_ID,
+            [f"stop failed: {exc}"],
+        )
+
+    return VllmSmokeStopResult(
+        True,
+        pid_number,
+        str(run_id or ""),
+        FUTURE_LAUNCH_PRESET_ID,
+        [f"SIGTERM sent to process group for pid {pid_number}"],
+    )
+
+
 def sanitize_run_id_part(value: Any) -> str:
     text = str(value or "").strip()
     safe_chars = []
@@ -195,3 +335,21 @@ def _failed_launch_result(plan: VllmLaunchPlan, message: str) -> VllmLaunchResul
         command=plan.command,
         messages=[message],
     )
+
+
+def _coerce_pid(value: int | str | None) -> int | None:
+    try:
+        pid = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return pid if pid > 0 else None
+
+
+def _pid_is_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
