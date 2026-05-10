@@ -28,6 +28,7 @@ modules = [
     "modules.backend_inspector",
     "modules.vllm_doctor",
     "modules.vllm_profiles",
+    "modules.vllm_api_probe",
     "modules.vllm_runner",
 ]
 

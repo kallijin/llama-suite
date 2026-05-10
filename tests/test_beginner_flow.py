@@ -231,6 +231,7 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("실행 예정 요약", completed.stdout)
         self.assertIn("Recent vLLM run:", completed.stdout)
         self.assertIn("[B] vLLM profile", completed.stdout)
+        self.assertIn("[W] vLLM API smoke", completed.stdout)
         self.assertIn("[Y] vLLM smoke launch", completed.stdout)
         self.assertIn("[Z] vLLM smoke status/log/stop", completed.stdout)
         self.assertIn("[V] vLLM doctor", completed.stdout)
@@ -265,6 +266,109 @@ class BeginnerFlowTests(unittest.TestCase):
             line,
             "  Recent vLLM run: smoke-qwen-0.5b / Qwen/Qwen2.5-0.5B-Instruct / http://127.0.0.1:8000/v1 / READY",
         )
+
+    def test_vllm_api_smoke_get_models_and_chat_success(self) -> None:
+        from modules.vllm_api_probe import run_vllm_api_smoke
+        from modules.vllm_runner import VllmRunRecord, VllmRunRecordResult
+
+        class FakeResponse:
+            def __init__(self, payload: dict, status: int = 200):
+                self.payload = payload
+                self.status = status
+                self.closed = False
+
+            def read(self):
+                return json.dumps(self.payload).encode("utf-8")
+
+            def close(self):
+                self.closed = True
+
+            def getcode(self):
+                return self.status
+
+        record = VllmRunRecord(
+            backend="vllm",
+            preset_id="smoke-qwen-0.5b",
+            run_id="run-latest",
+            pid=1234,
+            command=["/home/kalijin/bin/vllm-rocm", "serve", "Qwen/Qwen2.5-0.5B-Instruct"],
+            env_preview={},
+            log_path="/tmp/latest.log",
+            host="127.0.0.1",
+            port=8000,
+            started_at="2026-05-10T19:31:00+09:00",
+            status_hint="started",
+        )
+        requests = []
+
+        def fake_opener(req, timeout):
+            requests.append((req.full_url, req.get_method(), getattr(req, "data", None), timeout))
+            if req.full_url.endswith("/models"):
+                return FakeResponse({"data": [{"id": "Qwen/Qwen2.5-0.5B-Instruct"}]})
+            return FakeResponse({"choices": [{"message": {"content": "ok"}}]})
+
+        result = run_vllm_api_smoke(
+            latest_record=VllmRunRecordResult(True, record, "/tmp/latest.json", []),
+            opener=fake_opener,
+            timeout=0.25,
+        )
+
+        self.assertTrue(result.ok, result.messages)
+        self.assertEqual(result.base_url, "http://127.0.0.1:8000/v1")
+        self.assertEqual(result.model_id, "Qwen/Qwen2.5-0.5B-Instruct")
+        self.assertEqual([check.name for check in result.checks], ["GET /v1/models", "POST /v1/chat/completions"])
+        self.assertTrue(all(check.ok for check in result.checks))
+        self.assertEqual(requests[0][0], "http://127.0.0.1:8000/v1/models")
+        self.assertEqual(requests[0][1], "GET")
+        self.assertEqual(requests[1][0], "http://127.0.0.1:8000/v1/chat/completions")
+        self.assertEqual(requests[1][1], "POST")
+        self.assertIn(b"Qwen/Qwen2.5-0.5B-Instruct", requests[1][2])
+        self.assertIn(b'"max_tokens": 8', requests[1][2])
+
+    def test_vllm_api_smoke_connection_failure_returns_structured_failure(self) -> None:
+        from modules.vllm_api_probe import run_vllm_api_smoke
+        from modules.vllm_runner import VllmRunRecord, VllmRunRecordResult
+
+        record = VllmRunRecord(
+            backend="vllm",
+            preset_id="smoke-qwen-0.5b",
+            run_id="run-latest",
+            pid=1234,
+            command=["/home/kalijin/bin/vllm-rocm", "serve", "Qwen/Qwen2.5-0.5B-Instruct"],
+            env_preview={},
+            log_path="/tmp/latest.log",
+            host="127.0.0.1",
+            port=8000,
+            started_at="2026-05-10T19:31:00+09:00",
+            status_hint="started",
+        )
+
+        def failing_opener(_req, timeout):
+            raise OSError("connection refused")
+
+        result = run_vllm_api_smoke(
+            latest_record=VllmRunRecordResult(True, record, "/tmp/latest.json", []),
+            opener=failing_opener,
+        )
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.base_url, "http://127.0.0.1:8000/v1")
+        self.assertEqual(len(result.checks), 2)
+        self.assertTrue(all(not check.ok for check in result.checks))
+        self.assertIn("connection refused", "\n".join(check.message for check in result.checks))
+
+    def test_vllm_api_smoke_missing_latest_record_returns_structured_failure(self) -> None:
+        from modules.vllm_api_probe import run_vllm_api_smoke
+        from modules.vllm_runner import VllmRunRecordResult
+
+        result = run_vllm_api_smoke(latest_record=VllmRunRecordResult(False, None, None, ["no vLLM run records found"]))
+
+        self.assertFalse(result.ok)
+        self.assertIsNone(result.base_url)
+        self.assertIsNone(result.model_id)
+        self.assertEqual(result.checks, [])
+        self.assertIn("latest vLLM run record is missing or invalid", "\n".join(result.messages))
+        self.assertIn("no vLLM run records found", "\n".join(result.messages))
 
     def test_vllm_doctor_reports_missing_wrapper_and_python(self) -> None:
         from modules.vllm_doctor import run_vllm_doctor

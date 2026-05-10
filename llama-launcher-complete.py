@@ -38,6 +38,7 @@ from modules.probes import quick_no_think_test, show_status
 from modules.runner_tmux import get_running_model, get_running_servers, run_script
 from modules.script_builder import command_preview, generate_script, parse_generated_script, resolve_ctx_size
 from modules.system_info import collect_system_info
+from modules.vllm_api_probe import run_vllm_api_smoke
 from modules.vllm_doctor import format_vllm_doctor_report, run_vllm_doctor
 from modules.vllm_profiles import build_vllm_command, builtin_vllm_profile_presets, cache_env_preview_lines, future_launch_preset_id, host_guidance_lines, launch_confirmation_guidance_lines, run_vllm_preflight, validate_vllm_profile
 from modules.vllm_runner import check_vllm_smoke_status, latest_vllm_run_record, latest_vllm_run_summary, launch_vllm_smoke_once, read_vllm_run_record, read_vllm_smoke_log, stop_vllm_smoke
@@ -1306,6 +1307,26 @@ def print_vllm_stop_result(result: Any) -> None:
         print(f"  - {message}")
 
 
+def show_vllm_api_smoke() -> None:
+    print("\n  ── vLLM API smoke ──")
+    print("  latest vLLM run record의 OpenAI-compatible endpoint를 read-only로 확인합니다.")
+    result = run_vllm_api_smoke()
+    print_vllm_api_smoke_result(result)
+
+
+def print_vllm_api_smoke_result(result: Any) -> None:
+    print("\n  vLLM API smoke result:")
+    print(f"  ok: {result.ok}")
+    print(f"  base_url: {result.base_url or '-'}")
+    print(f"  model_id: {result.model_id or '-'}")
+    for message in result.messages:
+        print(f"  - {message}")
+    for check in result.checks:
+        status = "PASS" if check.ok else "FAIL"
+        code = f" HTTP {check.status_code}" if check.status_code is not None else ""
+        print(f"  [{status}] {check.name}{code}: {check.message}")
+
+
 # ─── 메인 루프 ─────────────────────────────────────────
 
 def main() -> None:
@@ -1348,6 +1369,7 @@ def main() -> None:
         print("  [A] 설정 변경 / 현재 설정 저장")
         print("  [K] 파라미터")
         print("  [B] vLLM profile")
+        print("  [W] vLLM API smoke")
         print("  [Y] vLLM smoke launch")
         print("  [Z] vLLM smoke status/log/stop")
         print("  [P] 최종 미리보기")
@@ -1428,6 +1450,11 @@ def main() -> None:
 
         if upper == "B":
             show_vllm_profile_preview()
+            pause()
+            continue
+
+        if upper == "W":
+            show_vllm_api_smoke()
             pause()
             continue
 
