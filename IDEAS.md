@@ -60,6 +60,35 @@ Future shared actions should be backend-aware and dispatch to backend-specific h
 Do not mix llama.cpp profile/config fields with vLLM profile/config fields.
 The UI shell may share menu patterns, but backend parameters and command generation must remain separate.
 
+## vLLM autonomous expansion boundary
+
+Stable baseline:
+
+- Tag: `v0.5-vllm-foundation`
+- Commit: `b5e20b3`
+- Scope: vLLM foundation MVP with doctor, profile preview, smoke launch, lifecycle controls, run records, API smoke, and backend ownership documentation.
+
+Autonomous expansion starts after `v0.5-vllm-foundation`.
+This was an explicit user-approved experimental phase to test autonomous Codex execution after the foundation MVP had been backed up and tagged.
+
+Autonomous expansion commits:
+
+- `eb40eab` add vLLM custom profile editor scaffold
+- `4421c67` add vLLM large model guidance
+- `1cf87de` add vLLM profile draft store
+- `72afbbb` add vLLM custom script preview
+- `eacabb7` add vLLM custom script save
+- `370ae74` add vLLM custom profile launch
+
+If serious regressions appear later, compare against `v0.5-vllm-foundation` first:
+
+```bash
+git diff v0.5-vllm-foundation..HEAD
+git log --oneline --decorate v0.5-vllm-foundation..HEAD
+```
+
+This boundary marks where the project moved from vLLM foundation MVP into custom profile, script, and custom launch expansion.
+
 ## 방향 경고
 
 - llama-suite는 Ollama나 LM Studio 같은 범용 런처의 자리를 바라보지 않는다.
