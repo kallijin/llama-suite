@@ -314,6 +314,19 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIsNotNone(command)
         self.assertIn("Qwen/Qwen2.5-0.5B-Instruct", command)
 
+    def test_vllm_builtin_preset_registry_includes_default_and_smoke(self) -> None:
+        from modules.vllm_profiles import builtin_vllm_profile_presets
+
+        presets = builtin_vllm_profile_presets()
+        by_id = {preset.id: preset for preset in presets}
+
+        self.assertIn("default", by_id)
+        self.assertIn("smoke-qwen-0.5b", by_id)
+        self.assertEqual(by_id["default"].label, "Default vLLM profile")
+        self.assertEqual(by_id["smoke-qwen-0.5b"].label, "Smoke Qwen 0.5B")
+        self.assertIn("read-only", by_id["smoke-qwen-0.5b"].description)
+        self.assertEqual(by_id["smoke-qwen-0.5b"].profile.model, "Qwen/Qwen2.5-0.5B-Instruct")
+
     def test_vllm_profile_validation_reports_structured_messages(self) -> None:
         from modules.vllm_profiles import VllmProfile, validate_vllm_profile
 
@@ -558,7 +571,11 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("vLLM profile preview (read-only)", text)
         self.assertIn("vLLM 전용 profile", text)
         self.assertIn("llama.cpp 파라미터와 별개", text)
-        self.assertIn("Default vLLM profile", text)
+        self.assertIn("Available built-in vLLM profiles:", text)
+        self.assertIn("default: Default vLLM profile", text)
+        self.assertIn("smoke-qwen-0.5b: Smoke Qwen 0.5B", text)
+        self.assertIn("현재는 read-only registry", text)
+        self.assertIn("Preset default: Default vLLM profile", text)
         self.assertIn("vLLM-only fields:", text)
         self.assertIn("- wrapper_path: ~/bin/vllm-rocm", text)
         self.assertIn("- host: 127.0.0.1", text)
@@ -594,6 +611,7 @@ class BeginnerFlowTests(unittest.TestCase):
 
         self.assertIn("Smoke profile preset (read-only)", text)
         self.assertIn("이미 이 시스템에서 성공한 작은 vLLM 확인용 preset", text)
+        self.assertIn("Preset smoke-qwen-0.5b: Smoke Qwen 0.5B", text)
         self.assertIn("Qwen/Qwen2.5-0.5B-Instruct", text)
         self.assertIn("serve Qwen/Qwen2.5-0.5B-Instruct --host 127.0.0.1 --port 8000", text)
         self.assertIn("[PASS] profile validation", text)

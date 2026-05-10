@@ -35,6 +35,14 @@ class VllmProfile:
         return data
 
 
+@dataclass(frozen=True)
+class VllmProfilePreset:
+    id: str
+    label: str
+    description: str
+    profile: VllmProfile
+
+
 @dataclass
 class VllmPreflightCheck:
     name: str
@@ -57,6 +65,23 @@ def default_vllm_profile(model: str = "") -> VllmProfile:
 
 def smoke_vllm_profile() -> VllmProfile:
     return VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct")
+
+
+def builtin_vllm_profile_presets() -> list[VllmProfilePreset]:
+    return [
+        VllmProfilePreset(
+            id="default",
+            label="Default vLLM profile",
+            description="Blank read-only starting point. It is expected to need a model before launch.",
+            profile=default_vllm_profile(),
+        ),
+        VllmProfilePreset(
+            id="smoke-qwen-0.5b",
+            label="Smoke Qwen 0.5B",
+            description="Known working read-only smoke-test profile for this system.",
+            profile=smoke_vllm_profile(),
+        ),
+    ]
 
 
 def vllm_profile_from_dict(data: dict[str, Any]) -> VllmProfile:

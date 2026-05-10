@@ -39,7 +39,7 @@ from modules.runner_tmux import get_running_model, get_running_servers, run_scri
 from modules.script_builder import command_preview, generate_script, parse_generated_script, resolve_ctx_size
 from modules.system_info import collect_system_info
 from modules.vllm_doctor import format_vllm_doctor_report, run_vllm_doctor
-from modules.vllm_profiles import build_vllm_command, cache_env_preview_lines, default_vllm_profile, host_guidance_lines, run_vllm_preflight, smoke_vllm_profile, validate_vllm_profile
+from modules.vllm_profiles import build_vllm_command, builtin_vllm_profile_presets, cache_env_preview_lines, host_guidance_lines, run_vllm_preflight, validate_vllm_profile
 
 
 # ─── 설정 ──────────────────────────────────────────────
@@ -1074,15 +1074,22 @@ def format_vllm_profile_section(title: str, profile: Any, port_check: Any = None
 
 
 def vllm_profile_preview_text(port_check: Any = None) -> str:
+    presets = builtin_vllm_profile_presets()
     lines = [
         "vLLM profile preview (read-only)",
         "이 화면은 vLLM 전용 profile 미리보기입니다. llama.cpp 파라미터와 별개입니다.",
         "",
+        "Available built-in vLLM profiles:",
     ]
-    lines.extend(format_vllm_profile_section("Default vLLM profile", default_vllm_profile(), port_check=port_check))
-    lines.extend(["", "Smoke profile preset (read-only)"])
-    lines.append("이미 이 시스템에서 성공한 작은 vLLM 확인용 preset입니다. 실행하지 않습니다.")
-    lines.extend(format_vllm_profile_section("Smoke profile fields", smoke_vllm_profile(), port_check=port_check))
+    for preset in presets:
+        lines.append(f"- {preset.id}: {preset.label} - {preset.description}")
+    lines.extend(["", "현재는 read-only registry입니다. 선택/저장/실행은 아직 하지 않습니다."])
+    for preset in presets:
+        lines.append("")
+        if preset.id == "smoke-qwen-0.5b":
+            lines.append("Smoke profile preset (read-only)")
+            lines.append("이미 이 시스템에서 성공한 작은 vLLM 확인용 preset입니다. 실행하지 않습니다.")
+        lines.extend(format_vllm_profile_section(f"Preset {preset.id}: {preset.label}", preset.profile, port_check=port_check))
     lines.extend(["", "Host guidance:"])
     for guidance in host_guidance_lines():
         lines.append(f"- {guidance}")
