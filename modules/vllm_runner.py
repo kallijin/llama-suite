@@ -5,6 +5,7 @@ import os
 import signal
 import socket
 import subprocess
+import time
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -593,6 +594,8 @@ def stop_vllm_smoke(
     preset_id: str = FUTURE_LAUNCH_PRESET_ID,
     getpgid_func: Any = None,
     killpg_func: Any = None,
+    group_members_func: Any = None,
+    post_signal_delay: float = 0.2,
 ) -> VllmSmokeStopResult:
     pid_number = _coerce_pid(pid)
     preset_text = str(preset_id or FUTURE_LAUNCH_PRESET_ID)
@@ -621,17 +624,48 @@ def stop_vllm_smoke(
             [f"stop failed: {exc}"],
         )
 
+    messages = [f"SIGTERM sent to process group for pid {pid_number}"]
+    if post_signal_delay > 0:
+        time.sleep(post_signal_delay)
+    try:
+        group_members = list((group_members_func or _process_group_members)(pgid))
+    except Exception as exc:
+        group_members = []
+        messages.append(f"warning: process group residual check failed: {exc}")
+    if group_members:
+        messages.append("warning: process group still has live pids after SIGTERM: " + ", ".join(str(pid) for pid in group_members))
+
     return VllmSmokeStopResult(
         True,
         pid_number,
         str(run_id or ""),
         preset_text,
-        [f"SIGTERM sent to process group for pid {pid_number}"],
+        messages,
     )
 
 
 def stop_vllm_run(**kwargs: Any) -> VllmSmokeStopResult:
     return stop_vllm_smoke(**kwargs)
+
+
+def _process_group_members(pgid: int) -> list[int]:
+    members: list[int] = []
+    proc_root = Path("/proc")
+    if not proc_root.is_dir():
+        return members
+    for child in proc_root.iterdir():
+        if not child.name.isdigit():
+            continue
+        try:
+            stat = (child / "stat").read_text()
+            close_index = stat.rfind(")")
+            fields = stat[close_index + 2 :].split()
+            child_pgid = int(fields[2])
+        except Exception:
+            continue
+        if child_pgid == pgid:
+            members.append(int(child.name))
+    return sorted(members)
 
 
 def sanitize_run_id_part(value: Any) -> str:

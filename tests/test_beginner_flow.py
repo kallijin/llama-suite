@@ -3136,11 +3136,30 @@ class BeginnerFlowTests(unittest.TestCase):
             confirmed=True,
             getpgid_func=lambda pid: calls.append(("getpgid", pid)) or 9876,
             killpg_func=lambda pgid, sig: calls.append(("killpg", pgid, sig)),
+            group_members_func=lambda pgid: [],
+            post_signal_delay=0,
         )
 
         self.assertTrue(result.ok, result.messages)
         self.assertEqual(calls, [("getpgid", 1234), ("killpg", 9876, signal.SIGTERM)])
         self.assertIn("SIGTERM sent", "\n".join(result.messages))
+
+    def test_vllm_smoke_stop_reports_residual_process_group_members(self) -> None:
+        from modules.vllm_runner import stop_vllm_smoke
+
+        result = stop_vllm_smoke(
+            pid=1234,
+            run_id="run-a",
+            confirmed=True,
+            getpgid_func=lambda pid: 9876,
+            killpg_func=lambda pgid, sig: None,
+            group_members_func=lambda pgid: [1234, 5678],
+            post_signal_delay=0,
+        )
+
+        self.assertTrue(result.ok, result.messages)
+        self.assertIn("still has live pids", "\n".join(result.messages))
+        self.assertIn("5678", "\n".join(result.messages))
 
     def test_vllm_smoke_stop_signal_errors_return_structured_failure(self) -> None:
         from modules.vllm_runner import stop_vllm_smoke
