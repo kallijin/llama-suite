@@ -22,6 +22,9 @@ VLLM_EDITABLE_PROFILE_FIELDS = [
     "max_model_len",
     "gpu_memory_utilization",
     "tensor_parallel_size",
+    "kv_cache_dtype",
+    "max_num_seqs",
+    "max_num_batched_tokens",
     "vllm_cache_root",
     "hf_home",
     "transformers_cache",
@@ -39,6 +42,9 @@ class VllmProfile:
     max_model_len: int = 4096
     gpu_memory_utilization: float = 0.70
     tensor_parallel_size: int = 1
+    kv_cache_dtype: str = "auto"
+    max_num_seqs: int | str = ""
+    max_num_batched_tokens: int | str = ""
     vllm_cache_root: str = DEFAULT_VLLM_CACHE_ROOT
     hf_home: str = DEFAULT_HF_HOME
     transformers_cache: str = DEFAULT_TRANSFORMERS_CACHE
@@ -128,6 +134,9 @@ def vllm_profile_from_dict(data: dict[str, Any]) -> VllmProfile:
     profile.max_model_len = _coerce_int(profile.max_model_len, default=4096)
     profile.tensor_parallel_size = _coerce_int(profile.tensor_parallel_size, default=1)
     profile.gpu_memory_utilization = _coerce_float(profile.gpu_memory_utilization, default=0.70)
+    profile.kv_cache_dtype = str(profile.kv_cache_dtype or "")
+    profile.max_num_seqs = _coerce_optional_int(profile.max_num_seqs)
+    profile.max_num_batched_tokens = _coerce_optional_int(profile.max_num_batched_tokens)
     profile.extra_args = str(profile.extra_args or "")
     return profile
 
@@ -155,6 +164,14 @@ def validate_vllm_profile(profile: VllmProfile) -> list[str]:
     max_model_len = _try_int(profile.max_model_len)
     if max_model_len is None or max_model_len <= 0:
         errors.append("max_model_len should be > 0")
+
+    max_num_seqs = _try_optional_int(profile.max_num_seqs)
+    if max_num_seqs is None or (max_num_seqs != "" and max_num_seqs < 1):
+        errors.append("max_num_seqs should be empty or >= 1")
+
+    max_num_batched_tokens = _try_optional_int(profile.max_num_batched_tokens)
+    if max_num_batched_tokens is None or (max_num_batched_tokens != "" and max_num_batched_tokens < 1):
+        errors.append("max_num_batched_tokens should be empty or >= 1")
 
     return errors
 
@@ -186,6 +203,12 @@ def build_vllm_command(profile: VllmProfile) -> tuple[list[str] | None, list[str
         "--tensor-parallel-size",
         str(profile.tensor_parallel_size),
     ]
+    if str(profile.kv_cache_dtype or "").strip():
+        command.extend(["--kv-cache-dtype", str(profile.kv_cache_dtype).strip()])
+    if str(profile.max_num_seqs).strip():
+        command.extend(["--max-num-seqs", str(profile.max_num_seqs)])
+    if str(profile.max_num_batched_tokens).strip():
+        command.extend(["--max-num-batched-tokens", str(profile.max_num_batched_tokens)])
     command.extend(extra_args)
     return command, []
 
@@ -365,6 +388,15 @@ def _coerce_float(value: Any, *, default: float) -> float:
         return default
 
 
+def _coerce_optional_int(value: Any) -> int | str:
+    if value is None or str(value).strip() == "":
+        return ""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return str(value)
+
+
 def _try_int(value: Any) -> int | None:
     try:
         return int(value)
@@ -377,3 +409,9 @@ def _try_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _try_optional_int(value: Any) -> int | str | None:
+    if value is None or str(value).strip() == "":
+        return ""
+    return _try_int(value)

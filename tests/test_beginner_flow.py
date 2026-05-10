@@ -455,6 +455,9 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(profile.port, 8000)
         self.assertEqual(profile.dtype, "auto")
         self.assertEqual(profile.tensor_parallel_size, 1)
+        self.assertEqual(profile.kv_cache_dtype, "auto")
+        self.assertEqual(profile.max_num_seqs, "")
+        self.assertEqual(profile.max_num_batched_tokens, "")
         self.assertEqual(validate_vllm_profile(profile), [])
 
     def test_vllm_smoke_profile_uses_known_working_model(self) -> None:
@@ -493,6 +496,8 @@ class BeginnerFlowTests(unittest.TestCase):
             gpu_memory_utilization=1.5,
             tensor_parallel_size=0,
             max_model_len=0,
+            max_num_seqs=0,
+            max_num_batched_tokens=0,
         )
 
         errors = validate_vllm_profile(profile)
@@ -503,6 +508,8 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("gpu_memory_utilization should be between 0 and 1", errors)
         self.assertIn("tensor_parallel_size should be >= 1", errors)
         self.assertIn("max_model_len should be > 0", errors)
+        self.assertIn("max_num_seqs should be empty or >= 1", errors)
+        self.assertIn("max_num_batched_tokens should be empty or >= 1", errors)
 
     def test_vllm_profile_validation_handles_non_numeric_user_values(self) -> None:
         from modules.vllm_profiles import VllmProfile, validate_vllm_profile
@@ -513,6 +520,8 @@ class BeginnerFlowTests(unittest.TestCase):
             gpu_memory_utilization="bad",  # type: ignore[arg-type]
             tensor_parallel_size="many",  # type: ignore[arg-type]
             max_model_len="long",  # type: ignore[arg-type]
+            max_num_seqs="many",  # type: ignore[arg-type]
+            max_num_batched_tokens="many",  # type: ignore[arg-type]
         )
 
         errors = validate_vllm_profile(profile)
@@ -521,6 +530,8 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("gpu_memory_utilization should be between 0 and 1", errors)
         self.assertIn("tensor_parallel_size should be >= 1", errors)
         self.assertIn("max_model_len should be > 0", errors)
+        self.assertIn("max_num_seqs should be empty or >= 1", errors)
+        self.assertIn("max_num_batched_tokens should be empty or >= 1", errors)
 
     def test_vllm_profile_from_dict_preserves_extra_args_as_opaque_string(self) -> None:
         from modules.vllm_profiles import vllm_profile_from_dict
@@ -532,6 +543,9 @@ class BeginnerFlowTests(unittest.TestCase):
                 "max_model_len": "8192",
                 "gpu_memory_utilization": "0.55",
                 "tensor_parallel_size": "2",
+                "kv_cache_dtype": "fp8",
+                "max_num_seqs": "1",
+                "max_num_batched_tokens": "4096",
                 "extra_args": "--trust-remote-code --served-model-name local",
             }
         )
@@ -540,6 +554,9 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(profile.max_model_len, 8192)
         self.assertEqual(profile.gpu_memory_utilization, 0.55)
         self.assertEqual(profile.tensor_parallel_size, 2)
+        self.assertEqual(profile.kv_cache_dtype, "fp8")
+        self.assertEqual(profile.max_num_seqs, 1)
+        self.assertEqual(profile.max_num_batched_tokens, 4096)
         self.assertEqual(profile.extra_args, "--trust-remote-code --served-model-name local")
 
     def test_vllm_editable_profile_fields_are_vllm_only(self) -> None:
@@ -558,6 +575,9 @@ class BeginnerFlowTests(unittest.TestCase):
                 "max_model_len",
                 "gpu_memory_utilization",
                 "tensor_parallel_size",
+                "kv_cache_dtype",
+                "max_num_seqs",
+                "max_num_batched_tokens",
                 "vllm_cache_root",
                 "hf_home",
                 "transformers_cache",
@@ -756,8 +776,51 @@ class BeginnerFlowTests(unittest.TestCase):
                 "0.7",
                 "--tensor-parallel-size",
                 "1",
+                "--kv-cache-dtype",
+                "auto",
             ],
         )
+
+    def test_vllm_command_preview_adds_optional_memory_tuning_fields_when_set(self) -> None:
+        from modules.vllm_profiles import VllmProfile, build_vllm_command
+
+        profile = VllmProfile(
+            model="local-model",
+            kv_cache_dtype="fp8",
+            max_num_seqs=1,
+            max_num_batched_tokens=4096,
+        )
+
+        command, messages = build_vllm_command(profile)
+
+        self.assertEqual(messages, [])
+        self.assertIsNotNone(command)
+        assert command is not None
+        self.assertIn("--kv-cache-dtype", command)
+        self.assertIn("fp8", command)
+        self.assertIn("--max-num-seqs", command)
+        self.assertIn("1", command)
+        self.assertIn("--max-num-batched-tokens", command)
+        self.assertIn("4096", command)
+
+    def test_vllm_command_preview_omits_empty_optional_memory_tuning_fields(self) -> None:
+        from modules.vllm_profiles import VllmProfile, build_vllm_command
+
+        command, messages = build_vllm_command(
+            VllmProfile(
+                model="local-model",
+                kv_cache_dtype="",
+                max_num_seqs="",
+                max_num_batched_tokens="",
+            )
+        )
+
+        self.assertEqual(messages, [])
+        self.assertIsNotNone(command)
+        assert command is not None
+        self.assertNotIn("--kv-cache-dtype", command)
+        self.assertNotIn("--max-num-seqs", command)
+        self.assertNotIn("--max-num-batched-tokens", command)
 
     def test_vllm_command_preview_expands_wrapper_path_for_execution(self) -> None:
         from modules.vllm_profiles import VllmProfile, build_vllm_command
