@@ -2172,6 +2172,7 @@ class BeginnerFlowTests(unittest.TestCase):
 
     def test_vllm_custom_profile_launch_uses_runner_and_run_record(self) -> None:
         from modules.vllm_profiles import VllmPreflightCheck, VllmProfile
+        from modules.vllm_profile_store import load_selected_vllm_profile_draft, load_selected_vllm_profile_id, load_vllm_profile_draft
         from modules.vllm_runner import launch_vllm_profile_once, read_vllm_run_record
 
         class FakeProcess:
@@ -2210,6 +2211,9 @@ class BeginnerFlowTests(unittest.TestCase):
                 popen_factory=fake_popen,
             )
             record = read_vllm_run_record(str(result.record_path))
+            saved_profile = load_vllm_profile_draft(profile_id="custom-qwen", store_root=profile_path.parent)
+            selected = load_selected_vllm_profile_id(store_root=profile_path.parent)
+            selected_profile = load_selected_vllm_profile_draft(store_root=profile_path.parent)
 
         self.assertTrue(result.ok, result.messages)
         self.assertEqual(result.pid, 54321)
@@ -2228,6 +2232,18 @@ class BeginnerFlowTests(unittest.TestCase):
         assert record.record.profile_snapshot is not None
         self.assertEqual(record.record.profile_snapshot["model"], "Qwen/Qwen2.5-0.5B-Instruct")
         self.assertEqual(record.record.profile_snapshot["kv_cache_dtype"], "fp8")
+        self.assertTrue(saved_profile.ok, saved_profile.messages)
+        self.assertIsNotNone(saved_profile.profile)
+        assert saved_profile.profile is not None
+        self.assertEqual(saved_profile.profile.model, "Qwen/Qwen2.5-0.5B-Instruct")
+        self.assertTrue(selected.ok, selected.messages)
+        self.assertEqual(selected.profile_id, "custom-qwen")
+        self.assertTrue(selected_profile.ok, selected_profile.messages)
+        self.assertIsNotNone(selected_profile.profile)
+        assert selected_profile.profile is not None
+        self.assertEqual(selected_profile.profile.model, "Qwen/Qwen2.5-0.5B-Instruct")
+        self.assertIn("launched vLLM profile saved", "\n".join(result.messages))
+        self.assertIn("selected vLLM profile updated", "\n".join(result.messages))
 
     def test_vllm_runner_sanitizes_preset_id_for_run_id(self) -> None:
         from modules.vllm_profiles import VllmPreflightCheck, smoke_vllm_profile

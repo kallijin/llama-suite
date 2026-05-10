@@ -18,7 +18,7 @@ from modules.vllm_profiles import (
     run_vllm_preflight,
     validate_vllm_profile,
 )
-from modules.vllm_profile_store import default_vllm_profile_path
+from modules.vllm_profile_store import default_vllm_profile_path, save_selected_vllm_profile_id, save_vllm_profile_draft
 
 
 DEFAULT_VLLM_RUN_ROOT = "~/.local/state/llama-suite/runs/vllm"
@@ -270,7 +270,12 @@ def launch_vllm_profile_once(
             messages=readiness.messages,
         )
 
-    return _launch_vllm_plan(readiness.plan, popen_factory=popen_factory, started_message="vLLM custom profile launch started")
+    return _launch_vllm_plan(
+        readiness.plan,
+        popen_factory=popen_factory,
+        started_message="vLLM custom profile launch started",
+        profile_to_save=profile,
+    )
 
 
 def _launch_vllm_plan(
@@ -278,6 +283,7 @@ def _launch_vllm_plan(
     *,
     popen_factory: Any = None,
     started_message: str,
+    profile_to_save: VllmProfile | None = None,
 ) -> VllmLaunchResult:
     log_path = Path(plan.log_path).expanduser()
     try:
@@ -317,6 +323,8 @@ def _launch_vllm_plan(
     )
     messages = [started_message]
     messages.extend(record_result.messages)
+    if profile_to_save is not None and plan.profile_path:
+        messages.extend(_persist_launched_vllm_profile(profile_to_save, plan))
 
     return VllmLaunchResult(
         ok=True,
@@ -331,6 +339,32 @@ def _launch_vllm_plan(
         record_path=record_result.record_path,
         profile_path=plan.profile_path,
     )
+
+
+def _persist_launched_vllm_profile(profile: VllmProfile, plan: VllmLaunchPlan) -> list[str]:
+    profile_path = Path(plan.profile_path or "").expanduser()
+    profile_store_root = profile_path.parent if profile_path.name else None
+    messages: list[str] = []
+
+    try:
+        saved = save_vllm_profile_draft(profile, profile_id=plan.profile_id or plan.preset_id, store_root=profile_store_root)
+        if saved.ok:
+            messages.append(f"launched vLLM profile saved: {saved.profile_path}")
+        else:
+            messages.append("warning: launched vLLM profile save failed: " + "; ".join(saved.messages))
+    except Exception as exc:
+        messages.append(f"warning: launched vLLM profile save failed: {exc}")
+
+    try:
+        selected = save_selected_vllm_profile_id(plan.profile_id or plan.preset_id, store_root=profile_store_root)
+        if selected.ok:
+            messages.append(f"selected vLLM profile updated: {selected.profile_id}")
+        else:
+            messages.append("warning: selected vLLM profile update failed: " + "; ".join(selected.messages))
+    except Exception as exc:
+        messages.append(f"warning: selected vLLM profile update failed: {exc}")
+
+    return messages
 
 
 def vllm_run_record_path(run_id: str, *, state_root: str | Path | None = None) -> str:
