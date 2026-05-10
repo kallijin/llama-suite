@@ -208,7 +208,61 @@ def launch_vllm_smoke_once(
             messages=readiness.messages,
         )
 
-    plan = readiness.plan
+    return _launch_vllm_plan(readiness.plan, popen_factory=popen_factory, started_message="vLLM smoke preset launch started")
+
+
+def launch_vllm_profile_once(
+    profile: VllmProfile,
+    *,
+    confirmed: bool,
+    preset_id: str = "custom-draft",
+    timestamp: str | None = None,
+    state_root: str | Path | None = None,
+    port_check: Any = None,
+    popen_factory: Any = None,
+) -> VllmLaunchResult:
+    if not confirmed:
+        return VllmLaunchResult(
+            ok=False,
+            pid=None,
+            run_id=None,
+            log_path=None,
+            host=None,
+            port=None,
+            preset_id=preset_id,
+            command=[],
+            messages=["launch cancelled: explicit confirmation is required"],
+        )
+
+    readiness = build_vllm_launch_plan(
+        profile,
+        preset_id=preset_id,
+        timestamp=timestamp,
+        state_root=state_root,
+        port_check=port_check,
+    )
+    if not readiness.ok or readiness.plan is None:
+        return VllmLaunchResult(
+            ok=False,
+            pid=None,
+            run_id=None,
+            log_path=None,
+            host=None,
+            port=None,
+            preset_id=preset_id,
+            command=[],
+            messages=readiness.messages,
+        )
+
+    return _launch_vllm_plan(readiness.plan, popen_factory=popen_factory, started_message="vLLM custom profile launch started")
+
+
+def _launch_vllm_plan(
+    plan: VllmLaunchPlan,
+    *,
+    popen_factory: Any = None,
+    started_message: str,
+) -> VllmLaunchResult:
     log_path = Path(plan.log_path).expanduser()
     try:
         log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -242,7 +296,7 @@ def launch_vllm_smoke_once(
         ),
         state_root=log_path.parent,
     )
-    messages = ["vLLM smoke preset launch started"]
+    messages = [started_message]
     messages.extend(record_result.messages)
 
     return VllmLaunchResult(

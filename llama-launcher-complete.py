@@ -42,7 +42,7 @@ from modules.vllm_api_probe import run_vllm_api_smoke
 from modules.vllm_doctor import format_vllm_doctor_report, run_vllm_doctor
 from modules.vllm_profile_store import load_vllm_profile_draft, save_vllm_profile_draft
 from modules.vllm_profiles import builtin_vllm_profile_presets, default_vllm_profile, editable_vllm_profile_fields, format_vllm_profile_report, future_launch_preset_id, host_guidance_lines, large_model_guidance_lines, launch_confirmation_guidance_lines, update_vllm_profile_field
-from modules.vllm_runner import check_vllm_smoke_status, latest_vllm_run_record, latest_vllm_run_summary, launch_vllm_smoke_once, read_vllm_run_record, read_vllm_smoke_log, stop_vllm_smoke
+from modules.vllm_runner import check_vllm_smoke_status, latest_vllm_run_record, latest_vllm_run_summary, launch_vllm_profile_once, launch_vllm_smoke_once, read_vllm_run_record, read_vllm_smoke_log, stop_vllm_smoke
 from modules.vllm_script_builder import build_vllm_script_preview, save_vllm_script
 
 
@@ -1125,6 +1125,7 @@ def show_vllm_profile_menu(profile: Any) -> Any:
     print("  [5] load custom profile draft")
     print("  [6] custom script preview")
     print("  [7] save custom script")
+    print("  [8] launch custom profile")
     choice = input("  선택 > ").strip()
 
     if choice == "1":
@@ -1152,6 +1153,9 @@ def show_vllm_profile_menu(profile: Any) -> Any:
     if choice == "7":
         result = save_vllm_script(profile)
         print_vllm_script_save_result(result)
+        return profile
+    if choice == "8":
+        show_vllm_custom_launch(profile)
         return profile
 
     print("  취소했습니다.")
@@ -1213,6 +1217,18 @@ def print_vllm_script_save_result(result: Any) -> None:
     print(f"  script_path: {result.script_path or '-'}")
     for message in result.messages:
         print(f"  - {message}")
+
+
+def show_vllm_custom_launch(profile: Any) -> None:
+    print("\n  ── vLLM custom profile launch ──")
+    print("  custom draft를 실제 vLLM launch 대상으로 사용합니다.")
+    print("  launch 전 profile preview, command dry-run, preflight를 다시 표시합니다.\n")
+    for line in vllm_custom_profile_text(profile).splitlines():
+        print(f"  {line}" if line else "")
+    print("\n  계속하려면 launch 또는 LAUNCH 를 정확히 입력하세요.")
+    confirm = input("  confirmation > ").strip()
+    result = launch_vllm_profile_once(profile, confirmed=(confirm.lower() == "launch"))
+    print_vllm_launch_result(result)
 
 
 def vllm_smoke_launch_preview_text(port_check: Any = None) -> str:

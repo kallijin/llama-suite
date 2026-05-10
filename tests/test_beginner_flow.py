@@ -1055,6 +1055,38 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("vLLM custom script save", stdout.getvalue())
         self.assertIn("/tmp/vllm.sh", stdout.getvalue())
 
+    def test_vllm_profile_menu_custom_launch_requires_typed_confirmation(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profiles import VllmProfile
+        from unittest.mock import Mock, patch
+
+        profile = VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct")
+        launch_result = type(
+            "Launch",
+            (),
+            {
+                "ok": False,
+                "preset_id": "custom-draft",
+                "pid": None,
+                "run_id": None,
+                "log_path": None,
+                "record_path": None,
+                "host": None,
+                "port": None,
+                "command": [],
+                "messages": ["cancelled"],
+            },
+        )()
+        mocked_launch = Mock(return_value=launch_result)
+
+        with patch.object(launcher, "launch_vllm_profile_once", mocked_launch), patch("builtins.input", side_effect=["8", "no"]), contextlib.redirect_stdout(StringIO()):
+            result = launcher.show_vllm_profile_menu(profile)
+
+        mocked_launch.assert_called_once_with(profile, confirmed=False)
+        self.assertIs(result, profile)
+
     def test_vllm_smoke_launch_preview_is_not_read_only_profile_text(self) -> None:
         launcher = load_launcher_module()
         from modules.vllm_profiles import VllmPreflightCheck
@@ -1144,6 +1176,70 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertFalse(readiness.ok)
         self.assertIsNone(readiness.plan)
         self.assertTrue(any("port availability:" in message for message in readiness.messages))
+
+    def test_vllm_custom_profile_launch_requires_confirmation(self) -> None:
+        from modules.vllm_profiles import VllmProfile
+        from modules.vllm_runner import launch_vllm_profile_once
+
+        def fake_popen(_command, **_kwargs):
+            raise AssertionError("Popen should not be called")
+
+        result = launch_vllm_profile_once(VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct"), confirmed=False, popen_factory=fake_popen)
+
+        self.assertFalse(result.ok)
+        self.assertIsNone(result.pid)
+        self.assertEqual(result.preset_id, "custom-draft")
+        self.assertIn("explicit confirmation is required", "\n".join(result.messages))
+
+    def test_vllm_custom_profile_launch_uses_runner_and_run_record(self) -> None:
+        from modules.vllm_profiles import VllmPreflightCheck, VllmProfile
+        from modules.vllm_runner import launch_vllm_profile_once, read_vllm_run_record
+
+        class FakeProcess:
+            pid = 54321
+
+        calls = []
+
+        def fake_popen(command, **kwargs):
+            calls.append((command, kwargs))
+            return FakeProcess()
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            wrapper = root / "vllm-rocm"
+            wrapper.write_text("#!/usr/bin/env bash\nexit 0\n")
+            wrapper.chmod(0o755)
+            profile = VllmProfile(
+                wrapper_path=str(wrapper),
+                model="Qwen/Qwen2.5-0.5B-Instruct",
+                port=54324,
+            )
+            result = launch_vllm_profile_once(
+                profile,
+                confirmed=True,
+                preset_id="custom-qwen",
+                timestamp="20260510-224500",
+                state_root=root / "runs",
+                port_check=lambda host, port: VllmPreflightCheck(
+                    "port availability",
+                    True,
+                    f"port {port} is available on {host}",
+                ),
+                popen_factory=fake_popen,
+            )
+            record = read_vllm_run_record(str(result.record_path))
+
+        self.assertTrue(result.ok, result.messages)
+        self.assertEqual(result.pid, 54321)
+        self.assertEqual(result.preset_id, "custom-qwen")
+        self.assertEqual(result.run_id, "vllm-custom-qwen-20260510-224500")
+        self.assertIn("vLLM custom profile launch started", "\n".join(result.messages))
+        self.assertEqual(calls[0][1]["start_new_session"], True)
+        self.assertEqual(calls[0][1]["env"]["VLLM_CACHE_ROOT"], "/mnt/data_main/ai-cache/vllm")
+        self.assertTrue(record.ok, record.messages)
+        self.assertIsNotNone(record.record)
+        assert record.record is not None
+        self.assertEqual(record.record.preset_id, "custom-qwen")
 
     def test_vllm_runner_sanitizes_preset_id_for_run_id(self) -> None:
         from modules.vllm_profiles import VllmPreflightCheck, smoke_vllm_profile
