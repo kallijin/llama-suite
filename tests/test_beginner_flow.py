@@ -703,6 +703,43 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("loaded draft has validation messages", "\n".join(result.messages))
         self.assertIn("port should be 1-65535", "\n".join(result.messages))
 
+    def test_vllm_profile_json_round_trip_preserves_all_profile_fields(self) -> None:
+        from modules.vllm_profile_store import format_vllm_profile_draft_json, load_vllm_profile_json_file, validate_vllm_profile_json_file
+        from modules.vllm_profiles import VllmProfile
+
+        profile = VllmProfile(
+            wrapper_path="~/bin/vllm-rocm",
+            model="/mnt/data_main/downloads/models/local-30b-q4",
+            host="100.64.1.2",
+            port=8010,
+            dtype="float16",
+            max_model_len=8192,
+            gpu_memory_utilization=0.82,
+            tensor_parallel_size=1,
+            vllm_cache_root="/mnt/data_main/ai-cache/vllm",
+            hf_home="/mnt/data_main/ai-cache/huggingface",
+            transformers_cache="/mnt/data_main/ai-cache/huggingface",
+            extra_args="--served-model-name local-30b",
+            kv_cache_dtype="fp8",
+            max_num_seqs=2,
+            max_num_batched_tokens=8192,
+        )
+
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "round-trip.json"
+            first_preview = format_vllm_profile_draft_json(profile, profile_id="round-trip")
+            path.write_text(first_preview)
+            validated = validate_vllm_profile_json_file(path)
+            loaded = load_vllm_profile_json_file(path)
+            assert loaded.profile is not None
+            second_preview = format_vllm_profile_draft_json(loaded.profile, profile_id=loaded.profile_id or "")
+
+        self.assertTrue(validated.ok, validated.messages)
+        self.assertTrue(loaded.ok, loaded.messages)
+        self.assertEqual(loaded.profile_id, "round-trip")
+        self.assertEqual(loaded.profile.to_dict(), profile.to_dict())
+        self.assertEqual(json.loads(second_preview), json.loads(first_preview))
+
     def test_vllm_profile_draft_store_reports_missing_and_invalid_schema(self) -> None:
         from modules.vllm_profile_store import load_vllm_profile_draft
 
