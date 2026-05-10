@@ -40,6 +40,7 @@ from modules.script_builder import command_preview, generate_script, parse_gener
 from modules.system_info import collect_system_info
 from modules.vllm_api_probe import run_vllm_api_smoke
 from modules.vllm_doctor import format_vllm_doctor_report, run_vllm_doctor
+from modules.vllm_profile_store import load_vllm_profile_draft, save_vllm_profile_draft
 from modules.vllm_profiles import builtin_vllm_profile_presets, default_vllm_profile, editable_vllm_profile_fields, format_vllm_profile_report, future_launch_preset_id, host_guidance_lines, large_model_guidance_lines, launch_confirmation_guidance_lines, update_vllm_profile_field
 from modules.vllm_runner import check_vllm_smoke_status, latest_vllm_run_record, latest_vllm_run_summary, launch_vllm_smoke_once, read_vllm_run_record, read_vllm_smoke_log, stop_vllm_smoke
 
@@ -1119,6 +1120,8 @@ def show_vllm_profile_menu(profile: Any) -> Any:
     print("  [1] built-in profile preview")
     print("  [2] custom profile draft preview")
     print("  [3] edit custom profile draft")
+    print("  [4] save custom profile draft")
+    print("  [5] load custom profile draft")
     choice = input("  선택 > ").strip()
 
     if choice == "1":
@@ -1131,6 +1134,14 @@ def show_vllm_profile_menu(profile: Any) -> Any:
         return profile
     if choice == "3":
         return edit_vllm_custom_profile(profile)
+    if choice == "4":
+        result = save_vllm_profile_draft(profile)
+        print_vllm_profile_store_result(result)
+        return profile
+    if choice == "5":
+        result = load_vllm_profile_draft()
+        print_vllm_profile_store_result(result)
+        return result.profile if result.ok and result.profile else profile
 
     print("  취소했습니다.")
     return profile
@@ -1164,6 +1175,14 @@ def edit_vllm_custom_profile(profile: Any) -> Any:
     for line in vllm_custom_profile_text(updated).splitlines():
         print(f"  {line}" if line else "")
     return updated
+
+
+def print_vllm_profile_store_result(result: Any) -> None:
+    print("\n  vLLM profile draft store:")
+    print(f"  ok: {result.ok}")
+    print(f"  profile_path: {result.profile_path or '-'}")
+    for message in result.messages:
+        print(f"  - {message}")
 
 
 def vllm_smoke_launch_preview_text(port_check: Any = None) -> str:

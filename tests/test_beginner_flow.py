@@ -571,6 +571,41 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIs(updated, profile)
         self.assertIn("unknown vLLM profile field", "\n".join(messages))
 
+    def test_vllm_profile_draft_store_saves_and_loads_separate_schema(self) -> None:
+        from modules.vllm_profile_store import load_vllm_profile_draft, save_vllm_profile_draft
+        from modules.vllm_profiles import VllmProfile
+
+        with TemporaryDirectory() as directory:
+            profile = VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct", port="not-a-port")  # type: ignore[arg-type]
+            saved = save_vllm_profile_draft(profile, store_root=directory)
+            loaded = load_vllm_profile_draft(store_root=directory)
+            data = json.loads(Path(saved.profile_path).read_text()) if saved.profile_path else {}
+
+        self.assertTrue(saved.ok, saved.messages)
+        self.assertEqual(data["schema"], "llama-suite.vllm-profile.v1")
+        self.assertEqual(data["profile"]["model"], "Qwen/Qwen2.5-0.5B-Instruct")
+        self.assertEqual(data["profile"]["port"], "not-a-port")
+        self.assertIn("validation messages", "\n".join(saved.messages))
+        self.assertTrue(loaded.ok, loaded.messages)
+        self.assertIsNotNone(loaded.profile)
+        assert loaded.profile is not None
+        self.assertEqual(loaded.profile.port, "not-a-port")
+        self.assertIn("loaded draft has validation messages", "\n".join(loaded.messages))
+
+    def test_vllm_profile_draft_store_reports_missing_and_invalid_schema(self) -> None:
+        from modules.vllm_profile_store import load_vllm_profile_draft
+
+        with TemporaryDirectory() as directory:
+            missing = load_vllm_profile_draft(store_root=directory)
+            path = Path(directory) / "custom-draft.json"
+            path.write_text(json.dumps({"schema": "wrong", "profile": {}}))
+            invalid = load_vllm_profile_draft(store_root=directory)
+
+        self.assertFalse(missing.ok)
+        self.assertIn("load failed", "\n".join(missing.messages))
+        self.assertFalse(invalid.ok)
+        self.assertIn("invalid vLLM profile draft schema", "\n".join(invalid.messages))
+
     def test_vllm_command_preview_builds_expected_command_list(self) -> None:
         from modules.vllm_profiles import VllmProfile, build_vllm_command
 
@@ -883,6 +918,31 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(updated.model, "Qwen/Qwen2.5-0.5B-Instruct")
         self.assertIn("updated vLLM profile field: model", stdout.getvalue())
         self.assertIn("custom profile draft", stdout.getvalue())
+
+    def test_vllm_profile_menu_can_save_and_load_custom_profile_draft(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profile_store import VllmProfileStoreResult
+        from modules.vllm_profiles import VllmProfile
+        from unittest.mock import Mock, patch
+
+        profile = VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct")
+        loaded_profile = VllmProfile(model="loaded-model")
+        save_result = VllmProfileStoreResult(True, profile, "/tmp/custom-draft.json", ["saved"])
+        load_result = VllmProfileStoreResult(True, loaded_profile, "/tmp/custom-draft.json", ["loaded"])
+        mocked_save = Mock(return_value=save_result)
+        mocked_load = Mock(return_value=load_result)
+
+        with patch.object(launcher, "save_vllm_profile_draft", mocked_save), patch("builtins.input", side_effect=["4"]), contextlib.redirect_stdout(StringIO()):
+            after_save = launcher.show_vllm_profile_menu(profile)
+        with patch.object(launcher, "load_vllm_profile_draft", mocked_load), patch("builtins.input", side_effect=["5"]), contextlib.redirect_stdout(StringIO()):
+            after_load = launcher.show_vllm_profile_menu(profile)
+
+        mocked_save.assert_called_once_with(profile)
+        mocked_load.assert_called_once_with()
+        self.assertIs(after_save, profile)
+        self.assertEqual(after_load.model, "loaded-model")
 
     def test_vllm_smoke_launch_preview_is_not_read_only_profile_text(self) -> None:
         launcher = load_launcher_module()
