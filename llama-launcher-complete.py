@@ -1390,6 +1390,8 @@ def copy_vllm_builtin_preset_to_draft(profile: Any, profile_id: str) -> tuple[An
     selected = presets[selected_index - 1]
     copied_profile_id = f"draft-from-{selected.id}"
     print(f"  copied built-in preset to in-memory custom draft: {copied_profile_id}")
+    print(f"  next [4] save default profile id: {copied_profile_id}")
+    print(f"  next [4] save path: {default_vllm_profile_path(copied_profile_id)}")
     print("  저장/launch는 하지 않았습니다. 필요하면 [4] save custom profile draft를 사용하세요.")
     return selected.profile, copied_profile_id
 

@@ -1631,6 +1631,8 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(profile.max_num_seqs, 1)
         self.assertIn("[15] copy built-in preset to custom draft", stdout.getvalue())
         self.assertIn("copied built-in preset to in-memory custom draft", stdout.getvalue())
+        self.assertIn("next [4] save default profile id: draft-from-template-30b-q4-local", stdout.getvalue())
+        self.assertIn("draft-from-template-30b-q4-local.json", stdout.getvalue())
         self.assertIn("저장/launch는 하지 않았습니다", stdout.getvalue())
 
     def test_vllm_profile_menu_delete_cancel_does_not_call_delete(self) -> None:
