@@ -33,6 +33,7 @@ from modules.config_store import (
     set_option_value,
 )
 from modules.hermes_integration import build_hermes_vllm_sync_plan, format_hermes_vllm_sync_plan, write_hermes_vllm_sync_plan
+from modules.hermes_runner import build_hermes_vllm_smoke_plan, run_hermes_vllm_smoke
 from modules.model_scan import get_model_list
 from modules.profiles import default_model_profile, get_model_profile, load_profiles, save_profiles
 from modules.probes import quick_no_think_test, show_status
@@ -790,6 +791,7 @@ def show_hermes_integration_menu(cfg: dict[str, Any]) -> dict[str, Any]:
     print("  [1] Hermes config 등록")
     print("  [2] latest vLLM endpoint sync preview")
     print("  [3] latest vLLM endpoint sync write")
+    print("  [4] Hermes latest vLLM smoke")
     choice = input("  선택 > ").strip()
     if choice == "1":
         return register_config_path(
@@ -819,6 +821,36 @@ def show_hermes_integration_menu(cfg: dict[str, Any]) -> dict[str, Any]:
             print(f"  config_path: {result.config_path}")
         if result.backup_path:
             print(f"  backup_path: {result.backup_path}")
+        for message in result.messages:
+            print(f"  - {message}")
+        return cfg
+
+    if choice == "4":
+        plan = build_hermes_vllm_smoke_plan()
+        print("\n  Hermes latest vLLM smoke preview:")
+        print(f"  ok: {plan.ok}")
+        if plan.base_url:
+            print(f"  base_url: {plan.base_url}")
+        if plan.model_id:
+            print(f"  model: {plan.model_id}")
+        if plan.command:
+            print("  command: " + " ".join(shlex.quote(part) for part in plan.command))
+        for message in plan.messages:
+            print(f"  - {message}")
+        print("  계속하려면 smoke 또는 SMOKE 를 정확히 입력하세요.")
+        confirm = input("  confirmation > ").strip()
+        result = run_hermes_vllm_smoke(confirmed=(confirm.lower() == "smoke"))
+        print("\n  Hermes latest vLLM smoke result:")
+        print(f"  ok: {result.ok}")
+        print(f"  returncode: {result.returncode if result.returncode is not None else '-'}")
+        if result.stdout:
+            print("  stdout:")
+            for line in result.stdout.splitlines()[:20]:
+                print(f"    {line}")
+        if result.stderr:
+            print("  stderr:")
+            for line in result.stderr.splitlines()[:20]:
+                print(f"    {line}")
         for message in result.messages:
             print(f"  - {message}")
         return cfg

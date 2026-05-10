@@ -696,6 +696,172 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(data["model"], "served-qwen")
         self.assertEqual(data["temperature"], 0.2)
 
+    def test_hermes_vllm_sync_preserves_nested_model_block(self) -> None:
+        from modules.hermes_integration import update_hermes_config_text
+
+        original = (
+            "model:\n"
+            "  api_key: local\n"
+            "  base_url: http://127.0.0.1:8080/v1\n"
+            "  default: old-default\n"
+            "  model: old-model\n"
+            "  provider: custom\n"
+            "  name: old-name\n"
+            "providers:\n"
+            "  other:\n"
+            "    model: should-not-change\n"
+        )
+
+        updated = update_hermes_config_text(
+            original,
+            base_url="http://127.0.0.1:8000/v1",
+            model_id="served-qwen",
+            config_path="config.yaml",
+        )
+
+        self.assertIn("model:\n", updated)
+        self.assertIn("  base_url: http://127.0.0.1:8000/v1", updated)
+        self.assertIn("  default: served-qwen", updated)
+        self.assertIn("  model: served-qwen", updated)
+        self.assertIn("  name: served-qwen", updated)
+        self.assertIn("    model: should-not-change", updated)
+
+    def test_hermes_vllm_smoke_plan_uses_ready_latest_run(self) -> None:
+        from modules.hermes_runner import build_hermes_vllm_smoke_plan
+        from modules.vllm_runner import VllmRunRecord, VllmRunRecordResult
+
+        class Status:
+            alive = True
+            port_listening = True
+            messages = ["ready"]
+
+        with TemporaryDirectory() as directory:
+            hermes_bin = Path(directory) / "hermes"
+            hermes_bin.write_text("#!/usr/bin/env bash\nexit 0\n")
+            hermes_bin.chmod(0o755)
+            record = VllmRunRecord(
+                backend="vllm",
+                preset_id="qwen2.5-14b-awq",
+                run_id="run-1",
+                pid=123,
+                command=["vllm", "serve", "/models/qwen", "--served-model-name", "served-qwen"],
+                env_preview={},
+                log_path=str(Path(directory) / "run.log"),
+                host="127.0.0.1",
+                port=8000,
+                started_at="2026-05-11T03:00:00+09:00",
+                status_hint="started",
+            )
+
+            plan = build_hermes_vllm_smoke_plan(
+                hermes_bin=str(hermes_bin),
+                latest_record=VllmRunRecordResult(True, record, "/tmp/latest.json", []),
+                status_check=lambda **kwargs: Status(),
+            )
+
+        self.assertTrue(plan.ok, plan.messages)
+        self.assertEqual(plan.model_id, "served-qwen")
+        self.assertIn("--provider", plan.command)
+        self.assertIn("custom", plan.command)
+        self.assertIn("--model", plan.command)
+        self.assertIn("served-qwen", plan.command)
+
+    def test_hermes_vllm_smoke_requires_confirmation_and_checks_marker(self) -> None:
+        from modules.hermes_runner import run_hermes_vllm_smoke
+        from modules.vllm_runner import VllmRunRecord, VllmRunRecordResult
+
+        class Status:
+            alive = True
+            port_listening = True
+            messages = ["ready"]
+
+        class Completed:
+            returncode = 0
+            stdout = "llama-suite-ok\n"
+            stderr = ""
+
+        calls = []
+
+        def fake_runner(command, **kwargs):
+            calls.append((command, kwargs))
+            return Completed()
+
+        with TemporaryDirectory() as directory:
+            hermes_bin = Path(directory) / "hermes"
+            hermes_bin.write_text("#!/usr/bin/env bash\nexit 0\n")
+            hermes_bin.chmod(0o755)
+            record = VllmRunRecord(
+                backend="vllm",
+                preset_id="qwen2.5-14b-awq",
+                run_id="run-1",
+                pid=123,
+                command=["vllm", "serve", "/models/qwen", "--served-model-name", "served-qwen"],
+                env_preview={},
+                log_path=str(Path(directory) / "run.log"),
+                host="127.0.0.1",
+                port=8000,
+                started_at="2026-05-11T03:00:00+09:00",
+                status_hint="started",
+            )
+            latest = VllmRunRecordResult(True, record, "/tmp/latest.json", [])
+
+            cancelled = run_hermes_vllm_smoke(
+                confirmed=False,
+                hermes_bin=str(hermes_bin),
+                latest_record=latest,
+                status_check=lambda **kwargs: Status(),
+                runner=fake_runner,
+            )
+            result = run_hermes_vllm_smoke(
+                confirmed=True,
+                hermes_bin=str(hermes_bin),
+                latest_record=latest,
+                status_check=lambda **kwargs: Status(),
+                runner=fake_runner,
+                timeout=3,
+            )
+
+        self.assertFalse(cancelled.ok)
+        self.assertEqual(calls, [(result.command, {"capture_output": True, "text": True, "timeout": 3})])
+        self.assertTrue(result.ok, result.messages)
+        self.assertEqual(result.returncode, 0)
+
+    def test_hermes_vllm_smoke_refuses_non_ready_run(self) -> None:
+        from modules.hermes_runner import build_hermes_vllm_smoke_plan
+        from modules.vllm_runner import VllmRunRecord, VllmRunRecordResult
+
+        class Status:
+            alive = False
+            port_listening = False
+            messages = ["stopped"]
+
+        with TemporaryDirectory() as directory:
+            hermes_bin = Path(directory) / "hermes"
+            hermes_bin.write_text("#!/usr/bin/env bash\nexit 0\n")
+            hermes_bin.chmod(0o755)
+            record = VllmRunRecord(
+                backend="vllm",
+                preset_id="qwen2.5-14b-awq",
+                run_id="run-1",
+                pid=123,
+                command=["vllm", "serve", "/models/qwen"],
+                env_preview={},
+                log_path=str(Path(directory) / "run.log"),
+                host="127.0.0.1",
+                port=8000,
+                started_at="2026-05-11T03:00:00+09:00",
+                status_hint="started",
+            )
+
+            plan = build_hermes_vllm_smoke_plan(
+                hermes_bin=str(hermes_bin),
+                latest_record=VllmRunRecordResult(True, record, "/tmp/latest.json", []),
+                status_check=lambda **kwargs: Status(),
+            )
+
+        self.assertFalse(plan.ok)
+        self.assertTrue(any("not READY" in message for message in plan.messages))
+
     def test_vllm_doctor_reports_missing_wrapper_and_python(self) -> None:
         from modules.vllm_doctor import run_vllm_doctor
 

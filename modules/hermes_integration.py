@@ -161,14 +161,29 @@ def _update_yamlish_lines(lines: list[str], *, base_url: str, model_id: str) -> 
     updated: list[str] = []
     seen_base = False
     seen_model = False
+    in_root_model_block = False
     for line in lines:
         stripped = line.lstrip()
         indent = line[: len(line) - len(stripped)]
-        if stripped.startswith(("base_url:", "api_base:", "endpoint:")):
+        if not indent and stripped == "model:":
+            in_root_model_block = True
+            updated.append(line)
+        elif in_root_model_block and not indent and stripped:
+            in_root_model_block = False
+            updated.append(line)
+        elif in_root_model_block and indent and stripped.startswith(("base_url:", "api_base:", "endpoint:")):
             key = stripped.split(":", 1)[0]
             updated.append(f"{indent}{key}: {base_url}")
             seen_base = True
-        elif stripped.startswith("model:"):
+        elif in_root_model_block and indent and stripped.startswith(("default:", "model:", "name:")):
+            key = stripped.split(":", 1)[0]
+            updated.append(f"{indent}{key}: {model_id}")
+            seen_model = True
+        elif not in_root_model_block and stripped.startswith(("base_url:", "api_base:", "endpoint:")):
+            key = stripped.split(":", 1)[0]
+            updated.append(f"{indent}{key}: {base_url}")
+            seen_base = True
+        elif not in_root_model_block and not indent and stripped.startswith("model:") and stripped.split(":", 1)[1].strip():
             updated.append(f"{indent}model: {model_id}")
             seen_model = True
         else:
