@@ -40,7 +40,7 @@ from modules.script_builder import command_preview, generate_script, parse_gener
 from modules.system_info import collect_system_info
 from modules.vllm_doctor import format_vllm_doctor_report, run_vllm_doctor
 from modules.vllm_profiles import build_vllm_command, builtin_vllm_profile_presets, cache_env_preview_lines, future_launch_preset_id, host_guidance_lines, launch_confirmation_guidance_lines, run_vllm_preflight, validate_vllm_profile
-from modules.vllm_runner import check_vllm_smoke_status, latest_vllm_run_record, launch_vllm_smoke_once, read_vllm_run_record, read_vllm_smoke_log, stop_vllm_smoke
+from modules.vllm_runner import check_vllm_smoke_status, latest_vllm_run_record, latest_vllm_run_summary, launch_vllm_smoke_once, read_vllm_run_record, read_vllm_smoke_log, stop_vllm_smoke
 
 
 # ─── 설정 ──────────────────────────────────────────────
@@ -611,6 +611,17 @@ def print_planned_run_summary(draft: dict[str, Any], running_model: str | None =
     print()
     for line in planned_run_summary_lines(draft, running_model):
         print(line)
+
+
+def recent_vllm_run_summary_line(summary: Any = None) -> str:
+    value = summary or latest_vllm_run_summary()
+    if not value.ok:
+        return "  Recent vLLM run: no run record"
+    return f"  Recent vLLM run: {value.preset_id or '-'} / {value.model or '-'} / {value.endpoint or '-'} / {value.status}"
+
+
+def print_recent_vllm_run_summary() -> None:
+    print(recent_vllm_run_summary_line())
 
 
 def registered_paths(cfg: dict[str, Any]) -> dict[str, Any]:
@@ -1310,6 +1321,7 @@ def main() -> None:
         print_integration_status(cfg)
         running = get_running_model()
         print_planned_run_summary(draft, running)
+        print_recent_vllm_run_summary()
         if not models:
             print(f"\n  ⚠️  {MODELS_DIR} 에서 GGUF 파일을 찾을 수 없습니다.")
             print("     그래도 [A] 설정 변경, [I] 시스템 정보, [E] Hermes 등록, [C] OpenClaw 등록은 사용할 수 있습니다.")

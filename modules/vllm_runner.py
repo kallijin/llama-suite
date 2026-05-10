@@ -109,6 +109,16 @@ class VllmRunRecordResult:
     messages: list[str]
 
 
+@dataclass(frozen=True)
+class VllmLatestRunSummary:
+    ok: bool
+    preset_id: str | None
+    model: str | None
+    endpoint: str | None
+    status: str
+    messages: list[str]
+
+
 def build_vllm_launch_environment_preview(profile: VllmProfile) -> dict[str, str]:
     return {
         "VLLM_CACHE_ROOT": str(profile.vllm_cache_root),
@@ -399,6 +409,38 @@ def check_tcp_listening(host: str, port: int | str, timeout: float = 1.0) -> Any
     return VllmSmokeStatusPortCheck(False, f"{host_text}:{port_number} is not listening")
 
 
+def latest_vllm_run_summary(
+    *,
+    latest_record: Any = None,
+    status_check: Any = None,
+) -> VllmLatestRunSummary:
+    latest = latest_record or latest_vllm_run_record()
+    if not latest.ok or latest.record is None:
+        return VllmLatestRunSummary(False, None, None, None, "UNKNOWN", latest.messages)
+
+    record = latest.record
+    check_status = status_check or check_vllm_smoke_status
+    status = check_status(
+        pid=record.pid,
+        run_id=record.run_id,
+        log_path=record.log_path,
+        host=record.host,
+        port=record.port,
+    )
+    if status.alive is False:
+        state = "STOPPED"
+    elif status.alive and status.port_listening:
+        state = "READY"
+    elif status.alive and status.port_listening is False:
+        state = "STARTING"
+    else:
+        state = "UNKNOWN"
+
+    model = _model_from_command(record.command)
+    endpoint = f"http://{record.host}:{record.port}/v1"
+    return VllmLatestRunSummary(True, record.preset_id, model, endpoint, state, status.messages)
+
+
 @dataclass(frozen=True)
 class VllmSmokeStatusPortCheck:
     ok: bool
@@ -526,3 +568,12 @@ def _atomic_write_text(path: Path, payload: str) -> None:
     finally:
         if temp_path.exists():
             temp_path.unlink()
+
+
+def _model_from_command(command: list[str]) -> str | None:
+    if "serve" not in command:
+        return None
+    index = command.index("serve")
+    if index + 1 >= len(command):
+        return None
+    return command[index + 1]

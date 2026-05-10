@@ -229,6 +229,7 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("[E] Hermes 등록", completed.stdout)
         self.assertIn("Hermes 설정 변경: 비활성화", completed.stdout)
         self.assertIn("실행 예정 요약", completed.stdout)
+        self.assertIn("Recent vLLM run:", completed.stdout)
         self.assertIn("[B] vLLM profile", completed.stdout)
         self.assertIn("[Y] vLLM smoke launch", completed.stdout)
         self.assertIn("[Z] vLLM smoke status/log/stop", completed.stdout)
@@ -236,6 +237,34 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("[A] 설정 변경 / 현재 설정 저장", completed.stdout)
         self.assertNotIn("\n  [W] 현재 설정 저장", completed.stdout)
         self.assertNotIn("[X] 새 스크립트 생성 후 실행", completed.stdout)
+
+    def test_recent_vllm_run_summary_line_renders_no_record(self) -> None:
+        launcher = load_launcher_module()
+        from modules.vllm_runner import VllmLatestRunSummary
+
+        line = launcher.recent_vllm_run_summary_line(VllmLatestRunSummary(False, None, None, None, "UNKNOWN", ["no record"]))
+
+        self.assertEqual(line, "  Recent vLLM run: no run record")
+
+    def test_recent_vllm_run_summary_line_renders_ready_record(self) -> None:
+        launcher = load_launcher_module()
+        from modules.vllm_runner import VllmLatestRunSummary
+
+        line = launcher.recent_vllm_run_summary_line(
+            VllmLatestRunSummary(
+                True,
+                "smoke-qwen-0.5b",
+                "Qwen/Qwen2.5-0.5B-Instruct",
+                "http://127.0.0.1:8000/v1",
+                "READY",
+                [],
+            )
+        )
+
+        self.assertEqual(
+            line,
+            "  Recent vLLM run: smoke-qwen-0.5b / Qwen/Qwen2.5-0.5B-Instruct / http://127.0.0.1:8000/v1 / READY",
+        )
 
     def test_vllm_doctor_reports_missing_wrapper_and_python(self) -> None:
         from modules.vllm_doctor import run_vllm_doctor
@@ -1243,6 +1272,39 @@ class BeginnerFlowTests(unittest.TestCase):
 
         self.assertTrue(result.port_listening)
         mocked_check.assert_called_once_with("100.68.40.87", 8010)
+
+    def test_vllm_latest_run_summary_maps_status_states(self) -> None:
+        from modules.vllm_runner import VllmLatestRunSummary, VllmRunRecord, VllmRunRecordResult, latest_vllm_run_summary
+
+        record = VllmRunRecord(
+            backend="vllm",
+            preset_id="smoke-qwen-0.5b",
+            run_id="run-latest",
+            pid=1234,
+            command=["/home/kalijin/bin/vllm-rocm", "serve", "Qwen/Qwen2.5-0.5B-Instruct"],
+            env_preview={},
+            log_path="/tmp/latest.log",
+            host="127.0.0.1",
+            port=8000,
+            started_at="2026-05-10T19:31:00+09:00",
+            status_hint="started",
+        )
+
+        def status(alive, port_listening):
+            return type("Status", (), {"alive": alive, "port_listening": port_listening, "messages": []})()
+
+        no_record = latest_vllm_run_summary(latest_record=VllmRunRecordResult(False, None, None, ["no record"]))
+        ready = latest_vllm_run_summary(latest_record=VllmRunRecordResult(True, record, "/tmp/latest.json", []), status_check=lambda **kwargs: status(True, True))
+        starting = latest_vllm_run_summary(latest_record=VllmRunRecordResult(True, record, "/tmp/latest.json", []), status_check=lambda **kwargs: status(True, False))
+        stopped = latest_vllm_run_summary(latest_record=VllmRunRecordResult(True, record, "/tmp/latest.json", []), status_check=lambda **kwargs: status(False, False))
+
+        self.assertIsInstance(no_record, VllmLatestRunSummary)
+        self.assertEqual(no_record.status, "UNKNOWN")
+        self.assertEqual(ready.status, "READY")
+        self.assertEqual(ready.model, "Qwen/Qwen2.5-0.5B-Instruct")
+        self.assertEqual(ready.endpoint, "http://127.0.0.1:8000/v1")
+        self.assertEqual(starting.status, "STARTING")
+        self.assertEqual(stopped.status, "STOPPED")
 
     def test_vllm_tcp_listening_helper_reports_true_false_and_errors(self) -> None:
         from modules.vllm_runner import check_tcp_listening
