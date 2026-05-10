@@ -87,12 +87,7 @@ def save_vllm_profile_draft(
 ) -> VllmProfileStoreResult:
     profile_path = default_vllm_profile_path(profile_id, store_root=store_root)
     validation_messages = validate_vllm_profile(profile)
-    payload = {
-        "schema": VLLM_PROFILE_SCHEMA,
-        "profile_id": profile_id,
-        "profile": profile.to_dict(),
-        "validation_messages": validation_messages,
-    }
+    payload = vllm_profile_draft_payload(profile, profile_id=profile_id)
     try:
         path = Path(profile_path)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -104,6 +99,19 @@ def save_vllm_profile_draft(
     if validation_messages:
         messages.append("saved draft has validation messages: " + "; ".join(validation_messages))
     return VllmProfileStoreResult(True, profile, profile_path, messages)
+
+
+def vllm_profile_draft_payload(profile: VllmProfile, *, profile_id: str = "custom-draft") -> dict[str, Any]:
+    return {
+        "schema": VLLM_PROFILE_SCHEMA,
+        "profile_id": profile_id,
+        "profile": profile.to_dict(),
+        "validation_messages": validate_vllm_profile(profile),
+    }
+
+
+def format_vllm_profile_draft_json(profile: VllmProfile, *, profile_id: str = "custom-draft") -> str:
+    return json.dumps(vllm_profile_draft_payload(profile, profile_id=profile_id), indent=2, sort_keys=True) + "\n"
 
 
 def load_vllm_profile_draft(

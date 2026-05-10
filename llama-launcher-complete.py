@@ -40,7 +40,7 @@ from modules.script_builder import command_preview, generate_script, parse_gener
 from modules.system_info import collect_system_info
 from modules.vllm_api_probe import run_vllm_api_smoke
 from modules.vllm_doctor import format_vllm_doctor_report, run_vllm_doctor
-from modules.vllm_profile_store import delete_vllm_profile_draft, list_vllm_profile_drafts, load_vllm_profile_draft, save_vllm_profile_draft
+from modules.vllm_profile_store import delete_vllm_profile_draft, format_vllm_profile_draft_json, list_vllm_profile_drafts, load_vllm_profile_draft, save_vllm_profile_draft
 from modules.vllm_profiles import builtin_vllm_profile_presets, default_vllm_profile, editable_vllm_profile_fields, format_vllm_profile_report, future_launch_preset_id, host_guidance_lines, large_model_guidance_lines, launch_confirmation_guidance_lines, update_vllm_profile_field
 from modules.vllm_runner import check_vllm_smoke_status, latest_vllm_run_record, latest_vllm_run_summary, launch_vllm_profile_once, launch_vllm_smoke_once, read_vllm_run_record, read_vllm_smoke_log, stop_vllm_smoke
 from modules.vllm_script_builder import build_vllm_script_preview, save_vllm_script
@@ -1141,6 +1141,7 @@ def show_vllm_profile_menu(profile: Any, profile_id: str = "custom-draft", *, re
     print("  [9] list saved custom profiles")
     print("  [10] load saved custom profile from list")
     print("  [11] delete saved custom profile from list")
+    print("  [12] profile JSON preview")
     print("  Script / launch")
     print("  [6] custom script preview")
     print("  [7] save custom script")
@@ -1192,6 +1193,9 @@ def show_vllm_profile_menu(profile: Any, profile_id: str = "custom-draft", *, re
         deleted_profile_id = delete_vllm_profile_from_list(profile_id)
         if deleted_profile_id == profile_id:
             profile_id = "custom-draft"
+        return _vllm_profile_menu_return(profile, profile_id, return_profile_id)
+    if choice == "12":
+        print_vllm_profile_json_preview(profile, profile_id)
         return _vllm_profile_menu_return(profile, profile_id, return_profile_id)
 
     print("  취소했습니다.")
@@ -1313,6 +1317,12 @@ def print_vllm_profile_list_result(result: Any, selected_profile_id: str | None 
             print(f"    validation: {message}")
     for message in result.messages:
         print(f"  - {message}")
+
+
+def print_vllm_profile_json_preview(profile: Any, profile_id: str = "custom-draft") -> None:
+    print("\n  vLLM profile JSON preview:")
+    for line in format_vllm_profile_draft_json(profile, profile_id=profile_id).splitlines():
+        print(f"  {line}" if line else "")
 
 
 def print_vllm_script_preview(preview: Any) -> None:
