@@ -718,6 +718,17 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("max_num_seqs", payload["profile"])
         self.assertIn("max_num_batched_tokens", payload["profile"])
 
+    def test_vllm_local_large_profile_example_json_matches_schema(self) -> None:
+        payload = json.loads((ROOT / "examples" / "vllm-profile.local-large.example.json").read_text())
+
+        self.assertEqual(payload["schema"], "llama-suite.vllm-profile.v1")
+        self.assertEqual(payload["profile_id"], "example-local-large-q4")
+        self.assertEqual(payload["profile"]["model"], "/mnt/data_main/downloads/models/local-large-q4-hf")
+        self.assertEqual(payload["profile"]["max_model_len"], 8192)
+        self.assertEqual(payload["profile"]["max_num_seqs"], 1)
+        self.assertEqual(payload["profile"]["max_num_batched_tokens"], 8192)
+        self.assertIn("--served-model-name local-large", payload["profile"]["extra_args"])
+
     def test_vllm_profile_json_file_import_validates_schema_and_profile_id(self) -> None:
         from modules.vllm_profile_store import format_vllm_profile_draft_json, load_vllm_profile_json_file
         from modules.vllm_profiles import VllmProfile
