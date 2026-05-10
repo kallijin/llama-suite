@@ -513,7 +513,7 @@ def latest_vllm_run_summary(
     else:
         state = "UNKNOWN"
 
-    model = _model_from_command(record.command)
+    model = _model_from_record(record)
     endpoint = f"http://{record.host}:{record.port}/v1"
     return VllmLatestRunSummary(True, record.preset_id, model, endpoint, state, status.messages)
 
@@ -654,3 +654,11 @@ def _model_from_command(command: list[str]) -> str | None:
     if index + 1 >= len(command):
         return None
     return command[index + 1]
+
+
+def _model_from_record(record: VllmRunRecord) -> str | None:
+    if isinstance(record.profile_snapshot, dict):
+        model = str(record.profile_snapshot.get("model") or "").strip()
+        if model:
+            return model
+    return _model_from_command(record.command)

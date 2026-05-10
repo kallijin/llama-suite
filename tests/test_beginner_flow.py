@@ -272,6 +272,42 @@ class BeginnerFlowTests(unittest.TestCase):
             "  Recent vLLM run: smoke-qwen-0.5b / Qwen/Qwen2.5-0.5B-Instruct / http://127.0.0.1:8000/v1 / READY",
         )
 
+    def test_latest_vllm_run_summary_prefers_profile_snapshot_model(self) -> None:
+        from modules.vllm_runner import VllmRunRecord, VllmRunRecordResult, VllmSmokeStatusResult, latest_vllm_run_summary
+
+        record = VllmRunRecord(
+            backend="vllm",
+            preset_id="custom-30b",
+            run_id="vllm-custom-30b-20260511-010203",
+            pid=123,
+            command=["/home/kalijin/bin/vllm-rocm", "serve", "stale-command-model"],
+            env_preview={},
+            log_path="/tmp/vllm.log",
+            host="127.0.0.1",
+            port=8000,
+            started_at="2026-05-11T01:02:03+09:00",
+            status_hint="started",
+            profile_snapshot={"model": "/mnt/data_main/downloads/models/local-30b-q4-hf"},
+        )
+
+        summary = latest_vllm_run_summary(
+            latest_record=VllmRunRecordResult(True, record, "/tmp/latest.json", []),
+            status_check=lambda **kwargs: VllmSmokeStatusResult(
+                True,
+                kwargs["pid"],
+                kwargs["run_id"],
+                kwargs["log_path"],
+                "custom-30b",
+                True,
+                True,
+                True,
+                [],
+            ),
+        )
+
+        self.assertEqual(summary.model, "/mnt/data_main/downloads/models/local-30b-q4-hf")
+        self.assertEqual(summary.status, "READY")
+
     def test_selected_vllm_profile_summary_line_renders_current_draft(self) -> None:
         launcher = load_launcher_module()
         from modules.vllm_profiles import VllmProfile
