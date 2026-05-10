@@ -623,8 +623,20 @@ def recent_vllm_run_summary_line(summary: Any = None) -> str:
     return f"  Recent vLLM run: {value.preset_id or '-'} / {value.model or '-'} / {value.endpoint or '-'} / {value.status}"
 
 
-def print_recent_vllm_run_summary() -> None:
-    print(recent_vllm_run_summary_line())
+def recent_vllm_run_startup_warnings(summary: Any) -> list[str]:
+    if getattr(summary, "ok", False):
+        return []
+    messages = [str(message) for message in getattr(summary, "messages", [])]
+    if not messages:
+        return []
+    quiet_fragments = ("no vLLM run records found", "no record")
+    if all(any(fragment in message for fragment in quiet_fragments) for message in messages):
+        return []
+    return ["latest vLLM run record could not be loaded cleanly"] + messages
+
+
+def print_recent_vllm_run_summary(summary: Any = None) -> None:
+    print(recent_vllm_run_summary_line(summary))
 
 
 def selected_vllm_profile_summary_line(profile: Any, profile_id: str = "custom-draft") -> str:
@@ -1738,9 +1750,10 @@ def main() -> None:
         print_integration_status(cfg)
         running = get_running_model()
         print_planned_run_summary(draft, running)
-        print_recent_vllm_run_summary()
+        vllm_run_summary = latest_vllm_run_summary()
+        print_recent_vllm_run_summary(vllm_run_summary)
         print_selected_vllm_profile_summary(vllm_profile_draft, vllm_profile_draft_id)
-        print_startup_warnings(startup_warnings)
+        print_startup_warnings(startup_warnings + recent_vllm_run_startup_warnings(vllm_run_summary))
         if not models:
             print(f"\n  ⚠️  {MODELS_DIR} 에서 GGUF 파일을 찾을 수 없습니다.")
             print("     그래도 [A] 설정 변경, [I] 시스템 정보, [E] Hermes 등록, [C] OpenClaw 등록은 사용할 수 있습니다.")

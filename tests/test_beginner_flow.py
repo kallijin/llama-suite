@@ -276,6 +276,27 @@ class BeginnerFlowTests(unittest.TestCase):
 
         self.assertEqual(line, "  Recent vLLM run: no run record")
 
+    def test_recent_vllm_run_startup_warnings_ignore_missing_record(self) -> None:
+        launcher = load_launcher_module()
+        from modules.vllm_runner import VllmLatestRunSummary
+
+        warnings = launcher.recent_vllm_run_startup_warnings(
+            VllmLatestRunSummary(False, None, None, None, "UNKNOWN", ["no vLLM run records found under /tmp/runs"])
+        )
+
+        self.assertEqual(warnings, [])
+
+    def test_recent_vllm_run_startup_warnings_report_invalid_record(self) -> None:
+        launcher = load_launcher_module()
+        from modules.vllm_runner import VllmLatestRunSummary
+
+        warnings = launcher.recent_vllm_run_startup_warnings(
+            VllmLatestRunSummary(False, None, None, None, "UNKNOWN", ["invalid run record schema"])
+        )
+
+        self.assertIn("latest vLLM run record could not be loaded cleanly", warnings)
+        self.assertIn("invalid run record schema", warnings)
+
     def test_recent_vllm_run_summary_line_renders_ready_record(self) -> None:
         launcher = load_launcher_module()
         from modules.vllm_runner import VllmLatestRunSummary
