@@ -31,6 +31,7 @@ modules = [
     "modules.vllm_profiles",
     "modules.vllm_api_probe",
     "modules.vllm_runner",
+    "modules.vllm_script_builder",
 ]
 
 for name in modules:

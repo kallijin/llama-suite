@@ -606,6 +606,35 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertFalse(invalid.ok)
         self.assertIn("invalid vLLM profile draft schema", "\n".join(invalid.messages))
 
+    def test_vllm_script_preview_builds_shell_script_for_valid_profile(self) -> None:
+        from modules.vllm_profiles import VllmProfile
+        from modules.vllm_script_builder import build_vllm_script_preview
+
+        preview = build_vllm_script_preview(
+            VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct", extra_args="--served-model-name qwen-smoke"),
+            timestamp="2026-05-10 22:30:00",
+        )
+
+        self.assertTrue(preview.ok, preview.messages)
+        self.assertIn("#!/usr/bin/env bash", preview.script_text)
+        self.assertIn("set -euo pipefail", preview.script_text)
+        self.assertIn("export VLLM_CACHE_ROOT=/mnt/data_main/ai-cache/vllm", preview.script_text)
+        self.assertIn("export HF_HOME=/mnt/data_main/ai-cache/huggingface", preview.script_text)
+        self.assertIn("export TRANSFORMERS_CACHE=/mnt/data_main/ai-cache/huggingface", preview.script_text)
+        self.assertIn("exec ", preview.script_text)
+        self.assertIn("serve Qwen/Qwen2.5-0.5B-Instruct", preview.script_text)
+        self.assertIn("--served-model-name qwen-smoke", preview.script_text)
+
+    def test_vllm_script_preview_returns_validation_messages_for_invalid_profile(self) -> None:
+        from modules.vllm_profiles import VllmProfile
+        from modules.vllm_script_builder import build_vllm_script_preview
+
+        preview = build_vllm_script_preview(VllmProfile(model=""))
+
+        self.assertFalse(preview.ok)
+        self.assertEqual(preview.script_text, "")
+        self.assertIn("model should not be empty", preview.messages)
+
     def test_vllm_command_preview_builds_expected_command_list(self) -> None:
         from modules.vllm_profiles import VllmProfile, build_vllm_command
 
@@ -943,6 +972,24 @@ class BeginnerFlowTests(unittest.TestCase):
         mocked_load.assert_called_once_with()
         self.assertIs(after_save, profile)
         self.assertEqual(after_load.model, "loaded-model")
+
+    def test_vllm_profile_menu_can_preview_custom_script(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profiles import VllmProfile
+        from unittest.mock import patch
+
+        profile = VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct")
+        stdout = StringIO()
+
+        with patch("builtins.input", side_effect=["6"]), contextlib.redirect_stdout(stdout):
+            result = launcher.show_vllm_profile_menu(profile)
+
+        self.assertIs(result, profile)
+        self.assertIn("vLLM custom script preview", stdout.getvalue())
+        self.assertIn("exec", stdout.getvalue())
+        self.assertIn("Qwen/Qwen2.5-0.5B-Instruct", stdout.getvalue())
 
     def test_vllm_smoke_launch_preview_is_not_read_only_profile_text(self) -> None:
         launcher = load_launcher_module()

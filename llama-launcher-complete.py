@@ -43,6 +43,7 @@ from modules.vllm_doctor import format_vllm_doctor_report, run_vllm_doctor
 from modules.vllm_profile_store import load_vllm_profile_draft, save_vllm_profile_draft
 from modules.vllm_profiles import builtin_vllm_profile_presets, default_vllm_profile, editable_vllm_profile_fields, format_vllm_profile_report, future_launch_preset_id, host_guidance_lines, large_model_guidance_lines, launch_confirmation_guidance_lines, update_vllm_profile_field
 from modules.vllm_runner import check_vllm_smoke_status, latest_vllm_run_record, latest_vllm_run_summary, launch_vllm_smoke_once, read_vllm_run_record, read_vllm_smoke_log, stop_vllm_smoke
+from modules.vllm_script_builder import build_vllm_script_preview
 
 
 # ─── 설정 ──────────────────────────────────────────────
@@ -1122,6 +1123,7 @@ def show_vllm_profile_menu(profile: Any) -> Any:
     print("  [3] edit custom profile draft")
     print("  [4] save custom profile draft")
     print("  [5] load custom profile draft")
+    print("  [6] custom script preview")
     choice = input("  선택 > ").strip()
 
     if choice == "1":
@@ -1142,6 +1144,10 @@ def show_vllm_profile_menu(profile: Any) -> Any:
         result = load_vllm_profile_draft()
         print_vllm_profile_store_result(result)
         return result.profile if result.ok and result.profile else profile
+    if choice == "6":
+        preview = build_vllm_script_preview(profile)
+        print_vllm_script_preview(preview)
+        return profile
 
     print("  취소했습니다.")
     return profile
@@ -1183,6 +1189,17 @@ def print_vllm_profile_store_result(result: Any) -> None:
     print(f"  profile_path: {result.profile_path or '-'}")
     for message in result.messages:
         print(f"  - {message}")
+
+
+def print_vllm_script_preview(preview: Any) -> None:
+    print("\n  vLLM custom script preview:")
+    print(f"  ok: {preview.ok}")
+    for message in preview.messages:
+        print(f"  - {message}")
+    if preview.script_text:
+        print()
+        for line in preview.script_text.splitlines():
+            print(f"  {line}" if line else "")
 
 
 def vllm_smoke_launch_preview_text(port_check: Any = None) -> str:
