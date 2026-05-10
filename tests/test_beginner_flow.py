@@ -856,6 +856,7 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertNotIn("~", calls[0][0])
 
     def test_vllm_smoke_launch_saves_run_record(self) -> None:
+        import json
         from modules.vllm_profiles import VllmPreflightCheck, smoke_vllm_profile
         from modules.vllm_runner import launch_vllm_smoke_once, read_vllm_run_record
         from unittest.mock import patch
@@ -882,18 +883,65 @@ class BeginnerFlowTests(unittest.TestCase):
                     ),
                     popen_factory=lambda command, **kwargs: FakeProcess(),
                 )
+            latest_path = root / "runs" / "latest.json"
             record_result = read_vllm_run_record(str(result.record_path))
+            latest_data = json.loads(latest_path.read_text())
+            latest_exists = latest_path.is_file()
 
         self.assertTrue(result.ok, result.messages)
         self.assertIsNotNone(result.record_path)
+        self.assertTrue(str(result.record_path).endswith("vllm-smoke-qwen-0.5b-20260510-193000.json"))
+        self.assertTrue(latest_exists)
         self.assertTrue(record_result.ok, record_result.messages)
         self.assertIsNotNone(record_result.record)
         assert record_result.record is not None
+        self.assertEqual(record_result.record.schema, "llama-suite.run.v1")
         self.assertEqual(record_result.record.backend, "vllm")
         self.assertEqual(record_result.record.preset_id, "smoke-qwen-0.5b")
         self.assertEqual(record_result.record.run_id, "vllm-smoke-qwen-0.5b-20260510-193000")
         self.assertEqual(record_result.record.pid, 43212)
+        self.assertEqual(record_result.record.status_hint, "started")
+        self.assertEqual(record_result.record.env_preview["VLLM_CACHE_ROOT"], "/mnt/data_main/ai-cache/vllm")
+        self.assertEqual(record_result.record.env_preview["HF_HOME"], "/mnt/data_main/ai-cache/huggingface")
+        self.assertEqual(record_result.record.env_preview["TRANSFORMERS_CACHE"], "/mnt/data_main/ai-cache/huggingface")
         self.assertIn("Qwen/Qwen2.5-0.5B-Instruct", record_result.record.command)
+        self.assertEqual(latest_data["run_id"], "vllm-smoke-qwen-0.5b-20260510-193000")
+        self.assertEqual(latest_data["schema"], "llama-suite.run.v1")
+
+    def test_vllm_smoke_launch_record_write_failure_keeps_launch_ok(self) -> None:
+        from modules.vllm_profiles import VllmPreflightCheck, smoke_vllm_profile
+        from modules.vllm_runner import VllmRunRecordResult, launch_vllm_smoke_once
+        from unittest.mock import patch
+
+        class FakeProcess:
+            pid = 43213
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            wrapper = root / "vllm-rocm"
+            wrapper.write_text("#!/usr/bin/env bash\nexit 0\n")
+            wrapper.chmod(0o755)
+            profile = smoke_vllm_profile()
+            profile.wrapper_path = str(wrapper)
+            with patch("modules.vllm_runner.smoke_vllm_profile", return_value=profile), patch(
+                "modules.vllm_runner.write_vllm_run_record",
+                side_effect=lambda record, state_root=None: VllmRunRecordResult(False, record, str(root / "runs" / "broken.json"), ["run record write failed: disk full"]),
+            ):
+                result = launch_vllm_smoke_once(
+                    confirmed=True,
+                    timestamp="20260510-193500",
+                    state_root=root / "runs",
+                    port_check=lambda host, port: VllmPreflightCheck(
+                        "port availability",
+                        True,
+                        f"port {port} is available on {host}",
+                    ),
+                    popen_factory=lambda command, **kwargs: FakeProcess(),
+                )
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.pid, 43213)
+        self.assertIn("run record write failed: disk full", "\n".join(result.messages))
 
     def test_vllm_latest_run_record_loads_newest_record(self) -> None:
         from modules.vllm_runner import VllmRunRecord, latest_vllm_run_record, write_vllm_run_record
@@ -905,22 +953,26 @@ class BeginnerFlowTests(unittest.TestCase):
                 preset_id="smoke-qwen-0.5b",
                 run_id="vllm-smoke-qwen-0.5b-20260510-193000",
                 pid=1,
+                command=["one"],
+                env_preview={"VLLM_CACHE_ROOT": "/cache/one"},
                 log_path="/tmp/one.log",
                 host="127.0.0.1",
                 port=8000,
-                command=["one"],
                 started_at="2026-05-10T19:30:00",
+                status_hint="started",
             )
             second = VllmRunRecord(
                 backend="vllm",
                 preset_id="smoke-qwen-0.5b",
                 run_id="vllm-smoke-qwen-0.5b-20260510-193100",
                 pid=2,
+                command=["two"],
+                env_preview={"VLLM_CACHE_ROOT": "/cache/two"},
                 log_path="/tmp/two.log",
                 host="127.0.0.1",
                 port=8000,
-                command=["two"],
                 started_at="2026-05-10T19:31:00",
+                status_hint="started",
             )
             write_vllm_run_record(first, state_root=root)
             write_vllm_run_record(second, state_root=root)

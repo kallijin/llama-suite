@@ -90,11 +90,14 @@ class VllmRunRecord:
     preset_id: str
     run_id: str
     pid: int
+    command: list[str]
+    env_preview: dict[str, str]
     log_path: str
     host: str
     port: int
-    command: list[str]
     started_at: str
+    status_hint: str
+    schema: str = "llama-suite.run.v1"
 
 
 @dataclass(frozen=True)
@@ -218,11 +221,13 @@ def launch_vllm_smoke_once(
             preset_id=plan.preset_id,
             run_id=plan.run_id,
             pid=int(process.pid),
+            command=plan.command,
+            env_preview=plan.env_preview,
             log_path=plan.log_path,
             host=plan.host,
             port=plan.port,
-            command=plan.command,
-            started_at=datetime.now().isoformat(timespec="seconds"),
+            started_at=datetime.now().astimezone().isoformat(timespec="seconds"),
+            status_hint="started",
         ),
         state_root=log_path.parent,
     )
@@ -253,10 +258,12 @@ def write_vllm_run_record(record: VllmRunRecord, *, state_root: str | Path | Non
     try:
         path = Path(record_path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(asdict(record), indent=2, sort_keys=True) + "\n")
+        payload = json.dumps(asdict(record), indent=2, sort_keys=True) + "\n"
+        _atomic_write_text(path, payload)
+        _atomic_write_text(path.parent / "latest.json", payload)
     except Exception as exc:
         return VllmRunRecordResult(False, record, record_path, [f"run record write failed: {exc}"])
-    return VllmRunRecordResult(True, record, record_path, [f"run record saved: {record_path}"])
+    return VllmRunRecordResult(True, record, record_path, [f"run record saved: {record_path}", f"latest run record updated: {path.parent / 'latest.json'}"])
 
 
 def read_vllm_run_record(record_path: str) -> VllmRunRecordResult:
@@ -266,15 +273,18 @@ def read_vllm_run_record(record_path: str) -> VllmRunRecordResult:
     try:
         data = json.loads(Path(expanded_path).read_text())
         record = VllmRunRecord(
+            schema=str(data.get("schema", "")),
             backend=str(data.get("backend", "")),
             preset_id=str(data.get("preset_id", "")),
             run_id=str(data.get("run_id", "")),
             pid=int(data.get("pid", 0)),
+            command=[str(part) for part in data.get("command", [])],
+            env_preview={str(key): str(value) for key, value in dict(data.get("env_preview", {})).items()},
             log_path=str(data.get("log_path", "")),
             host=str(data.get("host", "")),
             port=int(data.get("port", 0)),
-            command=[str(part) for part in data.get("command", [])],
             started_at=str(data.get("started_at", "")),
+            status_hint=str(data.get("status_hint", "")),
         )
     except Exception as exc:
         return VllmRunRecordResult(False, None, expanded_path, [f"run record read failed: {exc}"])
@@ -283,6 +293,9 @@ def read_vllm_run_record(record_path: str) -> VllmRunRecordResult:
 
 def latest_vllm_run_record(*, state_root: str | Path | None = None) -> VllmRunRecordResult:
     root = Path(state_root or DEFAULT_VLLM_RUN_ROOT).expanduser()
+    latest_path = root / "latest.json"
+    if latest_path.is_file():
+        return read_vllm_run_record(str(latest_path))
     try:
         records = sorted(root.glob("vllm-*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
     except Exception as exc:
@@ -443,3 +456,13 @@ def _pid_is_alive(pid: int) -> bool:
     except PermissionError:
         return True
     return True
+
+
+def _atomic_write_text(path: Path, payload: str) -> None:
+    temp_path = path.with_name(f".{path.name}.tmp")
+    try:
+        temp_path.write_text(payload)
+        temp_path.replace(path)
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
