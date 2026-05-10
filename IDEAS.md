@@ -11,6 +11,32 @@
 - 모듈 하나로 독립 가능한 아이디어만 우선 구현한다.
 - 실행/삭제/시스템 경로/네트워크/대용량 탐색 관련 기능은 반드시 fuel limit과 수동 승인 원칙을 따른다.
 
+## Module boundary rule
+
+Do not split files just to reduce line count.
+Split only when responsibilities diverge.
+
+Current vLLM boundaries:
+
+- `llama-launcher-complete.py`: thin TUI shell only
+- `modules/vllm_doctor.py`: wrapper/version/Torch HIP checks
+- `modules/vllm_profiles.py`: profile schema, validation, preset registry, command preview, launch preflight
+
+Split out only when adding:
+
+- subprocess launch
+- process status
+- stop/kill
+- log management
+- API probing
+- CLI/MCP adapter logic
+
+Future modules:
+
+- `modules/vllm_runner.py`: launch/stop/status/log/process lifecycle
+- `modules/vllm_control.py`: CLI/MCP-facing control surface
+- `modules/control_schema.py`: shared structured result/JSON schema
+
 ## 방향 경고
 
 - llama-suite는 Ollama나 LM Studio 같은 범용 런처의 자리를 바라보지 않는다.
