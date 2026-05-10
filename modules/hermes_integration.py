@@ -9,6 +9,9 @@ from typing import Any
 from modules.vllm_runner import VllmRunRecord, latest_vllm_run_record, latest_vllm_run_summary
 
 
+HERMES_MIN_CONTEXT_LENGTH = 64000
+
+
 @dataclass(frozen=True)
 class HermesVllmSyncPlan:
     ok: bool
@@ -71,6 +74,7 @@ def build_hermes_vllm_sync_plan(
             "Hermes vLLM sync plan built",
             f"base_url: {base_url}",
             f"model: {model_id}",
+            f"context_length: {HERMES_MIN_CONTEXT_LENGTH}",
             f"source run_id: {record.run_id}",
         ],
     )
@@ -124,11 +128,12 @@ def update_hermes_config_text(original: str, *, base_url: str, model_id: str, co
             data = {}
         data["base_url"] = base_url
         data["model"] = model_id
+        data["context_length"] = HERMES_MIN_CONTEXT_LENGTH
         return json.dumps(data, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
 
     lines = original.splitlines()
-    updated_lines, seen_base, seen_model = _update_yamlish_lines(lines, base_url=base_url, model_id=model_id)
-    if not seen_base or not seen_model:
+    updated_lines, seen_base, seen_model, seen_context = _update_yamlish_lines(lines, base_url=base_url, model_id=model_id)
+    if not seen_base or not seen_model or not seen_context:
         if updated_lines and updated_lines[-1].strip():
             updated_lines.append("")
         updated_lines.append("# llama-suite vLLM endpoint")
@@ -136,6 +141,8 @@ def update_hermes_config_text(original: str, *, base_url: str, model_id: str, co
             updated_lines.append(f"base_url: {base_url}")
         if not seen_model:
             updated_lines.append(f"model: {model_id}")
+        if not seen_context:
+            updated_lines.append(f"context_length: {HERMES_MIN_CONTEXT_LENGTH}")
     return "\n".join(updated_lines) + "\n"
 
 
@@ -157,19 +164,25 @@ def format_hermes_vllm_sync_plan(plan: HermesVllmSyncPlan) -> list[str]:
     return lines
 
 
-def _update_yamlish_lines(lines: list[str], *, base_url: str, model_id: str) -> tuple[list[str], bool, bool]:
+def _update_yamlish_lines(lines: list[str], *, base_url: str, model_id: str) -> tuple[list[str], bool, bool, bool]:
     updated: list[str] = []
     seen_base = False
     seen_model = False
+    seen_context = False
     in_root_model_block = False
+    root_model_indent = ""
     for line in lines:
         stripped = line.lstrip()
         indent = line[: len(line) - len(stripped)]
         if not indent and stripped == "model:":
             in_root_model_block = True
+            root_model_indent = "  "
             updated.append(line)
         elif in_root_model_block and not indent and stripped:
             in_root_model_block = False
+            if not seen_context:
+                updated.append(f"{root_model_indent}context_length: {HERMES_MIN_CONTEXT_LENGTH}")
+                seen_context = True
             updated.append(line)
         elif in_root_model_block and indent and stripped.startswith(("base_url:", "api_base:", "endpoint:")):
             key = stripped.split(":", 1)[0]
@@ -179,6 +192,10 @@ def _update_yamlish_lines(lines: list[str], *, base_url: str, model_id: str) -> 
             key = stripped.split(":", 1)[0]
             updated.append(f"{indent}{key}: {model_id}")
             seen_model = True
+        elif in_root_model_block and indent and stripped.startswith("context_length:"):
+            key = stripped.split(":", 1)[0]
+            updated.append(f"{indent}{key}: {HERMES_MIN_CONTEXT_LENGTH}")
+            seen_context = True
         elif not in_root_model_block and stripped.startswith(("base_url:", "api_base:", "endpoint:")):
             key = stripped.split(":", 1)[0]
             updated.append(f"{indent}{key}: {base_url}")
@@ -186,9 +203,15 @@ def _update_yamlish_lines(lines: list[str], *, base_url: str, model_id: str) -> 
         elif not in_root_model_block and not indent and stripped.startswith("model:") and stripped.split(":", 1)[1].strip():
             updated.append(f"{indent}model: {model_id}")
             seen_model = True
+        elif not in_root_model_block and not indent and stripped.startswith("context_length:"):
+            updated.append(f"context_length: {HERMES_MIN_CONTEXT_LENGTH}")
+            seen_context = True
         else:
             updated.append(line)
-    return updated, seen_base, seen_model
+    if in_root_model_block and not seen_context:
+        updated.append(f"{root_model_indent}context_length: {HERMES_MIN_CONTEXT_LENGTH}")
+        seen_context = True
+    return updated, seen_base, seen_model, seen_context
 
 
 def _empty_plan(messages: list[str], *, config_path: str | None = None) -> HermesVllmSyncPlan:

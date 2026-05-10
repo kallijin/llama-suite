@@ -619,6 +619,8 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(plan.model_id, "served-qwen")
         self.assertIn("endpoint: http://127.0.0.1:8000/v1", plan.updated_text)
         self.assertIn("model: served-qwen", plan.updated_text)
+        self.assertIn("context_length: 64000", plan.updated_text)
+        self.assertIn("context_length: 64000", "\n".join(plan.messages))
 
     def test_hermes_vllm_sync_plan_refuses_non_ready_latest_run(self) -> None:
         from modules.hermes_integration import build_hermes_vllm_sync_plan
@@ -694,6 +696,7 @@ class BeginnerFlowTests(unittest.TestCase):
         data = json.loads(updated)
         self.assertEqual(data["base_url"], "http://127.0.0.1:8000/v1")
         self.assertEqual(data["model"], "served-qwen")
+        self.assertEqual(data["context_length"], 64000)
         self.assertEqual(data["temperature"], 0.2)
 
     def test_hermes_vllm_sync_preserves_nested_model_block(self) -> None:
@@ -706,6 +709,7 @@ class BeginnerFlowTests(unittest.TestCase):
             "  default: old-default\n"
             "  model: old-model\n"
             "  provider: custom\n"
+            "  context_length: 4096\n"
             "  name: old-name\n"
             "providers:\n"
             "  other:\n"
@@ -723,6 +727,7 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("  base_url: http://127.0.0.1:8000/v1", updated)
         self.assertIn("  default: served-qwen", updated)
         self.assertIn("  model: served-qwen", updated)
+        self.assertIn("  context_length: 64000", updated)
         self.assertIn("  name: served-qwen", updated)
         self.assertIn("    model: should-not-change", updated)
 
