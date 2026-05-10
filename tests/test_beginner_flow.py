@@ -1234,7 +1234,7 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertNotIn("--max-num-batched-tokens", command)
 
     def test_vllm_model_source_inspection_reports_hf_local_tokenizer_and_gguf_cases(self) -> None:
-        from modules.vllm_profiles import inspect_vllm_model_source
+        from modules.vllm_profiles import inspect_vllm_model_source, model_source_recovery_guidance_lines
 
         hf_checks = inspect_vllm_model_source("Qwen/Qwen2.5-0.5B-Instruct")
         self.assertEqual(hf_checks[0].level, "INFO")
@@ -1260,10 +1260,36 @@ class BeginnerFlowTests(unittest.TestCase):
 
             self.assertTrue(any(check.name == "tokenizer" and check.level == "FAIL" for check in checks))
             self.assertTrue(any("토크나이저 파일이 존재하지 않습니다" in check.message for check in checks))
+            guidance = "\n".join(model_source_recovery_guidance_lines(str(model_dir)))
+            self.assertIn("Do not invent tokenizer/config files", guidance)
+            self.assertIn("Hugging Face:", guidance)
+            self.assertIn("ModelScope:", guidance)
+            self.assertIn(model_dir.name, guidance)
 
         gguf_checks = inspect_vllm_model_source("/mnt/data_main/downloads/models/model.gguf")
         self.assertEqual(gguf_checks[0].level, "WARN")
         self.assertIn("vLLM GGUF is experimental", gguf_checks[0].message)
+
+    def test_vllm_profile_report_shows_recovery_guidance_for_missing_model_files(self) -> None:
+        from modules.vllm_profiles import VllmPreflightCheck, VllmProfile, format_vllm_profile_report
+
+        with TemporaryDirectory() as directory:
+            model_dir = Path(directory) / "missing-tokenizer-model"
+            model_dir.mkdir()
+            (model_dir / "config.json").write_text("{}\n")
+            (model_dir / "model.safetensors").write_text("")
+
+            lines = format_vllm_profile_report(
+                "vLLM profile",
+                VllmProfile(model=str(model_dir)),
+                port_check=lambda host, port: VllmPreflightCheck("port availability", True, "port is available"),
+            )
+
+        text = "\n".join(lines)
+        self.assertIn("Missing model file recovery guidance:", text)
+        self.assertIn("Copy missing files from the same model repo or its base model repo.", text)
+        self.assertIn("https://huggingface.co/models?search=missing-tokenizer-model", text)
+        self.assertIn("https://modelscope.cn/models?search=missing-tokenizer-model", text)
 
     def test_vllm_command_preview_expands_wrapper_path_for_execution(self) -> None:
         from modules.vllm_profiles import VllmProfile, build_vllm_command

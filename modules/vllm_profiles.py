@@ -5,6 +5,7 @@ import socket
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote_plus
 
 
 DEFAULT_WRAPPER_PATH = "~/bin/vllm-rocm"
@@ -314,6 +315,23 @@ def inspect_vllm_model_source(model: Any) -> list[VllmModelSourceCheck]:
     return checks
 
 
+def model_source_recovery_guidance_lines(model: Any) -> list[str]:
+    model_text = str(model or "").strip()
+    search_text = model_text
+    if model_text and not _looks_like_hf_model_id(model_text):
+        search_text = Path(model_text).expanduser().name
+    query = quote_plus(search_text) if search_text else ""
+    hf_url = f"https://huggingface.co/models?search={query}" if query else "https://huggingface.co/models"
+    modelscope_url = f"https://modelscope.cn/models?search={query}" if query else "https://modelscope.cn/models"
+    return [
+        "Do not invent tokenizer/config files in the launcher.",
+        "Copy missing files from the same model repo or its base model repo.",
+        f"Hugging Face: {hf_url}",
+        f"ModelScope: {modelscope_url}",
+        "If those pages fail or time out, open the links manually or paste the model page URL into your notes.",
+    ]
+
+
 def format_vllm_profile_report(title: str, profile: VllmProfile, port_check: Any = None) -> list[str]:
     errors = validate_vllm_profile(profile)
     command, command_messages = build_vllm_command(profile)
@@ -330,8 +348,13 @@ def format_vllm_profile_report(title: str, profile: VllmProfile, port_check: Any
     else:
         lines.append("- none")
     lines.extend(["", "Model source inspection:"])
-    for check in inspect_vllm_model_source(profile.model):
+    source_checks = inspect_vllm_model_source(profile.model)
+    for check in source_checks:
         lines.append(f"- [{check.level}] {check.name}: {check.message}")
+    if any(check.level == "FAIL" for check in source_checks):
+        lines.extend(["", "Missing model file recovery guidance:"])
+        for guidance in model_source_recovery_guidance_lines(profile.model):
+            lines.append(f"- {guidance}")
     lines.extend(["", "Cache environment preview:"])
     for env_line in cache_env_preview_lines(profile):
         lines.append(f"- {env_line}")
