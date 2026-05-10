@@ -660,6 +660,28 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("max_num_seqs", payload["profile"])
         self.assertIn("max_num_batched_tokens", payload["profile"])
 
+    def test_vllm_profile_json_file_import_validates_schema_and_profile_id(self) -> None:
+        from modules.vllm_profile_store import format_vllm_profile_draft_json, load_vllm_profile_json_file
+        from modules.vllm_profiles import VllmProfile
+
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "imported.json"
+            path.write_text(
+                format_vllm_profile_draft_json(
+                    VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct", kv_cache_dtype="fp8"),
+                    profile_id="imported-qwen",
+                )
+            )
+            result = load_vllm_profile_json_file(path)
+
+        self.assertTrue(result.ok, result.messages)
+        self.assertEqual(result.profile_id, "imported-qwen")
+        self.assertIsNotNone(result.profile)
+        assert result.profile is not None
+        self.assertEqual(result.profile.model, "Qwen/Qwen2.5-0.5B-Instruct")
+        self.assertEqual(result.profile.kv_cache_dtype, "fp8")
+        self.assertIn("loaded", "\n".join(result.messages))
+
     def test_vllm_profile_draft_store_reports_missing_and_invalid_schema(self) -> None:
         from modules.vllm_profile_store import load_vllm_profile_draft
 
@@ -1383,6 +1405,33 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn('"schema": "llama-suite.vllm-profile.v1"', output)
         self.assertIn('"profile_id": "json-profile"', output)
         self.assertIn('"model": "Qwen/Qwen2.5-0.5B-Instruct"', output)
+
+    def test_vllm_profile_menu_can_import_profile_json_file(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profile_store import VllmProfileStoreResult
+        from modules.vllm_profiles import VllmProfile
+        from unittest.mock import Mock, patch
+
+        current = VllmProfile(model="current-model")
+        imported = VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct")
+        load_result = VllmProfileStoreResult(True, imported, "/tmp/import.json", ["loaded"], "imported-qwen")
+        mocked_load = Mock(return_value=load_result)
+        stdout = StringIO()
+
+        with (
+            patch.object(launcher, "load_vllm_profile_json_file", mocked_load),
+            patch("builtins.input", side_effect=["13", "/tmp/import.json"]),
+            contextlib.redirect_stdout(stdout),
+        ):
+            profile, profile_id = launcher.show_vllm_profile_menu(current, "custom-draft", return_profile_id=True)
+
+        mocked_load.assert_called_once_with("/tmp/import.json")
+        self.assertIs(profile, imported)
+        self.assertEqual(profile_id, "imported-qwen")
+        self.assertIn("[13] import profile JSON file", stdout.getvalue())
+        self.assertIn("vLLM profile draft store", stdout.getvalue())
 
     def test_vllm_profile_menu_delete_cancel_does_not_call_delete(self) -> None:
         launcher = load_launcher_module()

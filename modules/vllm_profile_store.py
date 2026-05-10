@@ -18,6 +18,7 @@ class VllmProfileStoreResult:
     profile: VllmProfile | None
     profile_path: str | None
     messages: list[str]
+    profile_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -93,12 +94,12 @@ def save_vllm_profile_draft(
         path.parent.mkdir(parents=True, exist_ok=True)
         _atomic_write_text(path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
     except Exception as exc:
-        return VllmProfileStoreResult(False, profile, profile_path, [f"vLLM profile draft save failed: {exc}"])
+        return VllmProfileStoreResult(False, profile, profile_path, [f"vLLM profile draft save failed: {exc}"], profile_id)
 
     messages = [f"vLLM profile draft saved: {profile_path}"]
     if validation_messages:
         messages.append("saved draft has validation messages: " + "; ".join(validation_messages))
-    return VllmProfileStoreResult(True, profile, profile_path, messages)
+    return VllmProfileStoreResult(True, profile, profile_path, messages, profile_id)
 
 
 def vllm_profile_draft_payload(profile: VllmProfile, *, profile_id: str = "custom-draft") -> dict[str, Any]:
@@ -123,6 +124,10 @@ def load_vllm_profile_draft(
     return _read_vllm_profile_payload(Path(profile_path))
 
 
+def load_vllm_profile_json_file(profile_path: str | Path) -> VllmProfileStoreResult:
+    return _read_vllm_profile_payload(Path(profile_path))
+
+
 def delete_vllm_profile_draft(
     *,
     profile_id: str = "custom-draft",
@@ -131,16 +136,16 @@ def delete_vllm_profile_draft(
 ) -> VllmProfileStoreResult:
     profile_path = default_vllm_profile_path(profile_id, store_root=store_root)
     if not confirmed:
-        return VllmProfileStoreResult(False, None, profile_path, ["vLLM profile draft delete cancelled: explicit confirmation is required"])
+        return VllmProfileStoreResult(False, None, profile_path, ["vLLM profile draft delete cancelled: explicit confirmation is required"], profile_id)
 
     path = Path(profile_path)
     try:
         path.unlink()
     except FileNotFoundError:
-        return VllmProfileStoreResult(False, None, profile_path, [f"vLLM profile draft delete failed: file not found: {profile_path}"])
+        return VllmProfileStoreResult(False, None, profile_path, [f"vLLM profile draft delete failed: file not found: {profile_path}"], profile_id)
     except Exception as exc:
-        return VllmProfileStoreResult(False, None, profile_path, [f"vLLM profile draft delete failed: {exc}"])
-    return VllmProfileStoreResult(True, None, profile_path, [f"vLLM profile draft deleted: {profile_path}"])
+        return VllmProfileStoreResult(False, None, profile_path, [f"vLLM profile draft delete failed: {exc}"], profile_id)
+    return VllmProfileStoreResult(True, None, profile_path, [f"vLLM profile draft deleted: {profile_path}"], profile_id)
 
 
 def _read_vllm_profile_payload(path: Path) -> VllmProfileStoreResult:
@@ -157,6 +162,8 @@ def _read_vllm_profile_payload(path: Path) -> VllmProfileStoreResult:
     if not isinstance(profile_data, dict):
         return VllmProfileStoreResult(False, None, profile_path, ["vLLM profile draft payload is missing profile data"])
 
+    profile_id = str(payload.get("profile_id") or _profile_id_from_path(Path(profile_path)))
+
     try:
         profile = _profile_from_raw_dict(profile_data)
     except Exception as exc:
@@ -166,7 +173,7 @@ def _read_vllm_profile_payload(path: Path) -> VllmProfileStoreResult:
     messages = [f"vLLM profile draft loaded: {profile_path}"]
     if validation_messages:
         messages.append("loaded draft has validation messages: " + "; ".join(validation_messages))
-    return VllmProfileStoreResult(True, profile, profile_path, messages)
+    return VllmProfileStoreResult(True, profile, profile_path, messages, profile_id)
 
 
 def _profile_from_raw_dict(data: dict[str, Any]) -> VllmProfile:
