@@ -32,6 +32,7 @@ from modules.config_store import (
     save_config,
     set_option_value,
 )
+from modules.hermes_integration import build_hermes_vllm_sync_plan, format_hermes_vllm_sync_plan, write_hermes_vllm_sync_plan
 from modules.model_scan import get_model_list
 from modules.profiles import default_model_profile, get_model_profile, load_profiles, save_profiles
 from modules.probes import quick_no_think_test, show_status
@@ -782,6 +783,48 @@ def register_config_path(
     for line in preview_config_file(expanded):
         print(f"    {line}")
     return updated
+
+
+def show_hermes_integration_menu(cfg: dict[str, Any]) -> dict[str, Any]:
+    print("\n  ── Hermes 연동 ──")
+    print("  [1] Hermes config 등록")
+    print("  [2] latest vLLM endpoint sync preview")
+    print("  [3] latest vLLM endpoint sync write")
+    choice = input("  선택 > ").strip()
+    if choice == "1":
+        return register_config_path(
+            cfg,
+            "hermes_config",
+            "Hermes",
+            HERMES_CONFIG_CANDIDATES,
+            require_writable=True,
+            read_only=False,
+        )
+
+    if choice in {"2", "3"}:
+        config_path = registered_paths(cfg).get("hermes_config")
+        plan = build_hermes_vllm_sync_plan(config_path)
+        for line in format_hermes_vllm_sync_plan(plan):
+            print(f"  {line}" if line else "")
+        if choice == "2":
+            print("  preview only. config was not modified.")
+            return cfg
+
+        print("  계속하려면 write 또는 WRITE 를 정확히 입력하세요.")
+        confirm = input("  confirmation > ").strip()
+        result = write_hermes_vllm_sync_plan(plan, confirmed=(confirm.lower() == "write"))
+        print("\n  Hermes vLLM sync write result:")
+        print(f"  ok: {result.ok}")
+        if result.config_path:
+            print(f"  config_path: {result.config_path}")
+        if result.backup_path:
+            print(f"  backup_path: {result.backup_path}")
+        for message in result.messages:
+            print(f"  - {message}")
+        return cfg
+
+    print("  취소했습니다.")
+    return cfg
 
 
 def final_preview_text(draft: dict[str, Any]) -> str:
@@ -1795,7 +1838,7 @@ def main() -> None:
         print("\n  [L] llama.cpp 세팅")
         print("  [V] vLLM 세팅")
         print(f"  [S] 스크립트 관리{script_info}")
-        print("  [E] Hermes 등록")
+        print("  [E] Hermes 등록/연동")
         print("  [C] OpenClaw 등록")
         print("  [H] 서버 상태 확인")
         print("  [I] 시스템 정보")
@@ -1951,14 +1994,7 @@ def main() -> None:
             continue
 
         if upper == "E":
-            cfg = register_config_path(
-                cfg,
-                "hermes_config",
-                "Hermes",
-                HERMES_CONFIG_CANDIDATES,
-                require_writable=True,
-                read_only=False,
-            )
+            cfg = show_hermes_integration_menu(cfg)
             pause()
             continue
 

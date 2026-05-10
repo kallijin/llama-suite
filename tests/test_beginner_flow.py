@@ -582,6 +582,120 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("latest vLLM run record is missing or invalid", "\n".join(result.messages))
         self.assertIn("no vLLM run records found", "\n".join(result.messages))
 
+    def test_hermes_vllm_sync_plan_updates_registered_config_from_ready_latest_run(self) -> None:
+        from modules.hermes_integration import build_hermes_vllm_sync_plan
+        from modules.vllm_runner import VllmRunRecord, VllmRunRecordResult
+
+        class Status:
+            alive = True
+            port_listening = True
+            messages = ["ready"]
+
+        with TemporaryDirectory() as directory:
+            config_path = Path(directory) / "config.yaml"
+            config_path.write_text("endpoint: http://127.0.0.1:8080/v1\nmodel: old-model\n")
+            record = VllmRunRecord(
+                backend="vllm",
+                preset_id="qwen2.5-14b-awq",
+                run_id="vllm-qwen2.5-14b-awq-test",
+                pid=123,
+                command=["/home/kalijin/bin/vllm-rocm", "serve", "/models/qwen", "--served-model-name", "served-qwen"],
+                env_preview={},
+                log_path=str(Path(directory) / "run.log"),
+                host="127.0.0.1",
+                port=8000,
+                started_at="2026-05-11T03:00:00+09:00",
+                status_hint="started",
+            )
+
+            plan = build_hermes_vllm_sync_plan(
+                str(config_path),
+                latest_record=VllmRunRecordResult(True, record, "/tmp/latest.json", []),
+                status_check=lambda **kwargs: Status(),
+            )
+
+        self.assertTrue(plan.ok, plan.messages)
+        self.assertEqual(plan.base_url, "http://127.0.0.1:8000/v1")
+        self.assertEqual(plan.model_id, "served-qwen")
+        self.assertIn("endpoint: http://127.0.0.1:8000/v1", plan.updated_text)
+        self.assertIn("model: served-qwen", plan.updated_text)
+
+    def test_hermes_vllm_sync_plan_refuses_non_ready_latest_run(self) -> None:
+        from modules.hermes_integration import build_hermes_vllm_sync_plan
+        from modules.vllm_runner import VllmRunRecord, VllmRunRecordResult
+
+        class Status:
+            alive = False
+            port_listening = False
+            messages = ["stopped"]
+
+        with TemporaryDirectory() as directory:
+            config_path = Path(directory) / "config.yaml"
+            config_path.write_text("model: old\n")
+            record = VllmRunRecord(
+                backend="vllm",
+                preset_id="qwen2.5-14b-awq",
+                run_id="vllm-qwen2.5-14b-awq-test",
+                pid=123,
+                command=["vllm", "serve", "/models/qwen"],
+                env_preview={},
+                log_path=str(Path(directory) / "run.log"),
+                host="127.0.0.1",
+                port=8000,
+                started_at="2026-05-11T03:00:00+09:00",
+                status_hint="started",
+            )
+
+            plan = build_hermes_vllm_sync_plan(
+                str(config_path),
+                latest_record=VllmRunRecordResult(True, record, "/tmp/latest.json", []),
+                status_check=lambda **kwargs: Status(),
+            )
+
+        self.assertFalse(plan.ok)
+        self.assertTrue(any("not READY" in message for message in plan.messages))
+
+    def test_hermes_vllm_sync_write_requires_confirmation_and_creates_backup(self) -> None:
+        from modules.hermes_integration import HermesVllmSyncPlan, write_hermes_vllm_sync_plan
+
+        with TemporaryDirectory() as directory:
+            config_path = Path(directory) / "config.yaml"
+            config_path.write_text("model: old\n")
+            plan = HermesVllmSyncPlan(
+                ok=True,
+                config_path=str(config_path),
+                base_url="http://127.0.0.1:8000/v1",
+                model_id="served-qwen",
+                run_id="run-1",
+                original_text="model: old\n",
+                updated_text="base_url: http://127.0.0.1:8000/v1\nmodel: served-qwen\n",
+                messages=[],
+            )
+
+            cancelled = write_hermes_vllm_sync_plan(plan, confirmed=False, timestamp="20260511-030000")
+            written = write_hermes_vllm_sync_plan(plan, confirmed=True, timestamp="20260511-030000")
+
+            backup_path = Path(str(config_path) + ".bak.20260511-030000")
+            self.assertFalse(cancelled.ok)
+            self.assertTrue(written.ok)
+            self.assertTrue(backup_path.is_file())
+            self.assertEqual(backup_path.read_text(), "model: old\n")
+            self.assertIn("model: served-qwen", config_path.read_text())
+
+    def test_hermes_vllm_sync_updates_json_configs(self) -> None:
+        from modules.hermes_integration import update_hermes_config_text
+
+        updated = update_hermes_config_text(
+            '{"temperature": 0.2}\n',
+            base_url="http://127.0.0.1:8000/v1",
+            model_id="served-qwen",
+            config_path="config.json",
+        )
+        data = json.loads(updated)
+        self.assertEqual(data["base_url"], "http://127.0.0.1:8000/v1")
+        self.assertEqual(data["model"], "served-qwen")
+        self.assertEqual(data["temperature"], 0.2)
+
     def test_vllm_doctor_reports_missing_wrapper_and_python(self) -> None:
         from modules.vllm_doctor import run_vllm_doctor
 
