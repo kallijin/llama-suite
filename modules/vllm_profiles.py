@@ -140,7 +140,7 @@ def build_vllm_command(profile: VllmProfile) -> tuple[list[str] | None, list[str
         return None, [f"extra_args could not be parsed: {exc}"]
 
     command = [
-        str(profile.wrapper_path),
+        str(Path(str(profile.wrapper_path)).expanduser()),
         "serve",
         str(profile.model),
         "--host",

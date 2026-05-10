@@ -399,7 +399,7 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(
             command,
             [
-                "~/bin/vllm-rocm",
+                str(Path("~/bin/vllm-rocm").expanduser()),
                 "serve",
                 "Qwen/Qwen2.5-0.5B-Instruct",
                 "--host",
@@ -416,6 +416,19 @@ class BeginnerFlowTests(unittest.TestCase):
                 "1",
             ],
         )
+
+    def test_vllm_command_preview_expands_wrapper_path_for_execution(self) -> None:
+        from modules.vllm_profiles import VllmProfile, build_vllm_command
+        from unittest.mock import patch
+
+        with TemporaryDirectory() as directory, patch.dict(os.environ, {"HOME": directory}):
+            command, messages = build_vllm_command(VllmProfile(model="local-model", wrapper_path="~/bin/vllm-rocm"))
+
+        self.assertEqual(messages, [])
+        self.assertIsNotNone(command)
+        assert command is not None
+        self.assertEqual(command[0], str(Path(directory) / "bin" / "vllm-rocm"))
+        self.assertNotIn("~", command[0])
 
     def test_vllm_command_preview_returns_validation_messages_for_invalid_profile(self) -> None:
         from modules.vllm_profiles import VllmProfile, build_vllm_command
@@ -801,6 +814,45 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0]["kwargs"]["start_new_session"], True)
         self.assertEqual(calls[0]["kwargs"]["env"]["VLLM_CACHE_ROOT"], "/mnt/data_main/ai-cache/vllm")
+
+    def test_vllm_smoke_launch_popen_receives_expanded_wrapper_path(self) -> None:
+        from modules.vllm_profiles import VllmPreflightCheck, smoke_vllm_profile
+        from modules.vllm_runner import launch_vllm_smoke_once
+        from unittest.mock import patch
+
+        calls: list[list[str]] = []
+
+        class FakeProcess:
+            pid = 43211
+
+        def fake_popen(command, **_kwargs):
+            calls.append(command)
+            return FakeProcess()
+
+        with TemporaryDirectory() as directory:
+            home = Path(directory)
+            wrapper = home / "bin" / "vllm-rocm"
+            wrapper.parent.mkdir()
+            wrapper.write_text("#!/usr/bin/env bash\nexit 0\n")
+            wrapper.chmod(0o755)
+            profile = smoke_vllm_profile()
+            profile.wrapper_path = "~/bin/vllm-rocm"
+            with patch.dict(os.environ, {"HOME": directory}), patch("modules.vllm_runner.smoke_vllm_profile", return_value=profile):
+                result = launch_vllm_smoke_once(
+                    confirmed=True,
+                    timestamp="20260510-192000",
+                    state_root=home / "runs",
+                    port_check=lambda host, port: VllmPreflightCheck(
+                        "port availability",
+                        True,
+                        f"port {port} is available on {host}",
+                    ),
+                    popen_factory=fake_popen,
+                )
+
+        self.assertTrue(result.ok, result.messages)
+        self.assertEqual(calls[0][0], str(wrapper))
+        self.assertNotIn("~", calls[0][0])
 
     def test_vllm_smoke_launch_refuses_without_confirmation(self) -> None:
         from modules.vllm_runner import launch_vllm_smoke_once
