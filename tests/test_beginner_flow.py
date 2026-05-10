@@ -740,6 +740,49 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(loaded.profile.to_dict(), profile.to_dict())
         self.assertEqual(json.loads(second_preview), json.loads(first_preview))
 
+    def test_vllm_selected_profile_state_saves_and_loads_profile_id(self) -> None:
+        from modules.vllm_profile_store import load_selected_vllm_profile_id, save_selected_vllm_profile_id
+
+        with TemporaryDirectory() as directory:
+            saved = save_selected_vllm_profile_id("30b-q4", store_root=directory)
+            loaded = load_selected_vllm_profile_id(store_root=directory)
+            payload = json.loads(Path(saved.state_path).read_text())
+
+        self.assertTrue(saved.ok, saved.messages)
+        self.assertTrue(loaded.ok, loaded.messages)
+        self.assertEqual(loaded.profile_id, "30b-q4")
+        self.assertEqual(payload["schema"], "llama-suite.vllm-selected-profile.v1")
+        self.assertEqual(payload["profile_id"], "30b-q4")
+        self.assertIn("selected/latest.json", saved.state_path)
+
+    def test_vllm_selected_profile_state_loads_saved_profile_draft(self) -> None:
+        from modules.vllm_profile_store import load_selected_vllm_profile_draft, save_selected_vllm_profile_id, save_vllm_profile_draft
+        from modules.vllm_profiles import VllmProfile
+
+        with TemporaryDirectory() as directory:
+            save_vllm_profile_draft(VllmProfile(model="Local/ThirtyB"), profile_id="30b-q4", store_root=directory)
+            save_selected_vllm_profile_id("30b-q4", store_root=directory)
+            loaded = load_selected_vllm_profile_draft(store_root=directory)
+
+        self.assertTrue(loaded.ok, loaded.messages)
+        self.assertEqual(loaded.profile_id, "30b-q4")
+        self.assertIsNotNone(loaded.profile)
+        assert loaded.profile is not None
+        self.assertEqual(loaded.profile.model, "Local/ThirtyB")
+        self.assertIn("selected vLLM profile loaded: 30b-q4", "\n".join(loaded.messages))
+
+    def test_vllm_selected_profile_state_does_not_pollute_profile_list(self) -> None:
+        from modules.vllm_profile_store import list_vllm_profile_drafts, save_selected_vllm_profile_id, save_vllm_profile_draft
+        from modules.vllm_profiles import VllmProfile
+
+        with TemporaryDirectory() as directory:
+            save_vllm_profile_draft(VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct"), profile_id="smoke", store_root=directory)
+            save_selected_vllm_profile_id("smoke", store_root=directory)
+            result = list_vllm_profile_drafts(store_root=directory)
+
+        self.assertTrue(result.ok, result.messages)
+        self.assertEqual([profile.profile_id for profile in result.profiles], ["smoke"])
+
     def test_vllm_profile_draft_store_reports_missing_and_invalid_schema(self) -> None:
         from modules.vllm_profile_store import load_vllm_profile_draft
 
@@ -1274,6 +1317,34 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("profile store root:", stdout.getvalue())
         self.assertIn("selected draft JSON path:", stdout.getvalue())
         self.assertIn("30b-q4.json", stdout.getvalue())
+
+    def test_vllm_initial_profile_selection_restores_saved_profile(self) -> None:
+        launcher = load_launcher_module()
+        from modules.vllm_profile_store import VllmProfileStoreResult
+        from modules.vllm_profiles import VllmProfile
+        from unittest.mock import Mock, patch
+
+        profile = VllmProfile(model="Local/ThirtyB")
+        result = VllmProfileStoreResult(True, profile, "/tmp/30b-q4.json", ["loaded"], "30b-q4")
+
+        with patch.object(launcher, "load_selected_vllm_profile_draft", Mock(return_value=result)):
+            loaded_profile, loaded_id = launcher.initial_vllm_profile_selection()
+
+        self.assertIs(loaded_profile, profile)
+        self.assertEqual(loaded_id, "30b-q4")
+
+    def test_vllm_initial_profile_selection_falls_back_to_default(self) -> None:
+        launcher = load_launcher_module()
+        from modules.vllm_profile_store import VllmProfileStoreResult
+        from unittest.mock import Mock, patch
+
+        result = VllmProfileStoreResult(False, None, "/tmp/latest.json", ["missing"])
+
+        with patch.object(launcher, "load_selected_vllm_profile_draft", Mock(return_value=result)):
+            loaded_profile, loaded_id = launcher.initial_vllm_profile_selection()
+
+        self.assertEqual(loaded_id, "custom-draft")
+        self.assertEqual(loaded_profile.model, "")
 
     def test_vllm_profile_menu_groups_actions_by_responsibility(self) -> None:
         launcher = load_launcher_module()

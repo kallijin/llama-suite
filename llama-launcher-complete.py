@@ -40,7 +40,7 @@ from modules.script_builder import command_preview, generate_script, parse_gener
 from modules.system_info import collect_system_info
 from modules.vllm_api_probe import run_vllm_api_smoke
 from modules.vllm_doctor import format_vllm_doctor_report, run_vllm_doctor
-from modules.vllm_profile_store import default_vllm_profile_path, delete_vllm_profile_draft, format_vllm_profile_draft_json, list_vllm_profile_drafts, load_vllm_profile_draft, load_vllm_profile_json_file, save_vllm_profile_draft, validate_vllm_profile_json_file
+from modules.vllm_profile_store import default_vllm_profile_path, delete_vllm_profile_draft, format_vllm_profile_draft_json, list_vllm_profile_drafts, load_selected_vllm_profile_draft, load_vllm_profile_draft, load_vllm_profile_json_file, save_selected_vllm_profile_id, save_vllm_profile_draft, validate_vllm_profile_json_file
 from modules.vllm_profiles import builtin_vllm_profile_presets, default_vllm_profile, editable_vllm_profile_fields, format_vllm_profile_report, future_launch_preset_id, host_guidance_lines, large_model_guidance_lines, launch_confirmation_guidance_lines, update_vllm_profile_field
 from modules.vllm_runner import check_vllm_smoke_status, latest_vllm_run_record, latest_vllm_run_summary, launch_vllm_profile_once, launch_vllm_smoke_once, read_vllm_run_record, read_vllm_smoke_log, stop_vllm_smoke
 from modules.vllm_script_builder import build_vllm_script_preview, save_vllm_script
@@ -1314,6 +1314,14 @@ def print_vllm_profile_store_result(result: Any) -> None:
         print(f"  - {message}")
 
 
+def print_vllm_selected_profile_result(result: Any) -> None:
+    print("\n  vLLM selected profile state:")
+    print(f"  ok: {result.ok}")
+    print(f"  state_path: {result.state_path}")
+    for message in result.messages:
+        print(f"  - {message}")
+
+
 def print_vllm_profile_list_result(result: Any, selected_profile_id: str | None = None) -> None:
     print("\n  vLLM saved custom profiles:")
     print(f"  ok: {result.ok}")
@@ -1588,14 +1596,20 @@ def print_vllm_api_smoke_result(result: Any) -> None:
         print(f"  [{status}] {check.name}{code}: {check.message}")
 
 
+def initial_vllm_profile_selection() -> tuple[Any, str]:
+    result = load_selected_vllm_profile_draft()
+    if result.ok and result.profile and result.profile_id:
+        return result.profile, result.profile_id
+    return default_vllm_profile(), "custom-draft"
+
+
 # ─── 메인 루프 ─────────────────────────────────────────
 
 def main() -> None:
     cfg = load_config()
     models = get_model_list(MODELS_DIR)
     draft = draft_from_config(cfg, models)
-    vllm_profile_draft = default_vllm_profile()
-    vllm_profile_draft_id = "custom-draft"
+    vllm_profile_draft, vllm_profile_draft_id = initial_vllm_profile_selection()
 
     while True:
         print_header()
@@ -1713,11 +1727,16 @@ def main() -> None:
             continue
 
         if upper == "B":
+            before_vllm_profile_id = vllm_profile_draft_id
             vllm_profile_draft, vllm_profile_draft_id = show_vllm_profile_menu(
                 vllm_profile_draft,
                 vllm_profile_draft_id,
                 return_profile_id=True,
             )
+            if vllm_profile_draft_id != before_vllm_profile_id:
+                result = save_selected_vllm_profile_id(vllm_profile_draft_id)
+                if not result.ok:
+                    print_vllm_selected_profile_result(result)
             pause()
             continue
 

@@ -10,6 +10,7 @@ from modules.vllm_profiles import VllmProfile, validate_vllm_profile
 
 DEFAULT_VLLM_PROFILE_STORE_ROOT = "~/.local/state/llama-suite/profiles/vllm"
 VLLM_PROFILE_SCHEMA = "llama-suite.vllm-profile.v1"
+VLLM_SELECTED_PROFILE_SCHEMA = "llama-suite.vllm-selected-profile.v1"
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,14 @@ class VllmProfileListResult:
     messages: list[str]
 
 
+@dataclass(frozen=True)
+class VllmSelectedProfileResult:
+    ok: bool
+    profile_id: str | None
+    state_path: str
+    messages: list[str]
+
+
 def default_vllm_profile_path(
     profile_id: str = "custom-draft",
     *,
@@ -44,6 +53,11 @@ def default_vllm_profile_path(
 ) -> str:
     root = Path(store_root or DEFAULT_VLLM_PROFILE_STORE_ROOT).expanduser()
     return str(root / f"{_safe_name(profile_id)}.json")
+
+
+def default_vllm_selected_profile_path(*, store_root: str | Path | None = None) -> str:
+    root = Path(store_root or DEFAULT_VLLM_PROFILE_STORE_ROOT).expanduser()
+    return str(root / "selected" / "latest.json")
 
 
 def list_vllm_profile_drafts(*, store_root: str | Path | None = None) -> VllmProfileListResult:
@@ -122,6 +136,50 @@ def load_vllm_profile_draft(
 ) -> VllmProfileStoreResult:
     profile_path = default_vllm_profile_path(profile_id, store_root=store_root)
     return _read_vllm_profile_payload(Path(profile_path))
+
+
+def save_selected_vllm_profile_id(
+    profile_id: str,
+    *,
+    store_root: str | Path | None = None,
+) -> VllmSelectedProfileResult:
+    state_path = default_vllm_selected_profile_path(store_root=store_root)
+    payload = {
+        "schema": VLLM_SELECTED_PROFILE_SCHEMA,
+        "profile_id": str(profile_id or "custom-draft"),
+    }
+    try:
+        path = Path(state_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_write_text(path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    except Exception as exc:
+        return VllmSelectedProfileResult(False, profile_id, state_path, [f"selected vLLM profile save failed: {exc}"])
+    return VllmSelectedProfileResult(True, profile_id, state_path, [f"selected vLLM profile saved: {profile_id}"])
+
+
+def load_selected_vllm_profile_id(*, store_root: str | Path | None = None) -> VllmSelectedProfileResult:
+    state_path = default_vllm_selected_profile_path(store_root=store_root)
+    try:
+        payload = json.loads(Path(state_path).read_text())
+    except Exception as exc:
+        return VllmSelectedProfileResult(False, None, state_path, [f"selected vLLM profile load failed: {exc}"])
+
+    if payload.get("schema") != VLLM_SELECTED_PROFILE_SCHEMA:
+        return VllmSelectedProfileResult(False, None, state_path, ["invalid selected vLLM profile schema"])
+
+    profile_id = str(payload.get("profile_id") or "").strip()
+    if not profile_id:
+        return VllmSelectedProfileResult(False, None, state_path, ["selected vLLM profile id is empty"])
+    return VllmSelectedProfileResult(True, profile_id, state_path, [f"selected vLLM profile loaded: {profile_id}"])
+
+
+def load_selected_vllm_profile_draft(*, store_root: str | Path | None = None) -> VllmProfileStoreResult:
+    selected = load_selected_vllm_profile_id(store_root=store_root)
+    if not selected.ok or not selected.profile_id:
+        return VllmProfileStoreResult(False, None, selected.state_path, selected.messages)
+    loaded = load_vllm_profile_draft(profile_id=selected.profile_id, store_root=store_root)
+    messages = selected.messages + loaded.messages
+    return VllmProfileStoreResult(loaded.ok, loaded.profile, loaded.profile_path, messages, selected.profile_id)
 
 
 def load_vllm_profile_json_file(profile_path: str | Path) -> VllmProfileStoreResult:
