@@ -288,6 +288,69 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("llama.cpp 백엔드", text)
         self.assertIn("tokenizer", text)
 
+    def test_vllm_profile_defaults_are_separate_and_conservative(self) -> None:
+        from modules.vllm_profiles import default_vllm_profile, validate_vllm_profile
+
+        profile = default_vllm_profile("Qwen/Qwen2.5-0.5B-Instruct")
+
+        self.assertEqual(profile.wrapper_path, "~/bin/vllm-rocm")
+        self.assertEqual(profile.model, "Qwen/Qwen2.5-0.5B-Instruct")
+        self.assertEqual(profile.host, "127.0.0.1")
+        self.assertEqual(profile.port, 8000)
+        self.assertEqual(profile.dtype, "auto")
+        self.assertEqual(profile.tensor_parallel_size, 1)
+        self.assertEqual(validate_vllm_profile(profile), [])
+
+    def test_vllm_profile_validation_reports_structured_messages(self) -> None:
+        from modules.vllm_profiles import VllmProfile, validate_vllm_profile
+
+        profile = VllmProfile(
+            wrapper_path="",
+            model="",
+            port=70000,
+            gpu_memory_utilization=1.5,
+            tensor_parallel_size=0,
+            max_model_len=0,
+        )
+
+        errors = validate_vllm_profile(profile)
+
+        self.assertIn("wrapper path should not be empty", errors)
+        self.assertIn("model should not be empty", errors)
+        self.assertIn("port should be 1-65535", errors)
+        self.assertIn("gpu_memory_utilization should be between 0 and 1", errors)
+        self.assertIn("tensor_parallel_size should be >= 1", errors)
+        self.assertIn("max_model_len should be > 0", errors)
+
+    def test_vllm_profile_from_dict_preserves_extra_args_as_opaque_string(self) -> None:
+        from modules.vllm_profiles import vllm_profile_from_dict
+
+        profile = vllm_profile_from_dict(
+            {
+                "model": "local-model",
+                "port": "8001",
+                "max_model_len": "8192",
+                "gpu_memory_utilization": "0.55",
+                "tensor_parallel_size": "2",
+                "extra_args": "--trust-remote-code --served-model-name local",
+            }
+        )
+
+        self.assertEqual(profile.port, 8001)
+        self.assertEqual(profile.max_model_len, 8192)
+        self.assertEqual(profile.gpu_memory_utilization, 0.55)
+        self.assertEqual(profile.tensor_parallel_size, 2)
+        self.assertEqual(profile.extra_args, "--trust-remote-code --served-model-name local")
+
+    def test_vllm_host_guidance_mentions_access_modes(self) -> None:
+        from modules.vllm_profiles import host_guidance_lines
+
+        text = "\n".join(host_guidance_lines())
+
+        self.assertIn("127.0.0.1 = local only", text)
+        self.assertIn("Tailscale IP = private remote access", text)
+        self.assertIn("0.0.0.0 = advanced/exposed", text)
+
     def test_script_generation_action_is_unified(self) -> None:
         launcher = load_launcher_module()
         draft = self.sample_cfg("/bin/echo")

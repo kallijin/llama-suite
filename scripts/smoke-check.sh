@@ -27,6 +27,7 @@ modules = [
     "modules.system_info",
     "modules.backend_inspector",
     "modules.vllm_doctor",
+    "modules.vllm_profiles",
 ]
 
 for name in modules:
