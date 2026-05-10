@@ -39,7 +39,7 @@ from modules.runner_tmux import get_running_model, get_running_servers, run_scri
 from modules.script_builder import command_preview, generate_script, parse_generated_script, resolve_ctx_size
 from modules.system_info import collect_system_info
 from modules.vllm_doctor import format_vllm_doctor_report, run_vllm_doctor
-from modules.vllm_profiles import build_vllm_command, cache_env_preview_lines, default_vllm_profile, host_guidance_lines, run_vllm_preflight, validate_vllm_profile
+from modules.vllm_profiles import build_vllm_command, cache_env_preview_lines, default_vllm_profile, host_guidance_lines, run_vllm_preflight, smoke_vllm_profile, validate_vllm_profile
 
 
 # ─── 설정 ──────────────────────────────────────────────
@@ -1040,14 +1040,11 @@ def show_vllm_doctor() -> None:
         print(f"  {line}" if line else "")
 
 
-def vllm_profile_preview_text() -> str:
-    profile = default_vllm_profile()
+def format_vllm_profile_section(title: str, profile: Any, port_check: Any = None) -> list[str]:
     errors = validate_vllm_profile(profile)
     command, command_messages = build_vllm_command(profile)
     lines = [
-        "vLLM profile preview (read-only)",
-        "이 화면은 vLLM 전용 profile 미리보기입니다. llama.cpp 파라미터와 별개입니다.",
-        "",
+        title,
         "vLLM-only fields:",
     ]
     for key, value in profile.to_dict().items():
@@ -1068,11 +1065,24 @@ def vllm_profile_preview_text() -> str:
         lines.append("No runnable command preview because the profile needs attention:")
         for message in command_messages:
             lines.append(f"- {message}")
-    preflight = run_vllm_preflight(profile)
+    preflight = run_vllm_preflight(profile, port_check=port_check)
     lines.extend(["", "Launch preflight:"])
     for check in preflight.checks:
         mark = "PASS" if check.ok else "FAIL"
         lines.append(f"- [{mark}] {check.name}: {check.message}")
+    return lines
+
+
+def vllm_profile_preview_text(port_check: Any = None) -> str:
+    lines = [
+        "vLLM profile preview (read-only)",
+        "이 화면은 vLLM 전용 profile 미리보기입니다. llama.cpp 파라미터와 별개입니다.",
+        "",
+    ]
+    lines.extend(format_vllm_profile_section("Default vLLM profile", default_vllm_profile(), port_check=port_check))
+    lines.extend(["", "Smoke profile preset (read-only)"])
+    lines.append("이미 이 시스템에서 성공한 작은 vLLM 확인용 preset입니다. 실행하지 않습니다.")
+    lines.extend(format_vllm_profile_section("Smoke profile fields", smoke_vllm_profile(), port_check=port_check))
     lines.extend(["", "Host guidance:"])
     for guidance in host_guidance_lines():
         lines.append(f"- {guidance}")

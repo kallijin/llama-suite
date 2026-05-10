@@ -55,6 +55,10 @@ def default_vllm_profile(model: str = "") -> VllmProfile:
     return VllmProfile(model=model)
 
 
+def smoke_vllm_profile() -> VllmProfile:
+    return VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct")
+
+
 def vllm_profile_from_dict(data: dict[str, Any]) -> VllmProfile:
     profile = VllmProfile()
     for key in profile.to_dict():

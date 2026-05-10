@@ -302,6 +302,18 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(profile.tensor_parallel_size, 1)
         self.assertEqual(validate_vllm_profile(profile), [])
 
+    def test_vllm_smoke_profile_uses_known_working_model(self) -> None:
+        from modules.vllm_profiles import build_vllm_command, smoke_vllm_profile, validate_vllm_profile
+
+        profile = smoke_vllm_profile()
+        command, messages = build_vllm_command(profile)
+
+        self.assertEqual(profile.model, "Qwen/Qwen2.5-0.5B-Instruct")
+        self.assertEqual(validate_vllm_profile(profile), [])
+        self.assertEqual(messages, [])
+        self.assertIsNotNone(command)
+        self.assertIn("Qwen/Qwen2.5-0.5B-Instruct", command)
+
     def test_vllm_profile_validation_reports_structured_messages(self) -> None:
         from modules.vllm_profiles import VllmProfile, validate_vllm_profile
 
@@ -533,12 +545,20 @@ class BeginnerFlowTests(unittest.TestCase):
 
     def test_vllm_profile_preview_is_read_only_and_separate(self) -> None:
         launcher = load_launcher_module()
+        from modules.vllm_profiles import VllmPreflightCheck
 
-        text = launcher.vllm_profile_preview_text()
+        text = launcher.vllm_profile_preview_text(
+            port_check=lambda host, port: VllmPreflightCheck(
+                "port availability",
+                True,
+                f"port {port} is available on {host}",
+            )
+        )
 
         self.assertIn("vLLM profile preview (read-only)", text)
         self.assertIn("vLLM 전용 profile", text)
         self.assertIn("llama.cpp 파라미터와 별개", text)
+        self.assertIn("Default vLLM profile", text)
         self.assertIn("vLLM-only fields:", text)
         self.assertIn("- wrapper_path: ~/bin/vllm-rocm", text)
         self.assertIn("- host: 127.0.0.1", text)
@@ -559,6 +579,25 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("127.0.0.1 = local only", text)
         self.assertIn("Tailscale IP = private remote access", text)
         self.assertIn("0.0.0.0 = advanced/exposed", text)
+
+    def test_vllm_profile_preview_includes_read_only_smoke_preset(self) -> None:
+        launcher = load_launcher_module()
+        from modules.vllm_profiles import VllmPreflightCheck
+
+        text = launcher.vllm_profile_preview_text(
+            port_check=lambda host, port: VllmPreflightCheck(
+                "port availability",
+                True,
+                f"port {port} is available on {host}",
+            )
+        )
+
+        self.assertIn("Smoke profile preset (read-only)", text)
+        self.assertIn("이미 이 시스템에서 성공한 작은 vLLM 확인용 preset", text)
+        self.assertIn("Qwen/Qwen2.5-0.5B-Instruct", text)
+        self.assertIn("serve Qwen/Qwen2.5-0.5B-Instruct --host 127.0.0.1 --port 8000", text)
+        self.assertIn("[PASS] profile validation", text)
+        self.assertIn("[PASS] command preview", text)
 
     def test_script_generation_action_is_unified(self) -> None:
         launcher = load_launcher_module()
