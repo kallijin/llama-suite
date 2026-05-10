@@ -1199,6 +1199,33 @@ class BeginnerFlowTests(unittest.TestCase):
         messages = "\n".join(check.message for check in report.checks)
         self.assertIn("model should not be empty", messages)
 
+    def test_vllm_preflight_reports_local_model_source_shape(self) -> None:
+        from modules.vllm_profiles import VllmPreflightCheck, VllmProfile, run_vllm_preflight
+
+        with TemporaryDirectory() as directory:
+            wrapper = Path(directory) / "vllm-rocm"
+            wrapper.write_text("#!/usr/bin/env bash\nexit 0\n")
+            wrapper.chmod(0o755)
+            model_dir = Path(directory) / "model"
+            model_dir.mkdir()
+            (model_dir / "config.json").write_text("{}\n")
+            (model_dir / "model.safetensors").write_text("")
+
+            report = run_vllm_preflight(
+                VllmProfile(wrapper_path=str(wrapper), model=str(model_dir), port=54324),
+                port_check=lambda host, port: VllmPreflightCheck(
+                    "port availability",
+                    True,
+                    f"port {port} is available on {host}",
+                ),
+            )
+
+        self.assertFalse(report.ok)
+        checks = {check.name: check for check in report.checks}
+        self.assertIn("model source inspection", checks)
+        self.assertFalse(checks["model source inspection"].ok)
+        self.assertIn("tokenizer file is missing", checks["model source inspection"].message)
+
     def test_vllm_preflight_used_port_reports_failure(self) -> None:
         from modules.vllm_profiles import VllmPreflightCheck, VllmProfile, run_vllm_preflight
 

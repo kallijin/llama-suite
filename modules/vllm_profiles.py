@@ -362,6 +362,7 @@ def run_vllm_preflight(profile: VllmProfile, port_check: Any = None) -> VllmPref
         )
     )
 
+    checks.append(_model_source_preflight_check(profile.model))
     checks.append(_wrapper_preflight_check(profile.wrapper_path))
 
     command, command_messages = build_vllm_command(profile)
@@ -377,6 +378,13 @@ def run_vllm_preflight(profile: VllmProfile, port_check: Any = None) -> VllmPref
     checks.append(check_port(profile.host, profile.port))
     checks.append(VllmPreflightCheck("host guidance", True, host_access_note(str(profile.host))))
     return VllmPreflightReport(checks)
+
+
+def _model_source_preflight_check(model: Any) -> VllmPreflightCheck:
+    source_checks = inspect_vllm_model_source(model)
+    warning_checks = [check for check in source_checks if check.level == "WARN"]
+    message = "; ".join(f"{check.name}: {check.message}" for check in source_checks)
+    return VllmPreflightCheck("model source inspection", not warning_checks, message)
 
 
 def host_access_note(host: str) -> str:
