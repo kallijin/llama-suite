@@ -635,6 +635,50 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(preview.script_text, "")
         self.assertIn("model should not be empty", preview.messages)
 
+    def test_vllm_script_save_writes_executable_collision_free_file(self) -> None:
+        from modules.vllm_profiles import VllmProfile
+        from modules.vllm_script_builder import save_vllm_script
+
+        with TemporaryDirectory() as directory:
+            first = save_vllm_script(
+                VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct"),
+                script_id="qwen/smoke",
+                scripts_dir=directory,
+                timestamp="2026-05-10 22:40:00",
+            )
+            second = save_vllm_script(
+                VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct"),
+                script_id="qwen/smoke",
+                scripts_dir=directory,
+                timestamp="2026-05-10 22:40:01",
+            )
+            first_path = Path(first.script_path) if first.script_path else Path()
+            second_path = Path(second.script_path) if second.script_path else Path()
+            first_exists = first_path.is_file()
+            second_exists = second_path.is_file()
+            first_executable = bool(first_path.stat().st_mode & 0o111)
+            first_text = first_path.read_text()
+
+        self.assertTrue(first.ok, first.messages)
+        self.assertTrue(second.ok, second.messages)
+        self.assertEqual(first_path.name, "qwen-smoke.sh")
+        self.assertEqual(second_path.name, "qwen-smoke__2.sh")
+        self.assertTrue(first_exists)
+        self.assertTrue(second_exists)
+        self.assertTrue(first_executable)
+        self.assertIn("exec ", first_text)
+
+    def test_vllm_script_save_refuses_invalid_profile(self) -> None:
+        from modules.vllm_profiles import VllmProfile
+        from modules.vllm_script_builder import save_vllm_script
+
+        with TemporaryDirectory() as directory:
+            result = save_vllm_script(VllmProfile(model=""), scripts_dir=directory)
+
+        self.assertFalse(result.ok)
+        self.assertIsNone(result.script_path)
+        self.assertIn("model should not be empty", result.messages)
+
     def test_vllm_command_preview_builds_expected_command_list(self) -> None:
         from modules.vllm_profiles import VllmProfile, build_vllm_command
 
@@ -990,6 +1034,26 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("vLLM custom script preview", stdout.getvalue())
         self.assertIn("exec", stdout.getvalue())
         self.assertIn("Qwen/Qwen2.5-0.5B-Instruct", stdout.getvalue())
+
+    def test_vllm_profile_menu_can_save_custom_script(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profiles import VllmProfile
+        from modules.vllm_script_builder import VllmScriptSaveResult
+        from unittest.mock import Mock, patch
+
+        profile = VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct")
+        mocked_save = Mock(return_value=VllmScriptSaveResult(True, "/tmp/vllm.sh", ["saved"]))
+        stdout = StringIO()
+
+        with patch.object(launcher, "save_vllm_script", mocked_save), patch("builtins.input", side_effect=["7"]), contextlib.redirect_stdout(stdout):
+            result = launcher.show_vllm_profile_menu(profile)
+
+        mocked_save.assert_called_once_with(profile)
+        self.assertIs(result, profile)
+        self.assertIn("vLLM custom script save", stdout.getvalue())
+        self.assertIn("/tmp/vllm.sh", stdout.getvalue())
 
     def test_vllm_smoke_launch_preview_is_not_read_only_profile_text(self) -> None:
         launcher = load_launcher_module()
