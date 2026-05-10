@@ -1036,6 +1036,38 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIs(after_save, profile)
         self.assertEqual(after_load.model, "loaded-model")
 
+    def test_vllm_profile_menu_can_list_saved_custom_profiles(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profile_store import VllmProfileListResult, VllmStoredProfileInfo
+        from modules.vllm_profiles import VllmProfile
+        from unittest.mock import Mock, patch
+
+        profile = VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct")
+        list_result = VllmProfileListResult(
+            True,
+            [
+                VllmStoredProfileInfo("smoke", "/tmp/smoke.json", "Qwen/Qwen2.5-0.5B-Instruct", []),
+                VllmStoredProfileInfo("30b", "/tmp/30b.json", "Local/ThirtyB", ["port should be 1-65535"]),
+            ],
+            "/tmp/profiles",
+            [],
+        )
+        mocked_list = Mock(return_value=list_result)
+        stdout = StringIO()
+
+        with patch.object(launcher, "list_vllm_profile_drafts", mocked_list), patch("builtins.input", side_effect=["9"]), contextlib.redirect_stdout(stdout):
+            result = launcher.show_vllm_profile_menu(profile)
+
+        mocked_list.assert_called_once_with()
+        self.assertIs(result, profile)
+        output = stdout.getvalue()
+        self.assertIn("vLLM saved custom profiles", output)
+        self.assertIn("smoke: Qwen/Qwen2.5-0.5B-Instruct [valid]", output)
+        self.assertIn("30b: Local/ThirtyB [needs attention]", output)
+        self.assertIn("validation: port should be 1-65535", output)
+
     def test_vllm_profile_menu_can_preview_custom_script(self) -> None:
         launcher = load_launcher_module()
         from io import StringIO
