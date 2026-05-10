@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 import os
 import signal
 import subprocess
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -50,6 +51,7 @@ class VllmLaunchResult:
     preset_id: str
     command: list[str]
     messages: list[str]
+    record_path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -79,6 +81,27 @@ class VllmSmokeStopResult:
     pid: int | None
     run_id: str
     preset_id: str
+    messages: list[str]
+
+
+@dataclass(frozen=True)
+class VllmRunRecord:
+    backend: str
+    preset_id: str
+    run_id: str
+    pid: int
+    log_path: str
+    host: str
+    port: int
+    command: list[str]
+    started_at: str
+
+
+@dataclass(frozen=True)
+class VllmRunRecordResult:
+    ok: bool
+    record: VllmRunRecord | None
+    record_path: str | None
     messages: list[str]
 
 
@@ -189,6 +212,23 @@ def launch_vllm_smoke_once(
     except Exception as exc:
         return _failed_launch_result(plan, f"launch failed: {exc}")
 
+    record_result = write_vllm_run_record(
+        VllmRunRecord(
+            backend="vllm",
+            preset_id=plan.preset_id,
+            run_id=plan.run_id,
+            pid=int(process.pid),
+            log_path=plan.log_path,
+            host=plan.host,
+            port=plan.port,
+            command=plan.command,
+            started_at=datetime.now().isoformat(timespec="seconds"),
+        ),
+        state_root=log_path.parent,
+    )
+    messages = ["vLLM smoke preset launch started"]
+    messages.extend(record_result.messages)
+
     return VllmLaunchResult(
         ok=True,
         pid=int(process.pid),
@@ -198,8 +238,58 @@ def launch_vllm_smoke_once(
         port=plan.port,
         preset_id=plan.preset_id,
         command=plan.command,
-        messages=["vLLM smoke preset launch started"],
+        messages=messages,
+        record_path=record_result.record_path,
     )
+
+
+def vllm_run_record_path(run_id: str, *, state_root: str | Path | None = None) -> str:
+    root = Path(state_root or DEFAULT_VLLM_RUN_ROOT).expanduser()
+    return str(root / f"{sanitize_run_id_part(run_id)}.json")
+
+
+def write_vllm_run_record(record: VllmRunRecord, *, state_root: str | Path | None = None) -> VllmRunRecordResult:
+    record_path = vllm_run_record_path(record.run_id, state_root=state_root)
+    try:
+        path = Path(record_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(asdict(record), indent=2, sort_keys=True) + "\n")
+    except Exception as exc:
+        return VllmRunRecordResult(False, record, record_path, [f"run record write failed: {exc}"])
+    return VllmRunRecordResult(True, record, record_path, [f"run record saved: {record_path}"])
+
+
+def read_vllm_run_record(record_path: str) -> VllmRunRecordResult:
+    expanded_path = str(Path(record_path).expanduser()) if record_path else ""
+    if not expanded_path:
+        return VllmRunRecordResult(False, None, None, ["run record path is required"])
+    try:
+        data = json.loads(Path(expanded_path).read_text())
+        record = VllmRunRecord(
+            backend=str(data.get("backend", "")),
+            preset_id=str(data.get("preset_id", "")),
+            run_id=str(data.get("run_id", "")),
+            pid=int(data.get("pid", 0)),
+            log_path=str(data.get("log_path", "")),
+            host=str(data.get("host", "")),
+            port=int(data.get("port", 0)),
+            command=[str(part) for part in data.get("command", [])],
+            started_at=str(data.get("started_at", "")),
+        )
+    except Exception as exc:
+        return VllmRunRecordResult(False, None, expanded_path, [f"run record read failed: {exc}"])
+    return VllmRunRecordResult(True, record, expanded_path, [])
+
+
+def latest_vllm_run_record(*, state_root: str | Path | None = None) -> VllmRunRecordResult:
+    root = Path(state_root or DEFAULT_VLLM_RUN_ROOT).expanduser()
+    try:
+        records = sorted(root.glob("vllm-*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
+    except Exception as exc:
+        return VllmRunRecordResult(False, None, None, [f"run record lookup failed: {exc}"])
+    if not records:
+        return VllmRunRecordResult(False, None, None, [f"no vLLM run records found under {root}"])
+    return read_vllm_run_record(str(records[0]))
 
 
 def check_vllm_smoke_status(

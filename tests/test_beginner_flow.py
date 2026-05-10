@@ -855,6 +855,82 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(calls[0][0], str(wrapper))
         self.assertNotIn("~", calls[0][0])
 
+    def test_vllm_smoke_launch_saves_run_record(self) -> None:
+        from modules.vllm_profiles import VllmPreflightCheck, smoke_vllm_profile
+        from modules.vllm_runner import launch_vllm_smoke_once, read_vllm_run_record
+        from unittest.mock import patch
+
+        class FakeProcess:
+            pid = 43212
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            wrapper = root / "vllm-rocm"
+            wrapper.write_text("#!/usr/bin/env bash\nexit 0\n")
+            wrapper.chmod(0o755)
+            profile = smoke_vllm_profile()
+            profile.wrapper_path = str(wrapper)
+            with patch("modules.vllm_runner.smoke_vllm_profile", return_value=profile):
+                result = launch_vllm_smoke_once(
+                    confirmed=True,
+                    timestamp="20260510-193000",
+                    state_root=root / "runs",
+                    port_check=lambda host, port: VllmPreflightCheck(
+                        "port availability",
+                        True,
+                        f"port {port} is available on {host}",
+                    ),
+                    popen_factory=lambda command, **kwargs: FakeProcess(),
+                )
+            record_result = read_vllm_run_record(str(result.record_path))
+
+        self.assertTrue(result.ok, result.messages)
+        self.assertIsNotNone(result.record_path)
+        self.assertTrue(record_result.ok, record_result.messages)
+        self.assertIsNotNone(record_result.record)
+        assert record_result.record is not None
+        self.assertEqual(record_result.record.backend, "vllm")
+        self.assertEqual(record_result.record.preset_id, "smoke-qwen-0.5b")
+        self.assertEqual(record_result.record.run_id, "vllm-smoke-qwen-0.5b-20260510-193000")
+        self.assertEqual(record_result.record.pid, 43212)
+        self.assertIn("Qwen/Qwen2.5-0.5B-Instruct", record_result.record.command)
+
+    def test_vllm_latest_run_record_loads_newest_record(self) -> None:
+        from modules.vllm_runner import VllmRunRecord, latest_vllm_run_record, write_vllm_run_record
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = VllmRunRecord(
+                backend="vllm",
+                preset_id="smoke-qwen-0.5b",
+                run_id="vllm-smoke-qwen-0.5b-20260510-193000",
+                pid=1,
+                log_path="/tmp/one.log",
+                host="127.0.0.1",
+                port=8000,
+                command=["one"],
+                started_at="2026-05-10T19:30:00",
+            )
+            second = VllmRunRecord(
+                backend="vllm",
+                preset_id="smoke-qwen-0.5b",
+                run_id="vllm-smoke-qwen-0.5b-20260510-193100",
+                pid=2,
+                log_path="/tmp/two.log",
+                host="127.0.0.1",
+                port=8000,
+                command=["two"],
+                started_at="2026-05-10T19:31:00",
+            )
+            write_vllm_run_record(first, state_root=root)
+            write_vllm_run_record(second, state_root=root)
+            result = latest_vllm_run_record(state_root=root)
+
+        self.assertTrue(result.ok, result.messages)
+        self.assertIsNotNone(result.record)
+        assert result.record is not None
+        self.assertEqual(result.record.pid, 2)
+
     def test_vllm_smoke_launch_refuses_without_confirmation(self) -> None:
         from modules.vllm_runner import launch_vllm_smoke_once
 

@@ -40,7 +40,7 @@ from modules.script_builder import command_preview, generate_script, parse_gener
 from modules.system_info import collect_system_info
 from modules.vllm_doctor import format_vllm_doctor_report, run_vllm_doctor
 from modules.vllm_profiles import build_vllm_command, builtin_vllm_profile_presets, cache_env_preview_lines, future_launch_preset_id, host_guidance_lines, launch_confirmation_guidance_lines, run_vllm_preflight, validate_vllm_profile
-from modules.vllm_runner import check_vllm_smoke_status, launch_vllm_smoke_once, read_vllm_smoke_log, stop_vllm_smoke
+from modules.vllm_runner import check_vllm_smoke_status, launch_vllm_smoke_once, read_vllm_run_record, read_vllm_smoke_log, stop_vllm_smoke
 
 
 # ─── 설정 ──────────────────────────────────────────────
@@ -1160,6 +1160,7 @@ def print_vllm_launch_result(result: Any) -> None:
     print(f"  pid: {result.pid if result.pid is not None else '-'}")
     print(f"  run_id: {result.run_id or '-'}")
     print(f"  log_path: {result.log_path or '-'}")
+    print(f"  record_path: {result.record_path or '-'}")
     print(f"  host: {result.host or '-'}")
     print(f"  port: {result.port if result.port is not None else '-'}")
     if result.command:
@@ -1173,21 +1174,29 @@ def print_vllm_launch_result(result: Any) -> None:
 def show_vllm_smoke_manage() -> None:
     print("\n  ── vLLM smoke status/log/stop ──")
     print("  launch 결과에 표시된 pid/run_id/log_path를 수동으로 입력합니다.")
+    print("  record_path를 입력하면 pid/run_id/log_path를 record에서 불러옵니다.")
     print("  [1] status")
     print("  [2] log")
     print("  [3] stop")
     choice = input("  선택 > ").strip()
 
     if choice == "1":
-        pid = input("  pid > ").strip()
-        run_id = input("  run_id > ").strip()
-        log_path = input("  log_path > ").strip()
+        record = prompt_vllm_run_record()
+        if record:
+            pid = str(record.pid)
+            run_id = record.run_id
+            log_path = record.log_path
+        else:
+            pid = input("  pid > ").strip()
+            run_id = input("  run_id > ").strip()
+            log_path = input("  log_path > ").strip()
         result = check_vllm_smoke_status(pid=pid, run_id=run_id, log_path=log_path)
         print_vllm_status_result(result)
         return
 
     if choice == "2":
-        log_path = input("  log_path > ").strip()
+        record = prompt_vllm_run_record()
+        log_path = record.log_path if record else input("  log_path > ").strip()
         raw_lines = input("  last N lines [80] > ").strip()
         try:
             last_lines = int(raw_lines) if raw_lines else 80
@@ -1198,8 +1207,13 @@ def show_vllm_smoke_manage() -> None:
         return
 
     if choice == "3":
-        pid = input("  pid > ").strip()
-        run_id = input("  run_id > ").strip()
+        record = prompt_vllm_run_record()
+        if record:
+            pid = str(record.pid)
+            run_id = record.run_id
+        else:
+            pid = input("  pid > ").strip()
+            run_id = input("  run_id > ").strip()
         print("  계속하려면 stop 또는 STOP 를 정확히 입력하세요.")
         confirm = input("  confirmation > ").strip()
         result = stop_vllm_smoke(pid=pid, run_id=run_id, confirmed=(confirm.lower() == "stop"))
@@ -1207,6 +1221,18 @@ def show_vllm_smoke_manage() -> None:
         return
 
     print("  취소했습니다.")
+
+
+def prompt_vllm_run_record() -> Any:
+    record_path = input("  record_path [manual 입력은 빈 값] > ").strip()
+    if not record_path:
+        return None
+    result = read_vllm_run_record(record_path)
+    if result.ok and result.record:
+        return result.record
+    for message in result.messages:
+        print(f"  - {message}")
+    return None
 
 
 def print_vllm_status_result(result: Any) -> None:
