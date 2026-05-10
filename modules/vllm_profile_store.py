@@ -128,6 +128,15 @@ def load_vllm_profile_json_file(profile_path: str | Path) -> VllmProfileStoreRes
     return _read_vllm_profile_payload(Path(profile_path))
 
 
+def validate_vllm_profile_json_file(profile_path: str | Path) -> VllmProfileStoreResult:
+    result = _read_vllm_profile_payload(Path(profile_path))
+    if not result.ok:
+        return result
+    messages = [f"vLLM profile JSON validated: {result.profile_path or profile_path}"]
+    messages.extend(message for message in result.messages if "validation messages" in message)
+    return VllmProfileStoreResult(True, result.profile, result.profile_path, messages, result.profile_id)
+
+
 def delete_vllm_profile_draft(
     *,
     profile_id: str = "custom-draft",

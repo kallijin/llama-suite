@@ -682,6 +682,27 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(result.profile.kv_cache_dtype, "fp8")
         self.assertIn("loaded", "\n".join(result.messages))
 
+    def test_vllm_profile_json_file_validate_is_read_only(self) -> None:
+        from modules.vllm_profile_store import format_vllm_profile_draft_json, validate_vllm_profile_json_file
+        from modules.vllm_profiles import VllmProfile
+
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "invalid-values.json"
+            path.write_text(
+                format_vllm_profile_draft_json(
+                    VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct", port="bad"),  # type: ignore[arg-type]
+                    profile_id="validate-only",
+                )
+            )
+            result = validate_vllm_profile_json_file(path)
+
+        self.assertTrue(result.ok, result.messages)
+        self.assertEqual(result.profile_id, "validate-only")
+        self.assertIsNotNone(result.profile)
+        self.assertIn("vLLM profile JSON validated", "\n".join(result.messages))
+        self.assertIn("loaded draft has validation messages", "\n".join(result.messages))
+        self.assertIn("port should be 1-65535", "\n".join(result.messages))
+
     def test_vllm_profile_draft_store_reports_missing_and_invalid_schema(self) -> None:
         from modules.vllm_profile_store import load_vllm_profile_draft
 
@@ -1434,6 +1455,33 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIs(profile, imported)
         self.assertEqual(profile_id, "imported-qwen")
         self.assertIn("[13] import profile JSON file", stdout.getvalue())
+        self.assertIn("vLLM profile draft store", stdout.getvalue())
+
+    def test_vllm_profile_menu_can_validate_profile_json_without_importing(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profile_store import VllmProfileStoreResult
+        from modules.vllm_profiles import VllmProfile
+        from unittest.mock import Mock, patch
+
+        current = VllmProfile(model="current-model")
+        checked = VllmProfile(model="checked-model")
+        validate_result = VllmProfileStoreResult(True, checked, "/tmp/checked.json", ["validated"], "checked-profile")
+        mocked_validate = Mock(return_value=validate_result)
+        stdout = StringIO()
+
+        with (
+            patch.object(launcher, "validate_vllm_profile_json_file", mocked_validate),
+            patch("builtins.input", side_effect=["14", "/tmp/checked.json"]),
+            contextlib.redirect_stdout(stdout),
+        ):
+            profile, profile_id = launcher.show_vllm_profile_menu(current, "current-profile", return_profile_id=True)
+
+        mocked_validate.assert_called_once_with("/tmp/checked.json")
+        self.assertIs(profile, current)
+        self.assertEqual(profile_id, "current-profile")
+        self.assertIn("[14] validate profile JSON file", stdout.getvalue())
         self.assertIn("vLLM profile draft store", stdout.getvalue())
 
     def test_vllm_profile_menu_delete_cancel_does_not_call_delete(self) -> None:
