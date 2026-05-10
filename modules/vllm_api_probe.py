@@ -29,7 +29,7 @@ def run_vllm_api_smoke(
     *,
     latest_record: Any = None,
     opener: Any = None,
-    timeout: float = 15.0,
+    timeout: float = 60.0,
 ) -> VllmApiSmokeResult:
     latest = latest_record or latest_vllm_run_record()
     if not latest.ok or latest.record is None:

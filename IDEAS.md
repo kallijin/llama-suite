@@ -167,6 +167,7 @@ This boundary marks where the project moved from vLLM foundation MVP into custom
 - CLI control `--json`과 MCP adapter는 TUI와 분리된 control surface가 생긴 뒤 추가한다.
 - 모델 기본 지식 파일을 만들어 모델 선택/검색 시 초기 파라미터 후보를 제공하는 방안을 고려한다. 이 값은 정답이 아니라 정비 수첩이며 자동 적용하지 않는다.
 - GGUF 모델이 실제 코딩/도구 사용에 적합한지 검증하고 보여주는 방식을 설계한다. direct tool-call, Hermes tool-call, chat template, reasoning 설정, 간단한 coding command intent 결과를 분리해서 표시한다.
+- vLLM local HF/safetensors 모델에서 tokenizer/config/generation_config 같은 기능 파일이 빠져 테스트를 막는 경우, 나중에 HF repo metadata와 sibling file 목록을 따라 필요한 파일을 수집/보완하는 도구를 검토한다. 지금은 런처 자동 기능으로 만들지 않고, 수동으로 HF 제공 파일을 확인해 보완한 과정을 기록한다.
 
 ### Deferred
 좋지만 기동과 운영 안정화 이후로 미룬다.

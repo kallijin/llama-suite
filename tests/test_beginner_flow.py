@@ -535,7 +535,7 @@ class BeginnerFlowTests(unittest.TestCase):
         )
 
         self.assertTrue(result.ok, result.messages)
-        self.assertEqual(timeouts, [15.0, 15.0])
+        self.assertEqual(timeouts, [60.0, 60.0])
 
     def test_vllm_api_smoke_connection_failure_returns_structured_failure(self) -> None:
         from modules.vllm_api_probe import run_vllm_api_smoke
