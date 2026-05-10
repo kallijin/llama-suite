@@ -1781,9 +1781,11 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("Command preview / dry-run", text)
         self.assertIn("Launch preflight:", text)
         self.assertIn("vLLM may use GPU memory immediately", text)
+        self.assertIn("Custom vLLM profile launch is handled separately from [B]", text)
         self.assertIn("Qwen/Qwen2.5-0.5B-Instruct", text)
         self.assertNotIn("read-only registry", text)
         self.assertNotIn("no launch button", text)
+        self.assertNotIn("Custom vLLM profile launch is not implemented", text)
 
     def test_vllm_runner_builds_launch_plan_for_valid_smoke_profile(self) -> None:
         from modules.vllm_profiles import VllmPreflightCheck, smoke_vllm_profile

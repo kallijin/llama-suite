@@ -1438,7 +1438,7 @@ def vllm_smoke_launch_preview_text(port_check: Any = None) -> str:
     lines = [
         "vLLM smoke launch preview",
         f"Launch target preset: {preset.id}: {preset.label}",
-        "This action is smoke-preset-only. Custom vLLM profile launch is not implemented.",
+        "This action is smoke-preset-only. Custom vLLM profile launch is handled separately from [B].",
         "",
         "Launch confirmation guidance:",
     ]
