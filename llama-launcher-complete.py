@@ -627,6 +627,17 @@ def print_recent_vllm_run_summary() -> None:
     print(recent_vllm_run_summary_line())
 
 
+def selected_vllm_profile_summary_line(profile: Any, profile_id: str = "custom-draft") -> str:
+    model = getattr(profile, "model", "") or "(empty model)"
+    host = getattr(profile, "host", "") or "-"
+    port = getattr(profile, "port", "") or "-"
+    return f"  Selected vLLM profile: {profile_id} / {model} / http://{host}:{port}/v1"
+
+
+def print_selected_vllm_profile_summary(profile: Any, profile_id: str = "custom-draft") -> None:
+    print(selected_vllm_profile_summary_line(profile, profile_id))
+
+
 def registered_paths(cfg: dict[str, Any]) -> dict[str, Any]:
     value = cfg.setdefault("registered_paths", {})
     if not isinstance(value, dict):
@@ -1550,6 +1561,7 @@ def main() -> None:
         running = get_running_model()
         print_planned_run_summary(draft, running)
         print_recent_vllm_run_summary()
+        print_selected_vllm_profile_summary(vllm_profile_draft, vllm_profile_draft_id)
         if not models:
             print(f"\n  ⚠️  {MODELS_DIR} 에서 GGUF 파일을 찾을 수 없습니다.")
             print("     그래도 [A] 설정 변경, [I] 시스템 정보, [E] Hermes 등록, [C] OpenClaw 등록은 사용할 수 있습니다.")

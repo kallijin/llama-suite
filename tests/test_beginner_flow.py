@@ -230,6 +230,7 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("Hermes 설정 변경: 비활성화", completed.stdout)
         self.assertIn("실행 예정 요약", completed.stdout)
         self.assertIn("Recent vLLM run:", completed.stdout)
+        self.assertIn("Selected vLLM profile: custom-draft / (empty model) / http://127.0.0.1:8000/v1", completed.stdout)
         self.assertIn("[K] llama.cpp 파라미터", completed.stdout)
         self.assertIn("[P] llama.cpp 최종 미리보기", completed.stdout)
         self.assertIn("[O] llama.cpp 1회 실행", completed.stdout)
@@ -269,6 +270,20 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(
             line,
             "  Recent vLLM run: smoke-qwen-0.5b / Qwen/Qwen2.5-0.5B-Instruct / http://127.0.0.1:8000/v1 / READY",
+        )
+
+    def test_selected_vllm_profile_summary_line_renders_current_draft(self) -> None:
+        launcher = load_launcher_module()
+        from modules.vllm_profiles import VllmProfile
+
+        line = launcher.selected_vllm_profile_summary_line(
+            VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct", host="100.64.1.2", port=8010),
+            "tailscale-qwen",
+        )
+
+        self.assertEqual(
+            line,
+            "  Selected vLLM profile: tailscale-qwen / Qwen/Qwen2.5-0.5B-Instruct / http://100.64.1.2:8010/v1",
         )
 
     def test_vllm_api_smoke_get_models_and_chat_success(self) -> None:
