@@ -635,6 +635,108 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("[PASS] profile validation", text)
         self.assertIn("[PASS] command preview", text)
 
+    def test_vllm_runner_builds_launch_plan_for_valid_smoke_profile(self) -> None:
+        from modules.vllm_profiles import VllmPreflightCheck, smoke_vllm_profile
+        from modules.vllm_runner import build_vllm_launch_plan
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            wrapper = root / "vllm-rocm"
+            wrapper.write_text("#!/usr/bin/env bash\nexit 0\n")
+            wrapper.chmod(0o755)
+            profile = smoke_vllm_profile()
+            profile.wrapper_path = str(wrapper)
+
+            readiness = build_vllm_launch_plan(
+                profile,
+                timestamp="20260510-190000",
+                state_root=root / "runs",
+                port_check=lambda host, port: VllmPreflightCheck(
+                    "port availability",
+                    True,
+                    f"port {port} is available on {host}",
+                ),
+            )
+
+        self.assertTrue(readiness.ok, readiness.messages)
+        self.assertIsNotNone(readiness.plan)
+        assert readiness.plan is not None
+        self.assertEqual(readiness.plan.preset_id, "smoke-qwen-0.5b")
+        self.assertEqual(readiness.plan.run_id, "vllm-smoke-qwen-0.5b-20260510-190000")
+        self.assertTrue(readiness.plan.log_path.endswith("vllm-smoke-qwen-0.5b-20260510-190000.log"))
+        self.assertEqual(readiness.plan.host, "127.0.0.1")
+        self.assertEqual(readiness.plan.port, 8000)
+        self.assertIn("Qwen/Qwen2.5-0.5B-Instruct", readiness.plan.command)
+        self.assertEqual(readiness.plan.env_preview["VLLM_CACHE_ROOT"], "/mnt/data_main/ai-cache/vllm")
+        self.assertEqual(readiness.plan.env_preview["HF_HOME"], "/mnt/data_main/ai-cache/huggingface")
+        self.assertEqual(readiness.plan.env_preview["TRANSFORMERS_CACHE"], "/mnt/data_main/ai-cache/huggingface")
+
+    def test_vllm_runner_invalid_profile_returns_messages_and_no_plan(self) -> None:
+        from modules.vllm_profiles import VllmProfile
+        from modules.vllm_runner import build_vllm_launch_plan
+
+        readiness = build_vllm_launch_plan(VllmProfile(model=""))
+
+        self.assertFalse(readiness.ok)
+        self.assertIsNone(readiness.plan)
+        self.assertIn("model should not be empty", readiness.messages)
+
+    def test_vllm_runner_preflight_failure_returns_messages_and_no_plan(self) -> None:
+        from modules.vllm_profiles import VllmPreflightCheck, smoke_vllm_profile
+        from modules.vllm_runner import build_vllm_launch_plan
+
+        with TemporaryDirectory() as directory:
+            wrapper = Path(directory) / "vllm-rocm"
+            wrapper.write_text("#!/usr/bin/env bash\nexit 0\n")
+            wrapper.chmod(0o755)
+            profile = smoke_vllm_profile()
+            profile.wrapper_path = str(wrapper)
+            readiness = build_vllm_launch_plan(
+                profile,
+                port_check=lambda host, port: VllmPreflightCheck(
+                    "port availability",
+                    False,
+                    f"port {port} is not available on {host}",
+                ),
+            )
+
+        self.assertFalse(readiness.ok)
+        self.assertIsNone(readiness.plan)
+        self.assertTrue(any("port availability:" in message for message in readiness.messages))
+
+    def test_vllm_runner_sanitizes_preset_id_for_run_id(self) -> None:
+        from modules.vllm_profiles import VllmPreflightCheck, smoke_vllm_profile
+        from modules.vllm_runner import build_vllm_launch_plan
+
+        with TemporaryDirectory() as directory:
+            wrapper = Path(directory) / "vllm-rocm"
+            wrapper.write_text("#!/usr/bin/env bash\nexit 0\n")
+            wrapper.chmod(0o755)
+            profile = smoke_vllm_profile()
+            profile.wrapper_path = str(wrapper)
+            readiness = build_vllm_launch_plan(
+                profile,
+                preset_id="../bad preset",
+                timestamp="20260510-190000",
+                state_root=directory,
+                port_check=lambda host, port: VllmPreflightCheck(
+                    "port availability",
+                    True,
+                    f"port {port} is available on {host}",
+                ),
+            )
+
+        self.assertTrue(readiness.ok, readiness.messages)
+        self.assertIsNotNone(readiness.plan)
+        assert readiness.plan is not None
+        self.assertEqual(readiness.plan.preset_id, "../bad preset")
+        self.assertEqual(readiness.plan.run_id, "vllm-bad_preset-20260510-190000")
+
+    def test_vllm_runner_scaffold_does_not_import_subprocess(self) -> None:
+        source = (ROOT / "modules" / "vllm_runner.py").read_text()
+
+        self.assertNotIn("subprocess", source)
+
     def test_script_generation_action_is_unified(self) -> None:
         launcher = load_launcher_module()
         draft = self.sample_cfg("/bin/echo")
