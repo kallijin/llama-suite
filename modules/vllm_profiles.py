@@ -11,6 +11,7 @@ DEFAULT_WRAPPER_PATH = "~/bin/vllm-rocm"
 DEFAULT_VLLM_CACHE_ROOT = "/mnt/data_main/ai-cache/vllm"
 DEFAULT_HF_HOME = "/mnt/data_main/ai-cache/huggingface"
 DEFAULT_TRANSFORMERS_CACHE = "/mnt/data_main/ai-cache/huggingface"
+FUTURE_LAUNCH_PRESET_ID = "smoke-qwen-0.5b"
 
 
 @dataclass
@@ -82,6 +83,10 @@ def builtin_vllm_profile_presets() -> list[VllmProfilePreset]:
             profile=smoke_vllm_profile(),
         ),
     ]
+
+
+def future_launch_preset_id() -> str:
+    return FUTURE_LAUNCH_PRESET_ID
 
 
 def vllm_profile_from_dict(data: dict[str, Any]) -> VllmProfile:

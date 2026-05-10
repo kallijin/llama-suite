@@ -39,7 +39,7 @@ from modules.runner_tmux import get_running_model, get_running_servers, run_scri
 from modules.script_builder import command_preview, generate_script, parse_generated_script, resolve_ctx_size
 from modules.system_info import collect_system_info
 from modules.vllm_doctor import format_vllm_doctor_report, run_vllm_doctor
-from modules.vllm_profiles import build_vllm_command, builtin_vllm_profile_presets, cache_env_preview_lines, host_guidance_lines, run_vllm_preflight, validate_vllm_profile
+from modules.vllm_profiles import build_vllm_command, builtin_vllm_profile_presets, cache_env_preview_lines, future_launch_preset_id, host_guidance_lines, run_vllm_preflight, validate_vllm_profile
 
 
 # ─── 설정 ──────────────────────────────────────────────
@@ -1078,6 +1078,9 @@ def vllm_profile_preview_text(port_check: Any = None) -> str:
     lines = [
         "vLLM profile preview (read-only)",
         "이 화면은 vLLM 전용 profile 미리보기입니다. llama.cpp 파라미터와 별개입니다.",
+        "",
+        f"Selected for future launch: {future_launch_preset_id()}",
+        "Read-only placeholder only. 실제 launch 선택 상태는 아직 구현하지 않았습니다.",
         "",
         "Available built-in vLLM profiles:",
     ]
