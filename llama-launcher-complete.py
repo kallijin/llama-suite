@@ -1140,11 +1140,13 @@ def show_vllm_profile_menu(profile: Any) -> Any:
     if choice == "3":
         return edit_vllm_custom_profile(profile)
     if choice == "4":
-        result = save_vllm_profile_draft(profile)
+        profile_id = prompt_vllm_profile_id()
+        result = save_vllm_profile_draft(profile, profile_id=profile_id)
         print_vllm_profile_store_result(result)
         return profile
     if choice == "5":
-        result = load_vllm_profile_draft()
+        profile_id = prompt_vllm_profile_id()
+        result = load_vllm_profile_draft(profile_id=profile_id)
         print_vllm_profile_store_result(result)
         return result.profile if result.ok and result.profile else profile
     if choice == "6":
@@ -1194,6 +1196,11 @@ def edit_vllm_custom_profile(profile: Any) -> Any:
     for line in vllm_custom_profile_text(updated).splitlines():
         print(f"  {line}" if line else "")
     return updated
+
+
+def prompt_vllm_profile_id(default: str = "custom-draft") -> str:
+    raw = input(f"  profile id [{default}] > ").strip()
+    return raw or default
 
 
 def print_vllm_profile_store_result(result: Any) -> None:
