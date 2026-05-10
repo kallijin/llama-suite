@@ -40,6 +40,7 @@ from modules.script_builder import command_preview, generate_script, parse_gener
 from modules.system_info import collect_system_info
 from modules.vllm_doctor import format_vllm_doctor_report, run_vllm_doctor
 from modules.vllm_profiles import build_vllm_command, builtin_vllm_profile_presets, cache_env_preview_lines, future_launch_preset_id, host_guidance_lines, launch_confirmation_guidance_lines, run_vllm_preflight, validate_vllm_profile
+from modules.vllm_runner import launch_vllm_smoke_once
 
 
 # ─── 설정 ──────────────────────────────────────────────
@@ -1113,6 +1114,62 @@ def show_vllm_profile_preview() -> None:
         print(f"  {line}" if line else "")
 
 
+def vllm_smoke_launch_preview_text(port_check: Any = None) -> str:
+    presets = {preset.id: preset for preset in builtin_vllm_profile_presets()}
+    preset = presets[future_launch_preset_id()]
+    lines = [
+        "vLLM smoke launch preview",
+        f"Launch target preset: {preset.id}: {preset.label}",
+        "This action is smoke-preset-only. Custom vLLM profile launch is not implemented.",
+        "",
+        "Launch confirmation guidance:",
+    ]
+    for guidance in launch_confirmation_guidance_lines():
+        if "no launch button" in guidance:
+            continue
+        lines.append(f"- {guidance}")
+    lines.append("")
+    lines.extend(format_vllm_profile_section(f"Preset {preset.id}: {preset.label}", preset.profile, port_check=port_check))
+    lines.extend(["", "Host guidance:"])
+    for guidance in host_guidance_lines():
+        lines.append(f"- {guidance}")
+    return "\n".join(lines)
+
+
+def show_vllm_smoke_launch_once() -> None:
+    print("\n  ── vLLM smoke launch ──")
+    print("  smoke-qwen-0.5b preset만 1회 launch 대상으로 사용합니다.")
+    print("  launch 전 command preview, preflight, confirmation guidance를 다시 표시합니다.\n")
+    for line in vllm_smoke_launch_preview_text().splitlines():
+        print(f"  {line}" if line else "")
+    print("\n  계속하려면 launch 또는 LAUNCH 를 정확히 입력하세요.")
+    confirm = input("  confirmation > ").strip()
+    if confirm.lower() != "launch":
+        result = launch_vllm_smoke_once(confirmed=False)
+        print_vllm_launch_result(result)
+        return
+    result = launch_vllm_smoke_once(confirmed=True)
+    print_vllm_launch_result(result)
+
+
+def print_vllm_launch_result(result: Any) -> None:
+    status = "started" if result.ok else "not started"
+    print(f"\n  vLLM launch result: {status}")
+    print(f"  ok: {result.ok}")
+    print(f"  preset_id: {result.preset_id}")
+    print(f"  pid: {result.pid if result.pid is not None else '-'}")
+    print(f"  run_id: {result.run_id or '-'}")
+    print(f"  log_path: {result.log_path or '-'}")
+    print(f"  host: {result.host or '-'}")
+    print(f"  port: {result.port if result.port is not None else '-'}")
+    if result.command:
+        print("  command: " + " ".join(shlex.quote(part) for part in result.command))
+    if result.messages:
+        print("  messages:")
+        for message in result.messages:
+            print(f"    - {message}")
+
+
 # ─── 메인 루프 ─────────────────────────────────────────
 
 def main() -> None:
@@ -1154,6 +1211,7 @@ def main() -> None:
         print("  [A] 설정 변경 / 현재 설정 저장")
         print("  [K] 파라미터")
         print("  [B] vLLM profile")
+        print("  [Y] vLLM smoke launch")
         print("  [P] 최종 미리보기")
         print("  [O] 1회 실행")
         print("  [G] 새 스크립트 생성")
@@ -1232,6 +1290,11 @@ def main() -> None:
 
         if upper == "B":
             show_vllm_profile_preview()
+            pause()
+            continue
+
+        if upper == "Y":
+            show_vllm_smoke_launch_once()
             pause()
             continue
 

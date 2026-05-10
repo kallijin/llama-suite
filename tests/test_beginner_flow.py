@@ -229,6 +229,7 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("Hermes 설정 변경: 비활성화", completed.stdout)
         self.assertIn("실행 예정 요약", completed.stdout)
         self.assertIn("[B] vLLM profile", completed.stdout)
+        self.assertIn("[Y] vLLM smoke launch", completed.stdout)
         self.assertIn("[V] vLLM doctor", completed.stdout)
         self.assertIn("[A] 설정 변경 / 현재 설정 저장", completed.stdout)
         self.assertNotIn("\n  [W] 현재 설정 저장", completed.stdout)
@@ -635,6 +636,27 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("[PASS] profile validation", text)
         self.assertIn("[PASS] command preview", text)
 
+    def test_vllm_smoke_launch_preview_is_not_read_only_profile_text(self) -> None:
+        launcher = load_launcher_module()
+        from modules.vllm_profiles import VllmPreflightCheck
+
+        text = launcher.vllm_smoke_launch_preview_text(
+            port_check=lambda host, port: VllmPreflightCheck(
+                "port availability",
+                True,
+                f"port {port} is available on {host}",
+            )
+        )
+
+        self.assertIn("vLLM smoke launch preview", text)
+        self.assertIn("Launch target preset: smoke-qwen-0.5b", text)
+        self.assertIn("Command preview / dry-run", text)
+        self.assertIn("Launch preflight:", text)
+        self.assertIn("vLLM may use GPU memory immediately", text)
+        self.assertIn("Qwen/Qwen2.5-0.5B-Instruct", text)
+        self.assertNotIn("read-only registry", text)
+        self.assertNotIn("no launch button", text)
+
     def test_vllm_runner_builds_launch_plan_for_valid_smoke_profile(self) -> None:
         from modules.vllm_profiles import VllmPreflightCheck, smoke_vllm_profile
         from modules.vllm_runner import build_vllm_launch_plan
@@ -732,10 +754,200 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(readiness.plan.preset_id, "../bad preset")
         self.assertEqual(readiness.plan.run_id, "vllm-bad_preset-20260510-190000")
 
-    def test_vllm_runner_scaffold_does_not_import_subprocess(self) -> None:
-        source = (ROOT / "modules" / "vllm_runner.py").read_text()
+    def test_vllm_smoke_launch_success_uses_log_redirection_and_new_session(self) -> None:
+        from modules.vllm_profiles import VllmPreflightCheck, smoke_vllm_profile
+        from modules.vllm_runner import launch_vllm_smoke_once
+        from unittest.mock import patch
 
-        self.assertNotIn("subprocess", source)
+        calls: list[dict] = []
+
+        class FakeProcess:
+            pid = 43210
+
+        def fake_popen(command, **kwargs):
+            calls.append({"command": command, "kwargs": kwargs})
+            self.assertIs(kwargs["stdout"], kwargs["stderr"])
+            self.assertFalse(kwargs["stdout"].closed)
+            return FakeProcess()
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            wrapper = root / "vllm-rocm"
+            wrapper.write_text("#!/usr/bin/env bash\nexit 0\n")
+            wrapper.chmod(0o755)
+            profile = smoke_vllm_profile()
+            profile.wrapper_path = str(wrapper)
+            with patch("modules.vllm_runner.smoke_vllm_profile", return_value=profile):
+                result = launch_vllm_smoke_once(
+                    confirmed=True,
+                    timestamp="20260510-191500",
+                    state_root=root / "runs",
+                    port_check=lambda host, port: VllmPreflightCheck(
+                        "port availability",
+                        True,
+                        f"port {port} is available on {host}",
+                    ),
+                    popen_factory=fake_popen,
+                )
+
+        self.assertTrue(result.ok, result.messages)
+        self.assertEqual(result.pid, 43210)
+        self.assertEqual(result.run_id, "vllm-smoke-qwen-0.5b-20260510-191500")
+        self.assertTrue(str(result.log_path).endswith("vllm-smoke-qwen-0.5b-20260510-191500.log"))
+        self.assertEqual(result.host, "127.0.0.1")
+        self.assertEqual(result.port, 8000)
+        self.assertEqual(result.preset_id, "smoke-qwen-0.5b")
+        self.assertIn("Qwen/Qwen2.5-0.5B-Instruct", result.command)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["kwargs"]["start_new_session"], True)
+        self.assertEqual(calls[0]["kwargs"]["env"]["VLLM_CACHE_ROOT"], "/mnt/data_main/ai-cache/vllm")
+
+    def test_vllm_smoke_launch_refuses_without_confirmation(self) -> None:
+        from modules.vllm_runner import launch_vllm_smoke_once
+
+        def fake_popen(_command, **_kwargs):
+            raise AssertionError("Popen should not be called")
+
+        result = launch_vllm_smoke_once(confirmed=False, popen_factory=fake_popen)
+
+        self.assertFalse(result.ok)
+        self.assertIsNone(result.pid)
+        self.assertEqual(result.command, [])
+        self.assertIn("explicit confirmation is required", "\n".join(result.messages))
+
+    def test_vllm_smoke_launch_refuses_invalid_profile(self) -> None:
+        from modules.vllm_profiles import VllmProfile
+        from modules.vllm_runner import launch_vllm_smoke_once
+        from unittest.mock import patch
+
+        with patch("modules.vllm_runner.smoke_vllm_profile", return_value=VllmProfile(model="")):
+            result = launch_vllm_smoke_once(confirmed=True)
+
+        self.assertFalse(result.ok)
+        self.assertIsNone(result.pid)
+        self.assertIn("model should not be empty", result.messages)
+
+    def test_vllm_smoke_launch_refuses_preflight_failure(self) -> None:
+        from modules.vllm_profiles import VllmPreflightCheck, smoke_vllm_profile
+        from modules.vllm_runner import launch_vllm_smoke_once
+        from unittest.mock import patch
+
+        with TemporaryDirectory() as directory:
+            wrapper = Path(directory) / "vllm-rocm"
+            wrapper.write_text("#!/usr/bin/env bash\nexit 0\n")
+            wrapper.chmod(0o755)
+            profile = smoke_vllm_profile()
+            profile.wrapper_path = str(wrapper)
+            with patch("modules.vllm_runner.smoke_vllm_profile", return_value=profile):
+                result = launch_vllm_smoke_once(
+                    confirmed=True,
+                    port_check=lambda host, port: VllmPreflightCheck(
+                        "port availability",
+                        False,
+                        f"port {port} is not available on {host}",
+                    ),
+                )
+
+        self.assertFalse(result.ok)
+        self.assertIsNone(result.pid)
+        self.assertTrue(any("port availability:" in message for message in result.messages))
+
+    def test_vllm_smoke_launch_returns_failure_when_log_directory_cannot_be_created(self) -> None:
+        from modules.vllm_profiles import VllmPreflightCheck, smoke_vllm_profile
+        from modules.vllm_runner import launch_vllm_smoke_once
+        from unittest.mock import patch
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            wrapper = root / "vllm-rocm"
+            wrapper.write_text("#!/usr/bin/env bash\nexit 0\n")
+            wrapper.chmod(0o755)
+            blocked_root = root / "blocked"
+            blocked_root.write_text("not a directory")
+            profile = smoke_vllm_profile()
+            profile.wrapper_path = str(wrapper)
+            with patch("modules.vllm_runner.smoke_vllm_profile", return_value=profile):
+                result = launch_vllm_smoke_once(
+                    confirmed=True,
+                    state_root=blocked_root,
+                    port_check=lambda host, port: VllmPreflightCheck(
+                        "port availability",
+                        True,
+                        f"port {port} is available on {host}",
+                    ),
+                )
+
+        self.assertFalse(result.ok)
+        self.assertIsNone(result.pid)
+        self.assertTrue(any("launch failed:" in message for message in result.messages))
+
+    def test_vllm_smoke_launch_returns_failure_when_popen_raises(self) -> None:
+        from modules.vllm_profiles import VllmPreflightCheck, smoke_vllm_profile
+        from modules.vllm_runner import launch_vllm_smoke_once
+        from unittest.mock import patch
+
+        def fake_popen(_command, **_kwargs):
+            raise OSError("boom")
+
+        with TemporaryDirectory() as directory:
+            wrapper = Path(directory) / "vllm-rocm"
+            wrapper.write_text("#!/usr/bin/env bash\nexit 0\n")
+            wrapper.chmod(0o755)
+            profile = smoke_vllm_profile()
+            profile.wrapper_path = str(wrapper)
+            with patch("modules.vllm_runner.smoke_vllm_profile", return_value=profile):
+                result = launch_vllm_smoke_once(
+                    confirmed=True,
+                    state_root=directory,
+                    port_check=lambda host, port: VllmPreflightCheck(
+                        "port availability",
+                        True,
+                        f"port {port} is available on {host}",
+                    ),
+                    popen_factory=fake_popen,
+                )
+
+        self.assertFalse(result.ok)
+        self.assertIsNone(result.pid)
+        self.assertTrue(any("boom" in message for message in result.messages))
+
+    def test_vllm_popen_is_confined_to_runner_module(self) -> None:
+        launcher_source = (ROOT / "llama-launcher-complete.py").read_text()
+        runner_source = (ROOT / "modules" / "vllm_runner.py").read_text()
+
+        self.assertNotIn("subprocess", launcher_source)
+        self.assertNotIn("Popen", launcher_source)
+        self.assertIn("subprocess.Popen", runner_source)
+
+    def test_vllm_smoke_launch_tui_requires_launch_confirmation(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_runner import VllmLaunchResult
+        from unittest.mock import Mock, patch
+
+        mocked_launch = Mock(
+            return_value=VllmLaunchResult(
+                ok=False,
+                pid=None,
+                run_id=None,
+                log_path=None,
+                host=None,
+                port=None,
+                preset_id="smoke-qwen-0.5b",
+                command=[],
+                messages=["launch cancelled: explicit confirmation is required"],
+            )
+        )
+        stdout = StringIO()
+        with patch.object(launcher, "launch_vllm_smoke_once", mocked_launch), patch("builtins.input", return_value="no"), contextlib.redirect_stdout(stdout):
+            launcher.show_vllm_smoke_launch_once()
+
+        mocked_launch.assert_called_once_with(confirmed=False)
+        text = stdout.getvalue()
+        self.assertIn("vLLM smoke launch", text)
+        self.assertIn("confirmation", text)
+        self.assertIn("not started", text)
 
     def test_script_generation_action_is_unified(self) -> None:
         launcher = load_launcher_module()
