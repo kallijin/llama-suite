@@ -37,6 +37,29 @@ Future modules:
 - `modules/vllm_control.py`: CLI/MCP-facing control surface
 - `modules/control_schema.py`: shared structured result/JSON schema
 
+## Backend-aware action ownership
+
+Common-looking actions must have a backend owner.
+
+Current llama.cpp-owned actions:
+
+- `[K] llama.cpp parameters`
+- `[P] llama.cpp final preview`
+- `[O] llama.cpp one-shot run`
+- `[G] llama.cpp script generation`
+
+Current vLLM-owned actions:
+
+- `[B] vLLM profile`
+- `[Y] vLLM smoke launch`
+- `[Z] vLLM smoke status/log/stop`
+- `[W] vLLM API smoke`
+- `[V] vLLM doctor`
+
+Future shared actions should be backend-aware and dispatch to backend-specific handlers.
+Do not mix llama.cpp profile/config fields with vLLM profile/config fields.
+The UI shell may share menu patterns, but backend parameters and command generation must remain separate.
+
 ## 방향 경고
 
 - llama-suite는 Ollama나 LM Studio 같은 범용 런처의 자리를 바라보지 않는다.
