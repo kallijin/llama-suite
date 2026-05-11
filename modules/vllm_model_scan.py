@@ -102,9 +102,11 @@ def scan_vllm_model_candidates(
             messages.append(f"model root does not exist: {root}")
             continue
 
-        paths = [root] if root.is_dir() else []
         if root.is_dir():
+            paths = [root] if _has_local_model_marker(root) else []
             paths.extend(path for path in sorted(root.iterdir()) if path.is_dir())
+        else:
+            paths = []
 
         for path in paths:
             candidate = inspect_vllm_model_directory(path)
@@ -262,6 +264,10 @@ def _read_config_json(path: Path) -> dict[str, Any]:
 
 def _has_tokenizer_file(path: Path) -> bool:
     return any((path / name).is_file() for name in TOKENIZER_FILES)
+
+
+def _has_local_model_marker(path: Path) -> bool:
+    return (path / "config.json").is_file() or _has_tokenizer_file(path) or _has_weight_file(path)
 
 
 def _has_safetensors_file(path: Path) -> bool:

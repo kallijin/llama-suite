@@ -42,7 +42,7 @@ from modules.script_builder import command_preview, generate_script, parse_gener
 from modules.system_info import collect_system_info
 from modules.vllm_api_probe import run_vllm_api_smoke
 from modules.vllm_doctor import format_vllm_doctor_report, run_vllm_doctor
-from modules.vllm_profile_store import default_vllm_profile_path, delete_vllm_profile_draft, format_vllm_profile_draft_json, list_vllm_profile_drafts, load_selected_vllm_profile_draft, load_vllm_profile_draft, load_vllm_profile_json_file, save_selected_vllm_profile_id, save_vllm_profile_draft, validate_vllm_profile_json_file
+from modules.vllm_profile_store import default_vllm_profile_path, delete_vllm_profile_draft, format_vllm_profile_draft_json, list_vllm_profile_drafts, load_selected_vllm_profile_draft, load_vllm_profile_draft, load_vllm_profile_json_file, save_selected_vllm_profile_id, save_verified_gemma4_26b_awq_beta_profile, save_vllm_profile_draft, validate_vllm_profile_json_file
 from modules.vllm_profiles import builtin_vllm_profile_presets, default_vllm_profile, editable_vllm_profile_field_specs, editable_vllm_profile_fields, format_vllm_profile_report, future_launch_preset_id, host_guidance_lines, large_model_guidance_lines, launch_confirmation_guidance_lines, update_vllm_profile_field
 from modules.vllm_runner import check_vllm_run_status, latest_vllm_run_record, latest_vllm_run_summary, launch_vllm_profile_once, launch_vllm_smoke_once, read_vllm_run_log, read_vllm_run_record, stop_vllm_run
 from modules.vllm_script_builder import build_vllm_script_preview, save_vllm_script
@@ -653,14 +653,27 @@ def print_recent_vllm_run_summary(summary: Any = None) -> None:
 
 
 def selected_vllm_profile_summary_line(profile: Any, profile_id: str = "custom-draft") -> str:
+    served_name = served_model_name_from_vllm_profile(profile, fallback=profile_id)
     model = getattr(profile, "model", "") or "(empty model)"
     host = getattr(profile, "host", "") or "-"
     port = getattr(profile, "port", "") or "-"
-    return f"  Selected vLLM profile: {profile_id} / {model} / http://{host}:{port}/v1"
+    return f"  Selected vLLM profile: {served_name} / {model} / http://{host}:{port}/v1"
 
 
 def print_selected_vllm_profile_summary(profile: Any, profile_id: str = "custom-draft") -> None:
     print(selected_vllm_profile_summary_line(profile, profile_id))
+
+
+def served_model_name_from_vllm_profile(profile: Any, *, fallback: str) -> str:
+    extra_args = str(getattr(profile, "extra_args", "") or "")
+    try:
+        parts = shlex.split(extra_args)
+    except ValueError:
+        return fallback
+    for index, part in enumerate(parts):
+        if part == "--served-model-name" and index + 1 < len(parts):
+            return parts[index + 1]
+    return fallback
 
 
 def print_backend_workflow_bridge_hints() -> None:
@@ -886,6 +899,68 @@ def show_hermes_integration_menu(cfg: dict[str, Any]) -> dict[str, Any]:
 
     print("  취소했습니다.")
     return cfg
+
+
+def show_hermes_vllm_sync_menu(cfg: dict[str, Any]) -> dict[str, Any]:
+    print("\n  ── Hermes vLLM sync ──")
+    print("  latest vLLM run이 READY일 때만 Hermes endpoint 동기화를 준비합니다.")
+    print("  [1] preview")
+    print("  [2] write")
+    choice = input("  선택 > ").strip()
+    if choice not in {"1", "2"}:
+        print("  취소했습니다.")
+        return cfg
+
+    config_path = registered_paths(cfg).get("hermes_config")
+    plan = build_hermes_vllm_sync_plan(config_path)
+    for line in format_hermes_vllm_sync_plan(plan):
+        print(f"  {line}" if line else "")
+    if choice == "1":
+        print("  preview only. config was not modified.")
+        return cfg
+
+    print("  계속하려면 write 또는 WRITE 를 정확히 입력하세요.")
+    confirm = input("  confirmation > ").strip()
+    result = write_hermes_vllm_sync_plan(plan, confirmed=(confirm.lower() == "write"))
+    print("\n  Hermes vLLM sync write result:")
+    print(f"  ok: {result.ok}")
+    if result.config_path:
+        print(f"  config_path: {result.config_path}")
+    if result.backup_path:
+        print(f"  backup_path: {result.backup_path}")
+    for message in result.messages:
+        print(f"  - {message}")
+    return cfg
+
+
+def show_hermes_vllm_smoke() -> None:
+    plan = build_hermes_vllm_smoke_plan()
+    print("\n  Hermes latest vLLM smoke preview:")
+    print(f"  ok: {plan.ok}")
+    if plan.base_url:
+        print(f"  base_url: {plan.base_url}")
+    if plan.model_id:
+        print(f"  model: {plan.model_id}")
+    if plan.command:
+        print("  command: " + " ".join(shlex.quote(part) for part in plan.command))
+    for message in plan.messages:
+        print(f"  - {message}")
+    print("  계속하려면 smoke 또는 SMOKE 를 정확히 입력하세요.")
+    confirm = input("  confirmation > ").strip()
+    result = run_hermes_vllm_smoke(confirmed=(confirm.lower() == "smoke"))
+    print("\n  Hermes latest vLLM smoke result:")
+    print(f"  ok: {result.ok}")
+    print(f"  returncode: {result.returncode if result.returncode is not None else '-'}")
+    if result.stdout:
+        print("  stdout:")
+        for line in result.stdout.splitlines()[:20]:
+            print(f"    {line}")
+    if result.stderr:
+        print("  stderr:")
+        for line in result.stderr.splitlines()[:20]:
+            print(f"    {line}")
+    for message in result.messages:
+        print(f"  - {message}")
 
 
 def final_preview_text(draft: dict[str, Any]) -> str:
@@ -1488,6 +1563,18 @@ def print_vllm_profile_store_result(result: Any) -> None:
         print(f"  - {message}")
 
 
+def print_vllm_profile_selection_result(result: Any) -> None:
+    print("\n  vLLM beta profile selection:")
+    print(f"  ok: {result.ok}")
+    print(f"  profile_id: {result.profile_id}")
+    print(f"  profile_path: {result.profile_path or '-'}")
+    print(f"  selected_state_path: {result.selected_state_path or '-'}")
+    if result.profile:
+        print(selected_vllm_profile_summary_line(result.profile, result.profile_id))
+    for message in result.messages:
+        print(f"  - {message}")
+
+
 def print_vllm_selected_profile_result(result: Any) -> None:
     print("\n  vLLM selected profile state:")
     print(f"  ok: {result.ok}")
@@ -1597,6 +1684,13 @@ def show_vllm_custom_launch(profile: Any, profile_id: str = "custom-draft") -> N
         profile_path=default_vllm_profile_path(profile_id),
     )
     print_vllm_launch_result(result)
+
+
+def show_vllm_selected_profile_preview(profile: Any, profile_id: str) -> None:
+    print("\n  ── selected vLLM profile preview / preflight ──")
+    print(selected_vllm_profile_summary_line(profile, profile_id))
+    for line in vllm_custom_profile_text(profile).splitlines():
+        print(f"  {line}" if line else "")
 
 
 def vllm_smoke_launch_preview_text(port_check: Any = None) -> str:
@@ -1852,21 +1946,35 @@ def choose_llama_cpp_menu_action(
     }.get(choice, "")
 
 
-def choose_vllm_menu_action() -> str:
+def choose_vllm_menu_action(profile: Any = None, profile_id: str = "custom-draft", run_summary: Any = None) -> str:
     print("\n  ── vLLM workspace ──")
-    print("  이 메뉴는 vLLM profile과 OpenAI-compatible server 흐름 전용입니다.")
-    print("  [1] selected vLLM profile workspace / launch / preview / scripts")
-    print("  [2] vLLM API smoke")
-    print("  [3] vLLM smoke launch")
-    print("  [4] vLLM latest run status/log/stop")
-    print("  [5] vLLM doctor")
+    print("  이 메뉴는 vLLM beta launch path와 OpenAI-compatible server 흐름 전용입니다.")
+    if profile is not None:
+        print("\n  Selected vLLM profile:")
+        print(selected_vllm_profile_summary_line(profile, profile_id))
+    print("\n  Recent vLLM run:")
+    print(recent_vllm_run_summary_line(run_summary))
+    print("\n  [1] verified Gemma4 26B AWQ beta profile 선택/저장")
+    print("  [2] selected profile preview / preflight")
+    print("  [3] launch selected vLLM profile")
+    print("  [4] latest run status / log / stop")
+    print("  [5] vLLM API smoke")
+    print("  [6] Hermes vLLM sync preview/write")
+    print("  [7] Hermes vLLM smoke")
+    print("  [8] advanced profile workspace / scripts / JSON")
+    print("  [9] vLLM doctor")
+    print("  [R] return")
     choice = input("  선택 > ").strip()
     return {
-        "1": "B",
-        "2": "W",
-        "3": "Y",
+        "1": "VLLM_SELECT_GEMMA4_BETA",
+        "2": "VLLM_SELECTED_PREVIEW",
+        "3": "VLLM_SELECTED_LAUNCH",
         "4": "Z",
-        "5": "VLLM_DOCTOR",
+        "5": "W",
+        "6": "HERMES_VLLM_SYNC",
+        "7": "HERMES_VLLM_SMOKE",
+        "8": "B",
+        "9": "VLLM_DOCTOR",
     }.get(choice, "")
 
 
@@ -1938,7 +2046,7 @@ def main() -> None:
                 continue
 
         if upper == "V":
-            upper = choose_vllm_menu_action()
+            upper = choose_vllm_menu_action(vllm_profile_draft, vllm_profile_draft_id, vllm_run_summary)
             if not upper:
                 print("  취소했습니다.")
                 pause()
@@ -2006,6 +2114,39 @@ def main() -> None:
             pause()
             continue
 
+        if upper == "VLLM_SELECT_GEMMA4_BETA":
+            result = save_verified_gemma4_26b_awq_beta_profile()
+            print_vllm_profile_selection_result(result)
+            if result.ok and result.profile:
+                vllm_profile_draft = result.profile
+                vllm_profile_draft_id = result.profile_id
+            pause()
+            continue
+
+        if upper == "VLLM_SELECTED_PREVIEW":
+            selected = load_selected_vllm_profile_draft()
+            if selected.ok and selected.profile and selected.profile_id:
+                vllm_profile_draft = selected.profile
+                vllm_profile_draft_id = selected.profile_id
+            else:
+                print_vllm_profile_store_result(selected)
+            show_vllm_selected_profile_preview(vllm_profile_draft, vllm_profile_draft_id)
+            pause()
+            continue
+
+        if upper == "VLLM_SELECTED_LAUNCH":
+            selected = load_selected_vllm_profile_draft()
+            if selected.ok and selected.profile and selected.profile_id:
+                vllm_profile_draft = selected.profile
+                vllm_profile_draft_id = selected.profile_id
+            else:
+                print_vllm_profile_store_result(selected)
+                pause()
+                continue
+            show_vllm_custom_launch(vllm_profile_draft, vllm_profile_draft_id)
+            pause()
+            continue
+
         if upper == "W":
             show_vllm_api_smoke()
             pause()
@@ -2018,6 +2159,16 @@ def main() -> None:
 
         if upper == "Z":
             show_vllm_smoke_manage()
+            pause()
+            continue
+
+        if upper == "HERMES_VLLM_SYNC":
+            cfg = show_hermes_vllm_sync_menu(cfg)
+            pause()
+            continue
+
+        if upper == "HERMES_VLLM_SMOKE":
+            show_hermes_vllm_smoke()
             pause()
             continue
 

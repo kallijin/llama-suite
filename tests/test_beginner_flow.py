@@ -310,7 +310,7 @@ class BeginnerFlowTests(unittest.TestCase):
             load_action = launcher.choose_llama_cpp_menu_action({}, {}, None)
         with patch("builtins.input", side_effect=["4"]), contextlib.redirect_stdout(stdout):
             llama_action = launcher.choose_llama_cpp_menu_action()
-        with patch("builtins.input", side_effect=["5"]), contextlib.redirect_stdout(stdout):
+        with patch("builtins.input", side_effect=["9"]), contextlib.redirect_stdout(stdout):
             vllm_action = launcher.choose_vllm_menu_action()
 
         self.assertEqual(load_action, "LOAD")
@@ -324,9 +324,16 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("[4] llama.cpp 파라미터", output)
         self.assertIn("[8] llama.cpp 스크립트 관리", output)
         self.assertIn("vLLM workspace", output)
-        self.assertIn("vLLM profile과 OpenAI-compatible server 흐름 전용", output)
-        self.assertIn("[1] selected vLLM profile workspace / launch / preview / scripts", output)
-        self.assertIn("[5] vLLM doctor", output)
+        self.assertIn("vLLM beta launch path", output)
+        self.assertIn("[1] verified Gemma4 26B AWQ beta profile 선택/저장", output)
+        self.assertIn("[2] selected profile preview / preflight", output)
+        self.assertIn("[3] launch selected vLLM profile", output)
+        self.assertIn("[4] latest run status / log / stop", output)
+        self.assertIn("[5] vLLM API smoke", output)
+        self.assertIn("[6] Hermes vLLM sync preview/write", output)
+        self.assertIn("[7] Hermes vLLM smoke", output)
+        self.assertIn("[8] advanced profile workspace / scripts / JSON", output)
+        self.assertIn("[9] vLLM doctor", output)
 
     def test_main_script_management_is_labeled_llama_cpp_only(self) -> None:
         launcher = load_launcher_module()
@@ -447,6 +454,43 @@ class BeginnerFlowTests(unittest.TestCase):
             line,
             "  Selected vLLM profile: tailscale-qwen / Qwen/Qwen2.5-0.5B-Instruct / http://100.64.1.2:8010/v1",
         )
+
+    def test_selected_vllm_profile_summary_uses_served_model_name(self) -> None:
+        launcher = load_launcher_module()
+        from modules.vllm_profiles import VERIFIED_GEMMA4_26B_AWQ_MODEL_PATH, verified_gemma4_26b_awq_vllm_profile
+
+        line = launcher.selected_vllm_profile_summary_line(
+            verified_gemma4_26b_awq_vllm_profile(),
+            "verified-gemma4-26b-awq-auto",
+        )
+
+        self.assertIn("gemma4-26b-awq-auto", line)
+        self.assertIn(VERIFIED_GEMMA4_26B_AWQ_MODEL_PATH, line)
+        self.assertIn("http://127.0.0.1:8000/v1", line)
+
+    def test_vllm_workspace_shows_selected_profile_and_latest_run(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profiles import VERIFIED_GEMMA4_26B_AWQ_MODEL_PATH, verified_gemma4_26b_awq_vllm_profile
+        from modules.vllm_runner import VllmLatestRunSummary
+        from unittest.mock import patch
+
+        stdout = StringIO()
+        with patch("builtins.input", side_effect=["R"]), contextlib.redirect_stdout(stdout):
+            action = launcher.choose_vllm_menu_action(
+                verified_gemma4_26b_awq_vllm_profile(),
+                "gemma4-26b-awq-auto",
+                VllmLatestRunSummary(True, "gemma4-26b-awq-auto", VERIFIED_GEMMA4_26B_AWQ_MODEL_PATH, "http://127.0.0.1:8000/v1", "READY", []),
+            )
+
+        output = stdout.getvalue()
+        self.assertEqual(action, "")
+        self.assertIn("Selected vLLM profile:", output)
+        self.assertIn("gemma4-26b-awq-auto", output)
+        self.assertIn(VERIFIED_GEMMA4_26B_AWQ_MODEL_PATH, output)
+        self.assertIn("Recent vLLM run:", output)
+        self.assertIn("READY", output)
 
     def test_vllm_api_smoke_get_models_and_chat_success(self) -> None:
         from modules.vllm_api_probe import run_vllm_api_smoke
@@ -2557,6 +2601,25 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("Verified Gemma4 26B AWQ auto", stdout.getvalue())
         self.assertIn("draft-from-verified-gemma4-26b-awq-auto.json", stdout.getvalue())
 
+    def test_verified_gemma4_beta_profile_selection_saves_selected_profile_id(self) -> None:
+        from modules.vllm_profile_store import load_selected_vllm_profile_id, load_vllm_profile_draft, save_verified_gemma4_26b_awq_beta_profile
+        from modules.vllm_profiles import VERIFIED_GEMMA4_26B_AWQ_MODEL_PATH
+
+        with TemporaryDirectory() as directory:
+            result = save_verified_gemma4_26b_awq_beta_profile(store_root=directory)
+            selected = load_selected_vllm_profile_id(store_root=directory)
+            loaded = load_vllm_profile_draft(profile_id="gemma4-26b-awq-auto", store_root=directory)
+
+        self.assertTrue(result.ok, result.messages)
+        self.assertEqual(result.profile_id, "gemma4-26b-awq-auto")
+        self.assertTrue(selected.ok, selected.messages)
+        self.assertEqual(selected.profile_id, "gemma4-26b-awq-auto")
+        self.assertTrue(loaded.ok, loaded.messages)
+        self.assertIsNotNone(loaded.profile)
+        assert loaded.profile is not None
+        self.assertEqual(loaded.profile.model, VERIFIED_GEMMA4_26B_AWQ_MODEL_PATH)
+        self.assertIn("--served-model-name gemma4-26b-awq-auto", loaded.profile.extra_args)
+
     def test_vllm_profile_menu_delete_cancel_does_not_call_delete(self) -> None:
         launcher = load_launcher_module()
         from io import StringIO
@@ -2792,6 +2855,25 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertIsNone(result.pid)
         self.assertEqual(result.preset_id, "custom-draft")
+        self.assertIn("explicit confirmation is required", "\n".join(result.messages))
+
+    def test_vllm_verified_beta_profile_launch_requires_confirmation(self) -> None:
+        from modules.vllm_profiles import verified_gemma4_26b_awq_vllm_profile
+        from modules.vllm_runner import launch_vllm_profile_once
+
+        def fake_popen(_command, **_kwargs):
+            raise AssertionError("Popen should not be called")
+
+        result = launch_vllm_profile_once(
+            verified_gemma4_26b_awq_vllm_profile(),
+            confirmed=False,
+            preset_id="gemma4-26b-awq-auto",
+            popen_factory=fake_popen,
+        )
+
+        self.assertFalse(result.ok)
+        self.assertIsNone(result.pid)
+        self.assertEqual(result.preset_id, "gemma4-26b-awq-auto")
         self.assertIn("explicit confirmation is required", "\n".join(result.messages))
 
     def test_vllm_custom_profile_launch_uses_runner_and_run_record(self) -> None:

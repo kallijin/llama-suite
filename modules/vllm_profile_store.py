@@ -5,7 +5,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from modules.vllm_profiles import VllmProfile, validate_vllm_profile
+from modules.vllm_profiles import (
+    VERIFIED_GEMMA4_26B_AWQ_SERVED_MODEL,
+    VllmProfile,
+    validate_vllm_profile,
+    verified_gemma4_26b_awq_vllm_profile,
+)
 
 
 DEFAULT_VLLM_PROFILE_STORE_ROOT = "~/.local/state/llama-suite/profiles/vllm"
@@ -43,6 +48,16 @@ class VllmSelectedProfileResult:
     ok: bool
     profile_id: str | None
     state_path: str
+    messages: list[str]
+
+
+@dataclass(frozen=True)
+class VllmProfileSelectionResult:
+    ok: bool
+    profile: VllmProfile | None
+    profile_id: str
+    profile_path: str | None
+    selected_state_path: str | None
     messages: list[str]
 
 
@@ -155,6 +170,23 @@ def save_selected_vllm_profile_id(
     except Exception as exc:
         return VllmSelectedProfileResult(False, profile_id, state_path, [f"selected vLLM profile save failed: {exc}"])
     return VllmSelectedProfileResult(True, profile_id, state_path, [f"selected vLLM profile saved: {profile_id}"])
+
+
+def save_verified_gemma4_26b_awq_beta_profile(
+    *,
+    store_root: str | Path | None = None,
+) -> VllmProfileSelectionResult:
+    profile_id = VERIFIED_GEMMA4_26B_AWQ_SERVED_MODEL
+    profile = verified_gemma4_26b_awq_vllm_profile()
+    saved = save_vllm_profile_draft(profile, profile_id=profile_id, store_root=store_root)
+    messages = list(saved.messages)
+    if not saved.ok:
+        return VllmProfileSelectionResult(False, profile, profile_id, saved.profile_path, None, messages)
+
+    selected = save_selected_vllm_profile_id(profile_id, store_root=store_root)
+    messages.extend(selected.messages)
+    ok = bool(saved.ok and selected.ok)
+    return VllmProfileSelectionResult(ok, profile, profile_id, saved.profile_path, selected.state_path, messages)
 
 
 def load_selected_vllm_profile_id(*, store_root: str | Path | None = None) -> VllmSelectedProfileResult:
