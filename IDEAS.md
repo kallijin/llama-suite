@@ -78,6 +78,17 @@ Future shared actions should be backend-aware and dispatch to backend-specific h
 Do not mix llama.cpp profile/config fields with vLLM profile/config fields.
 The UI shell may share menu patterns, but backend parameters and command generation must remain separate.
 
+## AI-first model registry flow
+
+See `docs/AI_FIRST_CORE_HUMAN_UI.md`.
+
+Core state is AI-first; UI rendering is human-first.
+Do not store human display strings as model identity or readiness state.
+Discovery cache, model registry, selected run draft, and run record are separate records and must not be collapsed into one profile object.
+
+vLLM local model discovery should inspect HF/safetensors directories as structured candidates, then register classified models separately.
+GGUF remains llama.cpp-first; vLLM GGUF is experimental and should not be treated as the normal vLLM path.
+
 ## Backend tuning language
 
 Each backend keeps its own tuning vocabulary. Similar concepts must not be merged into shared fields just because they affect memory, context, or throughput.
