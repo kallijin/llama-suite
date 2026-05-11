@@ -445,7 +445,7 @@ class BeginnerFlowTests(unittest.TestCase):
 
     def test_selected_vllm_profile_summary_line_renders_current_draft(self) -> None:
         launcher = load_launcher_module()
-        from modules.vllm_profiles import VllmProfile
+        from modules.vllm_profiles import VllmPreflightCheck, VllmPreflightReport, VllmProfile
 
         line = launcher.selected_vllm_profile_summary_line(
             VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct", host="100.64.1.2", port=8010),
@@ -1320,7 +1320,7 @@ class BeginnerFlowTests(unittest.TestCase):
 
     def test_vllm_profile_draft_store_saves_and_loads_separate_schema(self) -> None:
         from modules.vllm_profile_store import load_vllm_profile_draft, save_vllm_profile_draft
-        from modules.vllm_profiles import VllmProfile
+        from modules.vllm_profiles import VllmPreflightCheck, VllmPreflightReport, VllmProfile
 
         with TemporaryDirectory() as directory:
             profile = VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct", port="not-a-port")  # type: ignore[arg-type]
@@ -1341,7 +1341,7 @@ class BeginnerFlowTests(unittest.TestCase):
 
     def test_vllm_profile_draft_json_preview_uses_profile_schema(self) -> None:
         from modules.vllm_profile_store import format_vllm_profile_draft_json
-        from modules.vllm_profiles import VllmProfile
+        from modules.vllm_profiles import VllmPreflightCheck, VllmPreflightReport, VllmProfile
 
         text = format_vllm_profile_draft_json(
             VllmProfile(
@@ -2735,6 +2735,55 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("vLLM profile draft backup created", stdout.getvalue())
         self.assertIn("/tmp/qwen.json.20260511-010203.bak", stdout.getvalue())
 
+    def test_vllm_port_conflict_guidance_reports_owner_and_actions(self) -> None:
+        from modules.vllm_profiles import VllmPortOwner, VllmProfile, vllm_port_conflict_guidance_lines
+
+        lines = vllm_port_conflict_guidance_lines(
+            VllmProfile(model="local-model", port=8000),
+            owner_lookup=lambda port: VllmPortOwner(1234, "python -m vllm.entrypoints.openai.api_server", "owner found"),
+        )
+        text = "\n".join(lines)
+
+        self.assertIn("port 8000 is already in use", text)
+        self.assertIn("owner:", text)
+        self.assertIn("PID 1234 / command python -m vllm.entrypoints.openai.api_server", text)
+        self.assertIn("[1] 기존 서버 재사용", text)
+        self.assertIn("[2] latest run status/log 확인", text)
+        self.assertIn("[3] selected profile port 변경", text)
+        self.assertIn("[4] 기존 프로세스 종료 후 launch", text)
+
+    def test_vllm_custom_launch_port_conflict_can_route_to_port_change(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profiles import VllmPreflightCheck, VllmPreflightReport, VllmProfile
+        from unittest.mock import Mock, patch
+
+        profile = VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct")
+        updated_profile = VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct", port=8010)
+        preflight = VllmPreflightReport([VllmPreflightCheck("port availability", False, "port 8000 is already in use")])
+        prompt_mock = Mock(return_value=(updated_profile, "qwen"))
+        launch_mock = Mock()
+        stdout = StringIO()
+
+        with (
+            patch.object(launcher, "run_vllm_preflight", Mock(return_value=preflight)),
+            patch.object(launcher, "prompt_vllm_selected_profile_fields", prompt_mock),
+            patch.object(launcher, "launch_vllm_profile_once", launch_mock),
+            patch("builtins.input", side_effect=["3"]),
+            contextlib.redirect_stdout(stdout),
+        ):
+            returned_profile, returned_id = launcher.show_vllm_custom_launch(profile, "qwen")
+
+        self.assertIs(returned_profile, updated_profile)
+        self.assertEqual(returned_id, "qwen")
+        prompt_mock.assert_called_once_with(profile, "qwen", ["host", "port"])
+        launch_mock.assert_not_called()
+        output = stdout.getvalue()
+        self.assertIn("vLLM port conflict", output)
+        self.assertIn("[1] 기존 서버 재사용", output)
+        self.assertIn("[3] selected profile port 변경", output)
+
     def test_vllm_profile_backup_helper_creates_timestamp_backup(self) -> None:
         from modules.vllm_profile_store import backup_vllm_profile_draft, default_vllm_profile_path, save_vllm_profile_draft
         from modules.vllm_profiles import VllmProfile
@@ -2840,7 +2889,7 @@ class BeginnerFlowTests(unittest.TestCase):
         launcher = load_launcher_module()
         from io import StringIO
         import contextlib
-        from modules.vllm_profiles import VllmProfile
+        from modules.vllm_profiles import VllmPreflightCheck, VllmPreflightReport, VllmProfile
         from unittest.mock import Mock, patch
 
         profile = VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct")
@@ -2863,7 +2912,14 @@ class BeginnerFlowTests(unittest.TestCase):
         )()
         mocked_launch = Mock(return_value=launch_result)
 
-        with patch.object(launcher, "launch_vllm_profile_once", mocked_launch), patch("builtins.input", side_effect=["11", "no"]), contextlib.redirect_stdout(StringIO()):
+        preflight = VllmPreflightReport([VllmPreflightCheck("port availability", True, "port is available")])
+
+        with (
+            patch.object(launcher, "run_vllm_preflight", Mock(return_value=preflight)),
+            patch.object(launcher, "launch_vllm_profile_once", mocked_launch),
+            patch("builtins.input", side_effect=["11", "no"]),
+            contextlib.redirect_stdout(StringIO()),
+        ):
             result = launcher.show_vllm_profile_menu(profile, "large-q4")
 
         mocked_launch.assert_called_once_with(profile, confirmed=False, preset_id="large-q4", profile_path=launcher.default_vllm_profile_path("large-q4"))

@@ -43,7 +43,7 @@ from modules.system_info import collect_system_info
 from modules.vllm_api_probe import run_vllm_api_smoke
 from modules.vllm_doctor import format_vllm_doctor_report, run_vllm_doctor
 from modules.vllm_profile_store import backup_vllm_profile_draft, default_vllm_profile_path, delete_vllm_profile_draft, format_vllm_profile_draft_json, list_vllm_profile_drafts, load_selected_vllm_profile_draft, load_vllm_profile_draft, load_vllm_profile_json_file, save_selected_vllm_profile_id, save_verified_gemma4_26b_awq_beta_profile, save_vllm_profile_draft, validate_vllm_profile_json_file
-from modules.vllm_profiles import add_vllm_extra_arg, build_vllm_command, builtin_vllm_profile_presets, common_vllm_extra_arg_options, default_vllm_profile, editable_vllm_profile_field_specs, editable_vllm_profile_fields, format_vllm_profile_report, future_launch_preset_id, host_guidance_lines, large_model_guidance_lines, launch_confirmation_guidance_lines, remove_vllm_extra_arg_token, tokenize_vllm_extra_args, update_vllm_profile_field, validate_vllm_profile
+from modules.vllm_profiles import add_vllm_extra_arg, build_vllm_command, builtin_vllm_profile_presets, common_vllm_extra_arg_options, default_vllm_profile, editable_vllm_profile_field_specs, editable_vllm_profile_fields, format_vllm_profile_report, future_launch_preset_id, host_guidance_lines, large_model_guidance_lines, launch_confirmation_guidance_lines, remove_vllm_extra_arg_token, run_vllm_preflight, tokenize_vllm_extra_args, update_vllm_profile_field, validate_vllm_profile, vllm_port_conflict_guidance_lines
 from modules.vllm_runner import check_vllm_run_status, latest_vllm_run_record, latest_vllm_run_summary, launch_vllm_profile_once, launch_vllm_smoke_once, read_vllm_run_log, read_vllm_run_record, stop_vllm_run
 from modules.vllm_script_builder import build_vllm_script_preview, save_vllm_script
 
@@ -1417,7 +1417,7 @@ def show_vllm_profile_menu(profile: Any, profile_id: str = "custom-draft", *, re
         print_vllm_script_save_result(result)
         return _vllm_profile_menu_return(profile, profile_id, return_profile_id)
     if choice == "11":
-        show_vllm_custom_launch(profile, profile_id)
+        profile, profile_id = show_vllm_custom_launch(profile, profile_id)
         return _vllm_profile_menu_return(profile, profile_id, return_profile_id)
 
     print("  취소했습니다.")
@@ -1675,12 +1675,15 @@ def print_vllm_script_save_result(result: Any) -> None:
         print(f"  - {message}")
 
 
-def show_vllm_custom_launch(profile: Any, profile_id: str = "custom-draft") -> None:
+def show_vllm_custom_launch(profile: Any, profile_id: str = "custom-draft") -> tuple[Any, str]:
     print("\n  ── vLLM custom profile launch ──")
     print(f"  custom draft를 실제 vLLM launch 대상으로 사용합니다: {profile_id}")
     print("  launch 전 profile preview, command dry-run, preflight를 다시 표시합니다.\n")
     for line in vllm_custom_profile_text(profile).splitlines():
         print(f"  {line}" if line else "")
+    preflight = run_vllm_preflight(profile)
+    if vllm_preflight_has_port_conflict(preflight):
+        return handle_vllm_port_conflict(profile, profile_id)
     print("\n  계속하려면 launch 또는 LAUNCH 를 정확히 입력하세요.")
     confirm = input("  confirmation > ").strip()
     result = launch_vllm_profile_once(
@@ -1690,6 +1693,37 @@ def show_vllm_custom_launch(profile: Any, profile_id: str = "custom-draft") -> N
         profile_path=default_vllm_profile_path(profile_id),
     )
     print_vllm_launch_result(result)
+    return profile, profile_id
+
+
+def vllm_preflight_has_port_conflict(preflight: Any) -> bool:
+    for check in getattr(preflight, "checks", []):
+        if getattr(check, "name", "") != "port availability" or getattr(check, "ok", True):
+            continue
+        message = str(getattr(check, "message", ""))
+        return "already in use" in message or "not available" in message or "Address already in use" in message
+    return False
+
+
+def handle_vllm_port_conflict(profile: Any, profile_id: str) -> tuple[Any, str]:
+    print("\n  ── vLLM port conflict ──")
+    for line in vllm_port_conflict_guidance_lines(profile):
+        print(f"  {line}" if line else "")
+    choice = input("  선택 > ").strip().upper()
+    if choice == "1":
+        print("  기존 서버 재사용을 선택했습니다. READY 여부는 latest status 또는 API smoke로 확인하세요.")
+        return profile, profile_id
+    if choice == "2":
+        show_vllm_smoke_manage()
+        return profile, profile_id
+    if choice == "3":
+        return prompt_vllm_selected_profile_fields(profile, profile_id, ["host", "port"])
+    if choice == "4":
+        print("  기존 프로세스 종료는 latest run status/log/stop에서 명시 확인 후 진행합니다.")
+        show_vllm_smoke_manage()
+        return profile, profile_id
+    print("  취소했습니다.")
+    return profile, profile_id
 
 
 def show_vllm_selected_profile_preview(profile: Any, profile_id: str) -> None:
@@ -1747,8 +1781,7 @@ def show_vllm_selected_profile_settings(profile: Any, profile_id: str = "custom-
         show_vllm_selected_profile_preview(profile, profile_id)
         return profile, profile_id
     if upper == "L":
-        show_vllm_custom_launch(profile, profile_id)
-        return profile, profile_id
+        return show_vllm_custom_launch(profile, profile_id)
     print("  취소했습니다.")
     return profile, profile_id
 
@@ -2346,7 +2379,7 @@ def main() -> None:
                 print_vllm_profile_store_result(selected)
                 pause()
                 continue
-            show_vllm_custom_launch(vllm_profile_draft, vllm_profile_draft_id)
+            vllm_profile_draft, vllm_profile_draft_id = show_vllm_custom_launch(vllm_profile_draft, vllm_profile_draft_id)
             pause()
             continue
 

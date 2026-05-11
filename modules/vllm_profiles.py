@@ -104,6 +104,13 @@ class VllmPreflightCheck:
     message: str
 
 
+@dataclass(frozen=True)
+class VllmPortOwner:
+    pid: int | None
+    command: str
+    message: str
+
+
 @dataclass
 class VllmPreflightReport:
     checks: list[VllmPreflightCheck]
@@ -566,12 +573,111 @@ def _port_preflight_check(host: Any, port: Any) -> VllmPreflightCheck:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.bind((bind_host, port_number))
     except OSError as exc:
+        owner = find_tcp_port_owner(port_number)
         return VllmPreflightCheck(
             "port availability",
             False,
-            f"port {port_number} is not available on {bind_host}: {exc}",
+            f"port {port_number} is already in use on {bind_host}: {exc}; owner: {format_vllm_port_owner(owner)}",
         )
     return VllmPreflightCheck("port availability", True, f"port {port_number} is available on {bind_host}")
+
+
+def vllm_port_conflict_guidance_lines(profile: VllmProfile, owner_lookup: Any = None) -> list[str]:
+    port_number = _try_int(profile.port)
+    if port_number is None:
+        return ["port should be 1-65535"]
+    owner = (owner_lookup or find_tcp_port_owner)(port_number)
+    return [
+        f"port {port_number} is already in use",
+        "",
+        "owner:",
+        format_vllm_port_owner(owner),
+        "",
+        "possible actions:",
+        "[1] 기존 서버 재사용",
+        "[2] latest run status/log 확인",
+        "[3] selected profile port 변경",
+        "[4] 기존 프로세스 종료 후 launch",
+        "[R] return",
+    ]
+
+
+def format_vllm_port_owner(owner: VllmPortOwner | None) -> str:
+    if owner is None:
+        return "unknown"
+    if owner.pid is None:
+        return owner.message or "unknown"
+    command = owner.command or "-"
+    return f"PID {owner.pid} / command {command}"
+
+
+def find_tcp_port_owner(port: int | str) -> VllmPortOwner:
+    port_number = _try_int(port)
+    if port_number is None:
+        return VllmPortOwner(None, "", "port should be 1-65535")
+    try:
+        inodes = _listening_socket_inodes_for_port(port_number)
+    except Exception as exc:
+        return VllmPortOwner(None, "", f"owner lookup failed: {exc}")
+    if not inodes:
+        return VllmPortOwner(None, "", "owner unknown")
+
+    proc_root = Path("/proc")
+    for proc_entry in proc_root.iterdir():
+        if not proc_entry.name.isdigit():
+            continue
+        fd_root = proc_entry / "fd"
+        try:
+            fd_entries = list(fd_root.iterdir())
+        except Exception:
+            continue
+        for fd_entry in fd_entries:
+            try:
+                target = fd_entry.readlink()
+            except Exception:
+                continue
+            target_text = str(target)
+            if target_text.startswith("socket:[") and target_text[8:-1] in inodes:
+                pid = int(proc_entry.name)
+                return VllmPortOwner(pid, _read_process_command(proc_entry), "owner found")
+    return VllmPortOwner(None, "", "owner unknown")
+
+
+def _listening_socket_inodes_for_port(port_number: int) -> set[str]:
+    wanted_port = f"{port_number:04X}"
+    inodes: set[str] = set()
+    for proc_file in (Path("/proc/net/tcp"), Path("/proc/net/tcp6")):
+        try:
+            lines = proc_file.read_text().splitlines()[1:]
+        except Exception:
+            continue
+        for line in lines:
+            parts = line.split()
+            if len(parts) < 10:
+                continue
+            local_address = parts[1]
+            state = parts[3]
+            inode = parts[9]
+            if state != "0A" or ":" not in local_address:
+                continue
+            _address, port_hex = local_address.rsplit(":", 1)
+            if port_hex.upper() == wanted_port:
+                inodes.add(inode)
+    return inodes
+
+
+def _read_process_command(proc_entry: Path) -> str:
+    try:
+        raw = (proc_entry / "cmdline").read_bytes()
+        command = raw.replace(b"\x00", b" ").decode(errors="replace").strip()
+        if command:
+            return command
+    except Exception:
+        pass
+    try:
+        return (proc_entry / "comm").read_text().strip()
+    except Exception:
+        return "-"
 
 
 def _looks_like_tailscale_ip(host: str) -> bool:
