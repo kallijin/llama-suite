@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -58,6 +59,14 @@ class VllmProfileSelectionResult:
     profile_id: str
     profile_path: str | None
     selected_state_path: str | None
+    messages: list[str]
+
+
+@dataclass(frozen=True)
+class VllmProfileBackupResult:
+    ok: bool
+    profile_path: str
+    backup_path: str | None
     messages: list[str]
 
 
@@ -129,6 +138,25 @@ def save_vllm_profile_draft(
     if validation_messages:
         messages.append("saved draft has validation messages: " + "; ".join(validation_messages))
     return VllmProfileStoreResult(True, profile, profile_path, messages, profile_id)
+
+
+def backup_vllm_profile_draft(
+    *,
+    profile_id: str = "custom-draft",
+    store_root: str | Path | None = None,
+    timestamp: str | None = None,
+) -> VllmProfileBackupResult:
+    profile_path = default_vllm_profile_path(profile_id, store_root=store_root)
+    path = Path(profile_path)
+    stamp = timestamp or datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup_path = str(path.with_name(path.name + f".{stamp}.bak"))
+    if not path.exists():
+        return VllmProfileBackupResult(True, profile_path, None, [f"no existing vLLM profile draft to back up: {profile_path}"])
+    try:
+        Path(backup_path).write_text(path.read_text())
+    except Exception as exc:
+        return VllmProfileBackupResult(False, profile_path, backup_path, [f"vLLM profile draft backup failed: {exc}"])
+    return VllmProfileBackupResult(True, profile_path, backup_path, [f"vLLM profile draft backup created: {backup_path}"])
 
 
 def vllm_profile_draft_payload(profile: VllmProfile, *, profile_id: str = "custom-draft") -> dict[str, Any]:

@@ -42,8 +42,8 @@ from modules.script_builder import command_preview, generate_script, parse_gener
 from modules.system_info import collect_system_info
 from modules.vllm_api_probe import run_vllm_api_smoke
 from modules.vllm_doctor import format_vllm_doctor_report, run_vllm_doctor
-from modules.vllm_profile_store import default_vllm_profile_path, delete_vllm_profile_draft, format_vllm_profile_draft_json, list_vllm_profile_drafts, load_selected_vllm_profile_draft, load_vllm_profile_draft, load_vllm_profile_json_file, save_selected_vllm_profile_id, save_verified_gemma4_26b_awq_beta_profile, save_vllm_profile_draft, validate_vllm_profile_json_file
-from modules.vllm_profiles import builtin_vllm_profile_presets, default_vllm_profile, editable_vllm_profile_field_specs, editable_vllm_profile_fields, format_vllm_profile_report, future_launch_preset_id, host_guidance_lines, large_model_guidance_lines, launch_confirmation_guidance_lines, update_vllm_profile_field
+from modules.vllm_profile_store import backup_vllm_profile_draft, default_vllm_profile_path, delete_vllm_profile_draft, format_vllm_profile_draft_json, list_vllm_profile_drafts, load_selected_vllm_profile_draft, load_vllm_profile_draft, load_vllm_profile_json_file, save_selected_vllm_profile_id, save_verified_gemma4_26b_awq_beta_profile, save_vllm_profile_draft, validate_vllm_profile_json_file
+from modules.vllm_profiles import add_vllm_extra_arg, build_vllm_command, builtin_vllm_profile_presets, common_vllm_extra_arg_options, default_vllm_profile, editable_vllm_profile_field_specs, editable_vllm_profile_fields, format_vllm_profile_report, future_launch_preset_id, host_guidance_lines, large_model_guidance_lines, launch_confirmation_guidance_lines, remove_vllm_extra_arg_token, tokenize_vllm_extra_args, update_vllm_profile_field, validate_vllm_profile
 from modules.vllm_runner import check_vllm_run_status, latest_vllm_run_record, latest_vllm_run_summary, launch_vllm_profile_once, launch_vllm_smoke_once, read_vllm_run_log, read_vllm_run_record, stop_vllm_run
 from modules.vllm_script_builder import build_vllm_script_preview, save_vllm_script
 
@@ -660,8 +660,13 @@ def selected_vllm_profile_summary_line(profile: Any, profile_id: str = "custom-d
     return f"  Selected vLLM profile: {served_name} / {model} / http://{host}:{port}/v1"
 
 
+def selected_vllm_profile_path_line(profile_id: str = "custom-draft") -> str:
+    return f"  Selected vLLM profile path: {default_vllm_profile_path(profile_id)}"
+
+
 def print_selected_vllm_profile_summary(profile: Any, profile_id: str = "custom-draft") -> None:
     print(selected_vllm_profile_summary_line(profile, profile_id))
+    print(selected_vllm_profile_path_line(profile_id))
 
 
 def served_model_name_from_vllm_profile(profile: Any, *, fallback: str) -> str:
@@ -1571,6 +1576,7 @@ def print_vllm_profile_selection_result(result: Any) -> None:
     print(f"  selected_state_path: {result.selected_state_path or '-'}")
     if result.profile:
         print(selected_vllm_profile_summary_line(result.profile, result.profile_id))
+        print(selected_vllm_profile_path_line(result.profile_id))
     for message in result.messages:
         print(f"  - {message}")
 
@@ -1689,8 +1695,202 @@ def show_vllm_custom_launch(profile: Any, profile_id: str = "custom-draft") -> N
 def show_vllm_selected_profile_preview(profile: Any, profile_id: str) -> None:
     print("\n  ── selected vLLM profile preview / preflight ──")
     print(selected_vllm_profile_summary_line(profile, profile_id))
+    print(selected_vllm_profile_path_line(profile_id))
     for line in vllm_custom_profile_text(profile).splitlines():
         print(f"  {line}" if line else "")
+
+
+def show_vllm_selected_profile_settings(profile: Any, profile_id: str = "custom-draft") -> tuple[Any, str]:
+    print("\n  ── vLLM selected profile settings ──")
+    print(f"  selected profile id: {profile_id}")
+    print(f"  profile path: {default_vllm_profile_path(profile_id)}")
+    for field_name in selected_vllm_profile_setting_fields():
+        value = getattr(profile, field_name, "")
+        print(f"  {field_name}: {value if str(value) else 'auto' if field_name == 'max_model_len' else '-'}")
+    print("  extra_args tokens:")
+    print_vllm_extra_arg_tokens(profile)
+    print("\n  [1] model path 변경")
+    print("  [2] host / port 변경")
+    print("  [3] memory / context 변경")
+    print("  [4] extra_args raw edit (advanced)")
+    print("  [5] common vLLM option 추가")
+    print("  [6] option token 제거")
+    print("  [7] 저장")
+    print("  [P] preflight")
+    print("  [L] launch")
+    print("  [R] return")
+    choice = input("  선택 > ").strip()
+    upper = choice.upper()
+    if choice == "1":
+        return prompt_vllm_selected_profile_fields(profile, profile_id, ["model"])
+    if choice == "2":
+        return prompt_vllm_selected_profile_fields(profile, profile_id, ["host", "port"])
+    if choice == "3":
+        return prompt_vllm_selected_profile_fields(
+            profile,
+            profile_id,
+            ["dtype", "max_model_len", "gpu_memory_utilization", "tensor_parallel_size", "kv_cache_dtype", "max_num_seqs", "max_num_batched_tokens"],
+        )
+    if choice == "4":
+        updated = edit_vllm_extra_args_raw(profile)
+        return updated, profile_id
+    if choice == "5":
+        updated = add_common_vllm_extra_arg_from_menu(profile)
+        return updated, profile_id
+    if choice == "6":
+        updated = remove_vllm_extra_arg_from_menu(profile)
+        return updated, profile_id
+    if choice == "7":
+        saved_profile = save_vllm_selected_profile_settings(profile, profile_id)
+        return saved_profile, profile_id
+    if upper == "P":
+        show_vllm_selected_profile_preview(profile, profile_id)
+        return profile, profile_id
+    if upper == "L":
+        show_vllm_custom_launch(profile, profile_id)
+        return profile, profile_id
+    print("  취소했습니다.")
+    return profile, profile_id
+
+
+def selected_vllm_profile_setting_fields() -> list[str]:
+    return [
+        "model",
+        "host",
+        "port",
+        "dtype",
+        "max_model_len",
+        "gpu_memory_utilization",
+        "tensor_parallel_size",
+        "kv_cache_dtype",
+        "max_num_seqs",
+        "max_num_batched_tokens",
+        "extra_args",
+    ]
+
+
+def prompt_vllm_selected_profile_fields(profile: Any, profile_id: str, fields: list[str]) -> tuple[Any, str]:
+    updated = profile
+    for field_name in fields:
+        current = getattr(updated, field_name, "")
+        raw_value = input(f"  {field_name} [{current}] > ").strip()
+        if not raw_value:
+            continue
+        updated, messages = update_vllm_profile_field(updated, field_name, raw_value)
+        for message in messages:
+            print(f"  - {message}")
+    print_selected_profile_validation_and_preview(updated)
+    return updated, profile_id
+
+
+def print_vllm_extra_arg_tokens(profile: Any) -> None:
+    tokens, messages = tokenize_vllm_extra_args(profile)
+    if messages:
+        for message in messages:
+            print(f"    - {message}")
+        return
+    if not tokens:
+        print("    - none")
+        return
+    for index, token in enumerate(tokens, 1):
+        print(f"    [{index}] {token}")
+
+
+def edit_vllm_extra_args_raw(profile: Any) -> Any:
+    print("  raw extra_args 입력. shlex parsing에 실패하면 반영하지 않습니다.")
+    print(f"  current: {getattr(profile, 'extra_args', '')}")
+    raw_value = input("  extra_args > ")
+    updated, messages = update_vllm_profile_field(profile, "extra_args", raw_value)
+    _tokens, parse_messages = tokenize_vllm_extra_args(updated)
+    if parse_messages:
+        for message in parse_messages:
+            print(f"  - {message}")
+        print("  저장하지 않았습니다.")
+        return profile
+    for message in messages:
+        print(f"  - {message}")
+    print_selected_profile_validation_and_preview(updated)
+    return updated
+
+
+def add_common_vllm_extra_arg_from_menu(profile: Any) -> Any:
+    options = list(common_vllm_extra_arg_options().items())
+    print("\n  common vLLM options:")
+    for index, (option, requires_value) in enumerate(options, 1):
+        suffix = " VALUE" if requires_value else ""
+        print(f"  [{index}] {option}{suffix}")
+    raw = input("  option number > ").strip()
+    try:
+        selected_index = int(raw)
+    except ValueError:
+        print("  취소했습니다.")
+        return profile
+    if not 1 <= selected_index <= len(options):
+        print("  취소했습니다.")
+        return profile
+    option, requires_value = options[selected_index - 1]
+    value = input(f"  value for {option} > ").strip() if requires_value else ""
+    updated, messages = add_vllm_extra_arg(profile, option, value)
+    for message in messages:
+        print(f"  - {message}")
+    print_vllm_extra_arg_tokens(updated)
+    print_selected_profile_validation_and_preview(updated)
+    return updated
+
+
+def remove_vllm_extra_arg_from_menu(profile: Any) -> Any:
+    print_vllm_extra_arg_tokens(profile)
+    raw = input("  remove token number > ").strip()
+    try:
+        token_index = int(raw)
+    except ValueError:
+        print("  취소했습니다.")
+        return profile
+    updated, messages = remove_vllm_extra_arg_token(profile, token_index)
+    for message in messages:
+        print(f"  - {message}")
+    print_vllm_extra_arg_tokens(updated)
+    print_selected_profile_validation_and_preview(updated)
+    return updated
+
+
+def print_selected_profile_validation_and_preview(profile: Any) -> None:
+    validation_messages = validate_vllm_profile(profile)
+    print("  Validation messages:")
+    if validation_messages:
+        for message in validation_messages:
+            print(f"  - {message}")
+    else:
+        print("  - none")
+    command, command_messages = build_vllm_command(profile)
+    print("  Command preview / dry-run:")
+    if command:
+        print("  " + " ".join(shlex.quote(part) for part in command))
+    else:
+        print("  No runnable command preview:")
+        for message in command_messages:
+            print(f"  - {message}")
+
+
+def save_vllm_selected_profile_settings(profile: Any, profile_id: str) -> Any:
+    print_selected_profile_validation_and_preview(profile)
+    command, command_messages = build_vllm_command(profile)
+    if command is None:
+        print("  저장하지 않았습니다. command preview를 먼저 고쳐야 합니다.")
+        for message in command_messages:
+            print(f"  - {message}")
+        return profile
+    backup = backup_vllm_profile_draft(profile_id=profile_id)
+    for message in backup.messages:
+        print(f"  - {message}")
+    if not backup.ok:
+        print("  저장하지 않았습니다. backup 실패를 먼저 확인하세요.")
+        return profile
+    result = save_vllm_profile_draft(profile, profile_id=profile_id)
+    print_vllm_profile_store_result(result)
+    if result.ok:
+        print_selected_vllm_profile_summary(profile, profile_id)
+    return profile
 
 
 def vllm_smoke_launch_preview_text(port_check: Any = None) -> str:
@@ -1952,6 +2152,7 @@ def choose_vllm_menu_action(profile: Any = None, profile_id: str = "custom-draft
     if profile is not None:
         print("\n  Selected vLLM profile:")
         print(selected_vllm_profile_summary_line(profile, profile_id))
+        print(selected_vllm_profile_path_line(profile_id))
     print("\n  Recent vLLM run:")
     print(recent_vllm_run_summary_line(run_summary))
     print("\n  [1] verified Gemma4 26B AWQ beta profile 선택/저장")
@@ -1963,6 +2164,7 @@ def choose_vllm_menu_action(profile: Any = None, profile_id: str = "custom-draft
     print("  [7] Hermes vLLM smoke")
     print("  [8] advanced profile workspace / scripts / JSON")
     print("  [9] vLLM doctor")
+    print("  [10] selected profile settings")
     print("  [R] return")
     choice = input("  선택 > ").strip()
     return {
@@ -1975,6 +2177,7 @@ def choose_vllm_menu_action(profile: Any = None, profile_id: str = "custom-draft
         "7": "HERMES_VLLM_SMOKE",
         "8": "B",
         "9": "VLLM_DOCTOR",
+        "10": "VLLM_SELECTED_SETTINGS",
     }.get(choice, "")
 
 
@@ -2144,6 +2347,20 @@ def main() -> None:
                 pause()
                 continue
             show_vllm_custom_launch(vllm_profile_draft, vllm_profile_draft_id)
+            pause()
+            continue
+
+        if upper == "VLLM_SELECTED_SETTINGS":
+            selected = load_selected_vllm_profile_draft()
+            if selected.ok and selected.profile and selected.profile_id:
+                vllm_profile_draft = selected.profile
+                vllm_profile_draft_id = selected.profile_id
+            else:
+                print_vllm_profile_store_result(selected)
+            vllm_profile_draft, vllm_profile_draft_id = show_vllm_selected_profile_settings(
+                vllm_profile_draft,
+                vllm_profile_draft_id,
+            )
             pause()
             continue
 

@@ -33,6 +33,18 @@ VLLM_EDITABLE_PROFILE_FIELDS = [
     "transformers_cache",
     "extra_args",
 ]
+VLLM_COMMON_EXTRA_ARG_OPTIONS = {
+    "--served-model-name": True,
+    "--enforce-eager": False,
+    "--enable-auto-tool-choice": False,
+    "--tool-call-parser": True,
+    "--default-chat-template-kwargs": True,
+    "--max-model-len": True,
+    "--gpu-memory-utilization": True,
+    "--tensor-parallel-size": True,
+    "--kv-cache-dtype": True,
+    "--max-num-seqs": True,
+}
 
 
 @dataclass
@@ -168,6 +180,10 @@ def editable_vllm_profile_fields() -> list[str]:
     return list(VLLM_EDITABLE_PROFILE_FIELDS)
 
 
+def common_vllm_extra_arg_options() -> dict[str, bool]:
+    return dict(VLLM_COMMON_EXTRA_ARG_OPTIONS)
+
+
 def editable_vllm_profile_field_specs() -> list[VllmProfileFieldSpec]:
     return [
         VllmProfileFieldSpec("wrapper_path", "Runtime", "Wrapper", "vLLM wrapper executable", "Path to an executable wrapper. Keep default unless you made another wrapper.", "~/bin/vllm-rocm"),
@@ -197,6 +213,51 @@ def update_vllm_profile_field(profile: VllmProfile, field_name: str, raw_value: 
     data[field] = str(raw_value or "").strip()
     updated = VllmProfile(**data)
     return updated, [f"updated vLLM profile field: {field}"]
+
+
+def tokenize_vllm_extra_args(profile: VllmProfile) -> tuple[list[str], list[str]]:
+    try:
+        return shlex.split(str(profile.extra_args or "")), []
+    except ValueError as exc:
+        return [], [f"extra_args could not be parsed: {exc}"]
+
+
+def add_vllm_extra_arg(profile: VllmProfile, option: str, value: Any = "") -> tuple[VllmProfile, list[str]]:
+    option_text = str(option or "").strip()
+    common_options = common_vllm_extra_arg_options()
+    if option_text not in common_options:
+        return profile, [f"unknown common vLLM extra option: {option_text or '-'}"]
+
+    tokens, messages = tokenize_vllm_extra_args(profile)
+    if messages:
+        return profile, messages
+
+    requires_value = common_options[option_text]
+    value_text = str(value or "").strip()
+    if requires_value and not value_text:
+        return profile, [f"{option_text} requires a value"]
+
+    tokens.append(option_text)
+    if requires_value:
+        tokens.append(value_text)
+    return _profile_with_extra_arg_tokens(profile, tokens), [f"added vLLM extra option: {option_text}"]
+
+
+def remove_vllm_extra_arg_token(profile: VllmProfile, token_index: int) -> tuple[VllmProfile, list[str]]:
+    tokens, messages = tokenize_vllm_extra_args(profile)
+    if messages:
+        return profile, messages
+    if token_index < 1 or token_index > len(tokens):
+        return profile, ["extra_args token index is out of range"]
+
+    removed = tokens.pop(token_index - 1)
+    return _profile_with_extra_arg_tokens(profile, tokens), [f"removed vLLM extra token: {removed}"]
+
+
+def _profile_with_extra_arg_tokens(profile: VllmProfile, tokens: list[str]) -> VllmProfile:
+    data = profile.to_dict()
+    data["extra_args"] = shlex.join(tokens)
+    return VllmProfile(**data)
 
 
 def vllm_profile_from_dict(data: dict[str, Any]) -> VllmProfile:

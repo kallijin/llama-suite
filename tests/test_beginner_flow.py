@@ -251,6 +251,8 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("실행 예정 요약", completed.stdout)
         self.assertIn("Recent vLLM run:", completed.stdout)
         self.assertIn("Selected vLLM profile: custom-draft / (empty model) / http://127.0.0.1:8000/v1", completed.stdout)
+        self.assertIn("Selected vLLM profile path:", completed.stdout)
+        self.assertIn("custom-draft.json", completed.stdout)
         self.assertIn("Backend workflow bridge:", completed.stdout)
         self.assertIn("llama.cpp actions: [L] GGUF model selection / params / preview / run / scripts", completed.stdout)
         self.assertIn("vLLM actions: [V] profile / materials / command preview / preflight / launch / scripts / status / API smoke", completed.stdout)
@@ -454,6 +456,7 @@ class BeginnerFlowTests(unittest.TestCase):
             line,
             "  Selected vLLM profile: tailscale-qwen / Qwen/Qwen2.5-0.5B-Instruct / http://100.64.1.2:8010/v1",
         )
+        self.assertIn("tailscale-qwen.json", launcher.selected_vllm_profile_path_line("tailscale-qwen"))
 
     def test_selected_vllm_profile_summary_uses_served_model_name(self) -> None:
         launcher = load_launcher_module()
@@ -487,6 +490,8 @@ class BeginnerFlowTests(unittest.TestCase):
         output = stdout.getvalue()
         self.assertEqual(action, "")
         self.assertIn("Selected vLLM profile:", output)
+        self.assertIn("Selected vLLM profile path:", output)
+        self.assertIn("gemma4-26b-awq-auto.json", output)
         self.assertIn("gemma4-26b-awq-auto", output)
         self.assertIn(VERIFIED_GEMMA4_26B_AWQ_MODEL_PATH, output)
         self.assertIn("Recent vLLM run:", output)
@@ -2600,6 +2605,150 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("--tool-call-parser hermes", profile.extra_args)
         self.assertIn("Verified Gemma4 26B AWQ auto", stdout.getvalue())
         self.assertIn("draft-from-verified-gemma4-26b-awq-auto.json", stdout.getvalue())
+
+    def test_vllm_selected_profile_settings_screen_shows_path_and_tokens(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profiles import VllmProfile
+        from unittest.mock import patch
+
+        profile = VllmProfile(
+            model="/models/gemma4",
+            extra_args="--served-model-name gemma4 --tool-call-parser hermes",
+        )
+        stdout = StringIO()
+
+        with patch("builtins.input", side_effect=["R"]), contextlib.redirect_stdout(stdout):
+            returned_profile, returned_id = launcher.show_vllm_selected_profile_settings(profile, "gemma4")
+
+        output = stdout.getvalue()
+        self.assertIs(returned_profile, profile)
+        self.assertEqual(returned_id, "gemma4")
+        self.assertIn("vLLM selected profile settings", output)
+        self.assertIn("selected profile id: gemma4", output)
+        self.assertIn("profile path:", output)
+        self.assertIn("gemma4.json", output)
+        self.assertIn("[1] --served-model-name", output)
+        self.assertIn("[2] gemma4", output)
+        self.assertIn("[3] --tool-call-parser", output)
+        self.assertIn("[4] hermes", output)
+
+    def test_vllm_selected_profile_settings_can_add_common_option(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profiles import VllmProfile
+        from unittest.mock import patch
+
+        profile = VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct")
+        stdout = StringIO()
+
+        with patch("builtins.input", side_effect=["5", "1", "qwen-alias"]), contextlib.redirect_stdout(stdout):
+            updated, _profile_id = launcher.show_vllm_selected_profile_settings(profile, "qwen")
+
+        self.assertIn("--served-model-name qwen-alias", updated.extra_args)
+        self.assertIn("added vLLM extra option: --served-model-name", stdout.getvalue())
+
+    def test_vllm_selected_profile_settings_can_remove_extra_arg_token(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profiles import VllmProfile
+        from unittest.mock import patch
+
+        profile = VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct", extra_args="--served-model-name qwen --enforce-eager")
+        stdout = StringIO()
+
+        with patch("builtins.input", side_effect=["6", "3"]), contextlib.redirect_stdout(stdout):
+            updated, _profile_id = launcher.show_vllm_selected_profile_settings(profile, "qwen")
+
+        self.assertEqual(updated.extra_args, "--served-model-name qwen")
+        self.assertIn("removed vLLM extra token: --enforce-eager", stdout.getvalue())
+
+    def test_vllm_selected_profile_settings_rejects_bad_raw_extra_args(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profiles import VllmProfile
+        from unittest.mock import patch
+
+        profile = VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct", extra_args="--served-model-name qwen")
+        stdout = StringIO()
+
+        with patch("builtins.input", side_effect=["4", "'unterminated"]), contextlib.redirect_stdout(stdout):
+            updated, _profile_id = launcher.show_vllm_selected_profile_settings(profile, "qwen")
+
+        self.assertEqual(updated.extra_args, "--served-model-name qwen")
+        self.assertIn("extra_args could not be parsed", stdout.getvalue())
+        self.assertIn("저장하지 않았습니다", stdout.getvalue())
+
+    def test_vllm_selected_profile_settings_save_shows_validation_and_skips_invalid_save(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profiles import VllmProfile
+        from unittest.mock import Mock, patch
+
+        profile = VllmProfile(model="", extra_args="--served-model-name empty")
+        stdout = StringIO()
+        backup_mock = Mock()
+        save_mock = Mock()
+
+        with (
+            patch.object(launcher, "backup_vllm_profile_draft", backup_mock),
+            patch.object(launcher, "save_vllm_profile_draft", save_mock),
+            patch("builtins.input", side_effect=["7"]),
+            contextlib.redirect_stdout(stdout),
+        ):
+            updated, _profile_id = launcher.show_vllm_selected_profile_settings(profile, "empty")
+
+        self.assertIs(updated, profile)
+        backup_mock.assert_not_called()
+        save_mock.assert_not_called()
+        self.assertIn("Validation messages:", stdout.getvalue())
+        self.assertIn("model should not be empty", stdout.getvalue())
+        self.assertIn("저장하지 않았습니다", stdout.getvalue())
+
+    def test_vllm_selected_profile_settings_save_reports_backup_path(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profile_store import VllmProfileBackupResult, VllmProfileStoreResult
+        from modules.vllm_profiles import VllmProfile
+        from unittest.mock import Mock, patch
+
+        profile = VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct")
+        backup_result = VllmProfileBackupResult(True, "/tmp/qwen.json", "/tmp/qwen.json.20260511-010203.bak", ["vLLM profile draft backup created: /tmp/qwen.json.20260511-010203.bak"])
+        save_result = VllmProfileStoreResult(True, profile, "/tmp/qwen.json", ["saved"], "qwen")
+        stdout = StringIO()
+
+        with (
+            patch.object(launcher, "backup_vllm_profile_draft", Mock(return_value=backup_result)),
+            patch.object(launcher, "save_vllm_profile_draft", Mock(return_value=save_result)),
+            patch("builtins.input", side_effect=["7"]),
+            contextlib.redirect_stdout(stdout),
+        ):
+            updated, _profile_id = launcher.show_vllm_selected_profile_settings(profile, "qwen")
+
+        self.assertIs(updated, profile)
+        self.assertIn("vLLM profile draft backup created", stdout.getvalue())
+        self.assertIn("/tmp/qwen.json.20260511-010203.bak", stdout.getvalue())
+
+    def test_vllm_profile_backup_helper_creates_timestamp_backup(self) -> None:
+        from modules.vllm_profile_store import backup_vllm_profile_draft, default_vllm_profile_path, save_vllm_profile_draft
+        from modules.vllm_profiles import VllmProfile
+
+        with TemporaryDirectory() as directory:
+            profile = VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct")
+            save_vllm_profile_draft(profile, profile_id="qwen", store_root=directory)
+            result = backup_vllm_profile_draft(profile_id="qwen", store_root=directory, timestamp="20260511-010203")
+            backup_path = Path(default_vllm_profile_path("qwen", store_root=directory) + ".20260511-010203.bak")
+
+            self.assertTrue(result.ok, result.messages)
+            self.assertEqual(result.backup_path, str(backup_path))
+            self.assertTrue(backup_path.exists())
+            self.assertIn("vLLM profile draft backup created", "\n".join(result.messages))
 
     def test_verified_gemma4_beta_profile_selection_saves_selected_profile_id(self) -> None:
         from modules.vllm_profile_store import load_selected_vllm_profile_id, load_vllm_profile_draft, save_verified_gemma4_26b_awq_beta_profile

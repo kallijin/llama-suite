@@ -193,6 +193,13 @@ This boundary marks where the project moved from vLLM foundation MVP into custom
 ### Small safe next
 기능 가치를 높이지만 backend 경계를 크게 흔들지 않는 것.
 
+- Current vLLM beta priority:
+  1. vLLM selected profile editor
+  2. port conflict diagnostics / existing server reuse guidance
+  3. API smoke / Hermes chat smoke / Hermes tool-agent smoke separation
+  4. agent raw markup guard
+  5. model registry/discovery UI cleanup
+  6. Rust skin / Bluejeans remains deferred
 - vLLM latest run/status/log/stop/API smoke의 용어를 smoke 전용처럼 보이지 않게 계속 정리한다.
 - vLLM profile 입력 UX를 초보자 기준으로 다듬는다. 설명은 짧게, 입력 필드는 명확하게, validation은 바로 보이게 한다.
 - vLLM local HF/safetensors 모델 디렉터리 검사 메시지를 초보자 기준으로 더 직관적으로 다듬는다.
