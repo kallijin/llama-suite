@@ -663,6 +663,13 @@ def print_selected_vllm_profile_summary(profile: Any, profile_id: str = "custom-
     print(selected_vllm_profile_summary_line(profile, profile_id))
 
 
+def print_backend_workflow_bridge_hints() -> None:
+    print("  Backend workflow bridge:")
+    print("    llama.cpp actions: [L] GGUF model selection / params / preview / run / scripts")
+    print("    vLLM actions: [V] profile / materials / command preview / preflight / launch / scripts / status / API smoke")
+    print("    Selected vLLM profile actions are under [V]")
+
+
 def print_startup_warnings(messages: list[str]) -> None:
     if not messages:
         return
@@ -1002,12 +1009,14 @@ def script_is_modern(path: str) -> bool:
 def show_scripts() -> None:
     scripts = list_scripts()
     if not scripts:
-        print("\n  📜 저장된 스크립트가 없습니다.\n")
+        print("\n  📜 저장된 llama.cpp 스크립트가 없습니다.\n")
         return
 
     running_lines = "\n".join(get_running_servers())
 
-    print(f"\n  📜 저장된 스크립트 ({len(scripts)}개)\n")
+    print(f"\n  📜 저장된 llama.cpp 스크립트 ({len(scripts)}개)\n")
+    print("  이 목록은 llama.cpp GGUF 실행 스크립트 전용입니다.")
+    print("  vLLM 스크립트 preview/save는 [V] vLLM 세팅 → vLLM profile 안에 있습니다.\n")
     for i, (name, path) in enumerate(scripts, 1):
         model_info = read_script_field(path, "MODEL") or name
         model_path = read_script_field(path, "MODEL_PATH") or read_script_field(path, "PATH") or ""
@@ -1037,10 +1046,10 @@ def delete_script(index: int) -> None:
 def select_script_path() -> str | None:
     scripts = list_scripts()
     if not scripts:
-        print("\n  저장된 스크립트가 없습니다.")
+        print("\n  저장된 llama.cpp 스크립트가 없습니다.")
         return None
     show_scripts()
-    choice = input("  실행/관리할 스크립트 번호 > ").strip()
+    choice = input("  실행/관리할 llama.cpp 스크립트 번호 > ").strip()
     if not choice.isdigit():
         print("  ⚠️  번호를 입력하세요.")
         return None
@@ -1053,7 +1062,7 @@ def select_script_path() -> str | None:
 
 def show_script_readonly(script_path: str) -> None:
     print("\n  이 화면은 읽기 전용입니다.")
-    print("  선택한 스크립트 파일은 여기서 직접 수정되지 않습니다.")
+    print("  선택한 llama.cpp 스크립트 파일은 여기서 직접 수정되지 않습니다.")
     print()
     print("  스크립트의 설정을 바꾸고 싶다면 [3] 현재 설정으로 불러오기를 선택하세요.")
     print("  불러온 뒤 메인 화면에서 필요한 값을 변경하고, 새 실행 스크립트를 생성할 수 있습니다.")
@@ -1073,12 +1082,12 @@ def manage_scripts(draft: dict[str, Any]) -> None:
         if not scripts:
             break
 
-        print(f"  선택된 스크립트: {Path(selected_script).name if selected_script else '없음'}")
-        print("  [1] 실행할 스크립트 선택")
-        print("  [2] 스크립트 내용 보기")
-        print("  [3] 현재 설정으로 불러오기")
-        print("  [4] 이 스크립트 그대로 실행")
-        print("  [5] 스크립트 삭제")
+        print(f"  선택된 llama.cpp 스크립트: {Path(selected_script).name if selected_script else '없음'}")
+        print("  [1] 실행할 llama.cpp 스크립트 선택")
+        print("  [2] llama.cpp 스크립트 내용 보기")
+        print("  [3] llama.cpp 현재 설정으로 불러오기")
+        print("  [4] 이 llama.cpp 스크립트 그대로 실행")
+        print("  [5] llama.cpp 스크립트 삭제")
         print("  [6] 뒤로\n")
 
         try:
@@ -1096,7 +1105,7 @@ def manage_scripts(draft: dict[str, Any]) -> None:
             continue
 
         if choice in {"2", "3", "4", "5"} and not selected_script:
-            print("  먼저 [1] 실행할 스크립트 선택을 선택하세요.")
+            print("  먼저 [1] 실행할 llama.cpp 스크립트 선택을 선택하세요.")
             pause()
             continue
 
@@ -1791,14 +1800,15 @@ def initial_vllm_profile_selection() -> tuple[Any, str]:
 
 def choose_llama_cpp_menu_action() -> str:
     print("\n  ── llama.cpp 세팅 ──")
-    print("  [1] 불러오기")
-    print("  [2] 모델 변경")
-    print("  [3] 설정 변경 / 현재 설정 저장")
+    print("  이 메뉴는 GGUF 모델과 llama.cpp 실행 흐름 전용입니다.")
+    print("  [1] llama.cpp 설정/스크립트 불러오기")
+    print("  [2] llama.cpp GGUF 모델 변경")
+    print("  [3] llama.cpp 설정 변경 / 현재 설정 저장")
     print("  [4] llama.cpp 파라미터")
     print("  [5] llama.cpp 최종 미리보기")
     print("  [6] llama.cpp 1회 실행")
     print("  [7] llama.cpp 새 스크립트 생성")
-    print("  [8] 스크립트 관리")
+    print("  [8] llama.cpp 스크립트 관리")
     choice = input("  선택 > ").strip()
     return {
         "1": "LOAD",
@@ -1814,7 +1824,8 @@ def choose_llama_cpp_menu_action() -> str:
 
 def choose_vllm_menu_action() -> str:
     print("\n  ── vLLM 세팅 ──")
-    print("  [1] vLLM profile")
+    print("  이 메뉴는 vLLM profile과 OpenAI-compatible server 흐름 전용입니다.")
+    print("  [1] vLLM profile / edit / materials / preview / preflight / script / selected launch")
     print("  [2] vLLM API smoke")
     print("  [3] vLLM smoke launch")
     print("  [4] vLLM latest run status/log/stop")
@@ -1848,6 +1859,7 @@ def main() -> None:
         vllm_run_summary = latest_vllm_run_summary()
         print_recent_vllm_run_summary(vllm_run_summary)
         print_selected_vllm_profile_summary(vllm_profile_draft, vllm_profile_draft_id)
+        print_backend_workflow_bridge_hints()
         print_startup_warnings(startup_warnings + recent_vllm_run_startup_warnings(vllm_run_summary))
         if not models:
             print(f"\n  ⚠️  {MODELS_DIR} 에서 GGUF 파일을 찾을 수 없습니다.")
@@ -1858,7 +1870,7 @@ def main() -> None:
 
         numbered = list(enumerate(models.items(), 1))
         if numbered:
-            print(f"\n  모델 목록 ({len(models)}개)\n")
+            print(f"\n  llama.cpp GGUF 모델 목록 ({len(models)}개)\n")
         for i, (name, _path) in numbered:
             marker = ""
             if name == running:
@@ -1872,7 +1884,7 @@ def main() -> None:
 
         print("\n  [L] llama.cpp 세팅")
         print("  [V] vLLM 세팅")
-        print(f"  [S] 스크립트 관리{script_info}")
+        print(f"  [S] llama.cpp 스크립트 관리{script_info}")
         print("  [E] Hermes 등록/연동")
         print("  [C] OpenClaw 등록")
         print("  [H] 서버 상태 확인")

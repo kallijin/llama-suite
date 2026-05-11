@@ -249,8 +249,13 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("실행 예정 요약", completed.stdout)
         self.assertIn("Recent vLLM run:", completed.stdout)
         self.assertIn("Selected vLLM profile: custom-draft / (empty model) / http://127.0.0.1:8000/v1", completed.stdout)
+        self.assertIn("Backend workflow bridge:", completed.stdout)
+        self.assertIn("llama.cpp actions: [L] GGUF model selection / params / preview / run / scripts", completed.stdout)
+        self.assertIn("vLLM actions: [V] profile / materials / command preview / preflight / launch / scripts / status / API smoke", completed.stdout)
+        self.assertIn("Selected vLLM profile actions are under [V]", completed.stdout)
         self.assertIn("[L] llama.cpp 세팅", completed.stdout)
         self.assertIn("[V] vLLM 세팅", completed.stdout)
+        self.assertIn("[S] llama.cpp 스크립트 관리", completed.stdout)
         self.assertNotIn("[K] llama.cpp 파라미터", completed.stdout)
         self.assertNotIn("[P] llama.cpp 최종 미리보기", completed.stdout)
         self.assertNotIn("[O] llama.cpp 1회 실행", completed.stdout)
@@ -262,6 +267,29 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertNotIn("[V] vLLM doctor", completed.stdout)
         self.assertNotIn("\n  [W] 현재 설정 저장", completed.stdout)
         self.assertNotIn("[X] 새 스크립트 생성 후 실행", completed.stdout)
+
+    def test_main_screen_labels_model_list_as_llama_cpp_gguf(self) -> None:
+        with TemporaryDirectory() as home:
+            model_dir = Path(home) / "models"
+            model_dir.mkdir()
+            (model_dir / "tiny.gguf").write_text("not a real model")
+            env = dict(os.environ)
+            env["HOME"] = home
+            env["LLAMA_MODELS_DIR"] = str(model_dir)
+            completed = subprocess.run(
+                [sys.executable, "llama-launcher-complete.py"],
+                cwd=ROOT,
+                input="q\n",
+                text=True,
+                capture_output=True,
+                check=False,
+                env=env,
+            )
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertIn("llama.cpp GGUF 모델 목록 (1개)", completed.stdout)
+        self.assertIn("[S] llama.cpp 스크립트 관리", completed.stdout)
+        self.assertIn("Selected vLLM profile actions are under [V]", completed.stdout)
 
     def test_main_backend_submenus_dispatch_to_existing_actions(self) -> None:
         launcher = load_launcher_module()
@@ -282,9 +310,35 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(vllm_action, "VLLM_DOCTOR")
         output = stdout.getvalue()
         self.assertIn("llama.cpp 세팅", output)
+        self.assertIn("GGUF 모델과 llama.cpp 실행 흐름 전용", output)
+        self.assertIn("[2] llama.cpp GGUF 모델 변경", output)
         self.assertIn("[4] llama.cpp 파라미터", output)
+        self.assertIn("[8] llama.cpp 스크립트 관리", output)
         self.assertIn("vLLM 세팅", output)
+        self.assertIn("vLLM profile과 OpenAI-compatible server 흐름 전용", output)
+        self.assertIn("[1] vLLM profile / edit / materials / preview / preflight / script / selected launch", output)
         self.assertIn("[5] vLLM doctor", output)
+
+    def test_main_script_management_is_labeled_llama_cpp_only(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from unittest.mock import Mock, patch
+
+        stdout = StringIO()
+        with (
+            patch.object(launcher, "list_scripts", Mock(return_value=[("tiny", "/tmp/tiny.sh")])),
+            patch.object(launcher, "get_running_servers", Mock(return_value=[])),
+            patch.object(launcher, "read_script_field", Mock(side_effect=lambda _path, field: "tiny" if field == "MODEL" else "")),
+            patch.object(launcher, "script_is_modern", Mock(return_value=True)),
+            contextlib.redirect_stdout(stdout),
+        ):
+            launcher.show_scripts()
+
+        output = stdout.getvalue()
+        self.assertIn("저장된 llama.cpp 스크립트", output)
+        self.assertIn("llama.cpp GGUF 실행 스크립트 전용", output)
+        self.assertIn("vLLM 스크립트 preview/save는 [V] vLLM 세팅", output)
 
     def test_recent_vllm_run_summary_line_renders_no_record(self) -> None:
         launcher = load_launcher_module()
