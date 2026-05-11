@@ -327,15 +327,17 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("[8] llama.cpp 스크립트 관리", output)
         self.assertIn("vLLM workspace", output)
         self.assertIn("vLLM beta launch path", output)
-        self.assertIn("[1] verified Gemma4 26B AWQ beta profile 선택/저장", output)
+        self.assertIn("[1] vLLM 검증 기준 profile 불러오기: Gemma4 26B AWQ", output)
         self.assertIn("[2] selected profile preview / preflight", output)
         self.assertIn("[3] launch selected vLLM profile", output)
         self.assertIn("[4] latest run status / log / stop", output)
-        self.assertIn("[5] vLLM API smoke", output)
-        self.assertIn("[6] Hermes vLLM sync preview/write", output)
-        self.assertIn("[7] Hermes vLLM smoke", output)
-        self.assertIn("[8] advanced profile workspace / scripts / JSON", output)
+        self.assertIn("[5] vLLM API 연결 테스트", output)
+        self.assertIn("[6] Hermes 설정 동기화 preview/write", output)
+        self.assertIn("[7] Hermes 단순 chat 테스트", output)
+        self.assertIn("[8] Hermes tool-agent 테스트 / raw markup 검사", output)
         self.assertIn("[9] vLLM doctor", output)
+        self.assertIn("[10] selected profile settings", output)
+        self.assertIn("[A] advanced profile workspace / scripts / JSON", output)
 
     def test_main_script_management_is_labeled_llama_cpp_only(self) -> None:
         launcher = load_launcher_module()
@@ -955,6 +957,16 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("custom", plan.command)
         self.assertIn("--model", plan.command)
         self.assertIn("served-qwen", plan.command)
+        self.assertEqual(plan.smoke_kind, "chat")
+
+    def test_hermes_raw_markup_detector_uses_tag_like_patterns(self) -> None:
+        from modules.hermes_runner import detect_agent_raw_markup
+
+        leaked = detect_agent_raw_markup("<|tool_call>call:terminal{\"cmd\":\"pwd\"}<tool_call|>")
+        self.assertIn("<|tool_call>", leaked)
+        self.assertIn("<tool_call|>", leaked)
+        self.assertIn("call:terminal", leaked)
+        self.assertEqual(detect_agent_raw_markup("I thought about it and answered plainly."), [])
 
     def test_hermes_vllm_smoke_requires_confirmation_and_checks_marker(self) -> None:
         from modules.hermes_runner import run_hermes_vllm_smoke
@@ -1014,7 +1026,71 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertFalse(cancelled.ok)
         self.assertEqual(calls, [(result.command, {"capture_output": True, "text": True, "timeout": 3})])
         self.assertTrue(result.ok, result.messages)
+        self.assertEqual(result.status, "pass")
+        self.assertEqual(result.smoke_kind, "chat")
+        self.assertFalse(result.raw_markup_detected)
         self.assertEqual(result.returncode, 0)
+
+    def test_hermes_vllm_chat_smoke_fails_on_raw_markup_leak(self) -> None:
+        from modules.hermes_runner import run_hermes_vllm_smoke
+        from modules.vllm_runner import VllmRunRecord, VllmRunRecordResult
+
+        class Status:
+            alive = True
+            port_listening = True
+            messages = ["ready"]
+
+        class Completed:
+            returncode = 0
+            stdout = "llama-suite-ok\n<|tool_call>call:terminal{\"cmd\":\"pwd\"}<tool_call|>\n"
+            stderr = ""
+
+        def fake_runner(command, **kwargs):
+            return Completed()
+
+        with TemporaryDirectory() as directory:
+            hermes_bin = Path(directory) / "hermes"
+            hermes_bin.write_text("#!/usr/bin/env bash\nexit 0\n")
+            hermes_bin.chmod(0o755)
+            record = VllmRunRecord(
+                backend="vllm",
+                preset_id="qwen2.5-14b-awq",
+                run_id="run-1",
+                pid=123,
+                command=["vllm", "serve", "/models/qwen", "--served-model-name", "served-qwen"],
+                env_preview={},
+                log_path=str(Path(directory) / "run.log"),
+                host="127.0.0.1",
+                port=8000,
+                started_at="2026-05-11T03:00:00+09:00",
+                status_hint="started",
+            )
+            result = run_hermes_vllm_smoke(
+                confirmed=True,
+                hermes_bin=str(hermes_bin),
+                latest_record=VllmRunRecordResult(True, record, "/tmp/latest.json", []),
+                status_check=lambda **kwargs: Status(),
+                runner=fake_runner,
+            )
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.status, "fail")
+        self.assertTrue(result.raw_markup_detected)
+        self.assertIn("call:terminal", result.raw_markup_patterns or [])
+        self.assertTrue(any("raw tool-call markup leaked" in message for message in result.messages))
+
+    def test_hermes_tool_agent_smoke_is_separate_and_unsupported(self) -> None:
+        from modules.hermes_runner import build_hermes_vllm_tool_agent_smoke_plan, run_hermes_vllm_tool_agent_smoke
+
+        plan = build_hermes_vllm_tool_agent_smoke_plan()
+        result = run_hermes_vllm_tool_agent_smoke(confirmed=True)
+
+        self.assertFalse(plan.ok)
+        self.assertEqual(plan.smoke_kind, "tool_agent")
+        self.assertFalse(result.ok)
+        self.assertEqual(result.smoke_kind, "tool_agent")
+        self.assertEqual(result.status, "unsupported")
+        self.assertTrue(any("unsupported" in message for message in result.messages))
 
     def test_hermes_vllm_smoke_refuses_non_ready_run(self) -> None:
         from modules.hermes_runner import build_hermes_vllm_smoke_plan
@@ -2039,7 +2115,8 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("/mnt/data_main/downloads/models/local-large-q4-hf", text)
         self.assertIn("HF/safetensors Q4", text)
         self.assertIn("Verified local Gemma4 26B AWQ profile (read-only)", text)
-        self.assertIn("vLLM + Hermes Agent smoke", text)
+        self.assertIn("vLLM beta launch / API smoke / Hermes plain chat", text)
+        self.assertIn("tool-agent coding 기준 profile로는 아직 검증하지 않았습니다", text)
         self.assertIn("gemma4-26b-awq-auto", text)
         self.assertIn("--enable-auto-tool-choice --tool-call-parser hermes", text)
         self.assertIn("vLLM-only fields:", text)

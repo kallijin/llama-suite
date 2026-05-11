@@ -33,7 +33,7 @@ from modules.config_store import (
     set_option_value,
 )
 from modules.hermes_integration import build_hermes_vllm_sync_plan, format_hermes_vllm_sync_plan, write_hermes_vllm_sync_plan
-from modules.hermes_runner import build_hermes_vllm_smoke_plan, run_hermes_vllm_smoke
+from modules.hermes_runner import build_hermes_vllm_smoke_plan, build_hermes_vllm_tool_agent_smoke_plan, run_hermes_vllm_smoke, run_hermes_vllm_tool_agent_smoke
 from modules.model_scan import get_model_list
 from modules.profiles import default_model_profile, get_model_profile, load_profiles, save_profiles
 from modules.probes import quick_no_think_test, show_status
@@ -838,7 +838,7 @@ def show_hermes_integration_menu(cfg: dict[str, Any]) -> dict[str, Any]:
     print("  [1] Hermes config 등록")
     print("  [2] latest vLLM endpoint sync preview")
     print("  [3] latest vLLM endpoint sync write")
-    print("  [4] Hermes latest vLLM smoke")
+    print("  [4] Hermes latest vLLM chat smoke")
     choice = input("  선택 > ").strip()
     if choice == "1":
         return register_config_path(
@@ -874,8 +874,10 @@ def show_hermes_integration_menu(cfg: dict[str, Any]) -> dict[str, Any]:
 
     if choice == "4":
         plan = build_hermes_vllm_smoke_plan()
-        print("\n  Hermes latest vLLM smoke preview:")
+        print("\n  Hermes latest vLLM chat smoke preview:")
+        print("  Tool use is not requested. This checks plain Hermes chat against latest vLLM.")
         print(f"  ok: {plan.ok}")
+        print(f"  smoke_kind: {plan.smoke_kind}")
         if plan.base_url:
             print(f"  base_url: {plan.base_url}")
         if plan.model_id:
@@ -887,19 +889,7 @@ def show_hermes_integration_menu(cfg: dict[str, Any]) -> dict[str, Any]:
         print("  계속하려면 smoke 또는 SMOKE 를 정확히 입력하세요.")
         confirm = input("  confirmation > ").strip()
         result = run_hermes_vllm_smoke(confirmed=(confirm.lower() == "smoke"))
-        print("\n  Hermes latest vLLM smoke result:")
-        print(f"  ok: {result.ok}")
-        print(f"  returncode: {result.returncode if result.returncode is not None else '-'}")
-        if result.stdout:
-            print("  stdout:")
-            for line in result.stdout.splitlines()[:20]:
-                print(f"    {line}")
-        if result.stderr:
-            print("  stderr:")
-            for line in result.stderr.splitlines()[:20]:
-                print(f"    {line}")
-        for message in result.messages:
-            print(f"  - {message}")
+        print_hermes_smoke_result("Hermes latest vLLM chat smoke result", result)
         return cfg
 
     print("  취소했습니다.")
@@ -938,10 +928,12 @@ def show_hermes_vllm_sync_menu(cfg: dict[str, Any]) -> dict[str, Any]:
     return cfg
 
 
-def show_hermes_vllm_smoke() -> None:
+def show_hermes_vllm_chat_smoke() -> None:
     plan = build_hermes_vllm_smoke_plan()
-    print("\n  Hermes latest vLLM smoke preview:")
+    print("\n  Hermes chat smoke preview:")
+    print("  Tool use is not requested. This checks plain Hermes chat against latest vLLM.")
     print(f"  ok: {plan.ok}")
+    print(f"  smoke_kind: {plan.smoke_kind}")
     if plan.base_url:
         print(f"  base_url: {plan.base_url}")
     if plan.model_id:
@@ -953,9 +945,47 @@ def show_hermes_vllm_smoke() -> None:
     print("  계속하려면 smoke 또는 SMOKE 를 정확히 입력하세요.")
     confirm = input("  confirmation > ").strip()
     result = run_hermes_vllm_smoke(confirmed=(confirm.lower() == "smoke"))
-    print("\n  Hermes latest vLLM smoke result:")
+    reason = "raw tool-call markup leaked" if getattr(result, "raw_markup_detected", False) else ""
+    print_vllm_readiness_summary(api_status="UNKNOWN", hermes_chat_status=readiness_label(result.status), hermes_tool_status="NOT RUN", reason=reason)
+    print_hermes_smoke_result("Hermes chat smoke result", result)
+
+
+def show_hermes_vllm_tool_agent_smoke() -> None:
+    plan = build_hermes_vllm_tool_agent_smoke_plan()
+    print("\n  Hermes tool-agent smoke / raw markup check:")
+    print("  This patch does not run a dangerous tool-agent task.")
+    print(f"  ok: {plan.ok}")
+    print(f"  smoke_kind: {plan.smoke_kind}")
+    for message in plan.messages:
+        print(f"  - {message}")
+    result = run_hermes_vllm_tool_agent_smoke(confirmed=False)
+    print_vllm_readiness_summary(api_status="UNKNOWN", hermes_chat_status="UNKNOWN", hermes_tool_status=readiness_label(result.status))
+    print_hermes_smoke_result("Hermes tool-agent smoke result", result)
+
+
+def readiness_label(status: str) -> str:
+    return str(status or "UNKNOWN").replace("_", " ").upper()
+
+
+def print_vllm_readiness_summary(*, api_status: str, hermes_chat_status: str, hermes_tool_status: str, reason: str = "") -> None:
+    print("\n  ── vLLM readiness ──")
+    print(f"  API smoke: {api_status}")
+    print(f"  Hermes chat smoke: {hermes_chat_status}")
+    print(f"  Hermes tool-agent smoke: {hermes_tool_status}")
+    if reason:
+        print(f"  reason: {reason}")
+
+
+def print_hermes_smoke_result(title: str, result: Any) -> None:
+    print(f"\n  {title}:")
     print(f"  ok: {result.ok}")
+    print(f"  status: {getattr(result, 'status', '-')}")
+    print(f"  smoke_kind: {getattr(result, 'smoke_kind', '-')}")
     print(f"  returncode: {result.returncode if result.returncode is not None else '-'}")
+    print(f"  raw_markup_detected: {getattr(result, 'raw_markup_detected', False)}")
+    patterns = getattr(result, "raw_markup_patterns", None) or []
+    if patterns:
+        print("  raw_markup_patterns: " + ", ".join(patterns))
     if result.stdout:
         print("  stdout:")
         for line in result.stdout.splitlines()[:20]:
@@ -1319,7 +1349,8 @@ def vllm_profile_preview_text(port_check: Any = None) -> str:
             lines.append("다운로드/launch 없이 /mnt/data_main/downloads/models 아래 HF/safetensors Q4급 디렉터리 형태만 제안합니다.")
         if preset.id == "verified-gemma4-26b-awq-auto":
             lines.append("Verified local Gemma4 26B AWQ profile (read-only)")
-            lines.append("이 시스템에서 vLLM + Hermes Agent smoke까지 통과한 profile입니다. 실행하려면 custom draft로 복사하세요.")
+            lines.append("이 시스템의 vLLM beta launch / API smoke / Hermes plain chat 기준 profile입니다.")
+            lines.append("tool-agent coding 기준 profile로는 아직 검증하지 않았습니다. 실행하려면 custom draft로 복사하세요.")
         lines.extend(format_vllm_profile_section(f"Preset {preset.id}: {preset.label}", preset.profile, port_check=port_check))
     lines.extend(["", "Host guidance:"])
     for guidance in host_guidance_lines():
@@ -2113,9 +2144,14 @@ def print_vllm_stop_result(result: Any) -> None:
 
 
 def show_vllm_api_smoke() -> None:
-    print("\n  ── vLLM API smoke ──")
-    print("  latest vLLM run record의 OpenAI-compatible endpoint를 read-only로 확인합니다.")
+    print("\n  ── vLLM API 연결 테스트 ──")
+    print("  Hermes와 무관한 OpenAI-compatible endpoint를 read-only로 확인합니다.")
     result = run_vllm_api_smoke()
+    print_vllm_readiness_summary(
+        api_status="PASS" if result.ok else "FAIL",
+        hermes_chat_status="UNKNOWN",
+        hermes_tool_status="NOT RUN",
+    )
     print_vllm_api_smoke_result(result)
 
 
@@ -2188,16 +2224,17 @@ def choose_vllm_menu_action(profile: Any = None, profile_id: str = "custom-draft
         print(selected_vllm_profile_path_line(profile_id))
     print("\n  Recent vLLM run:")
     print(recent_vllm_run_summary_line(run_summary))
-    print("\n  [1] verified Gemma4 26B AWQ beta profile 선택/저장")
+    print("\n  [1] vLLM 검증 기준 profile 불러오기: Gemma4 26B AWQ")
     print("  [2] selected profile preview / preflight")
     print("  [3] launch selected vLLM profile")
     print("  [4] latest run status / log / stop")
-    print("  [5] vLLM API smoke")
-    print("  [6] Hermes vLLM sync preview/write")
-    print("  [7] Hermes vLLM smoke")
-    print("  [8] advanced profile workspace / scripts / JSON")
+    print("  [5] vLLM API 연결 테스트")
+    print("  [6] Hermes 설정 동기화 preview/write")
+    print("  [7] Hermes 단순 chat 테스트")
+    print("  [8] Hermes tool-agent 테스트 / raw markup 검사")
     print("  [9] vLLM doctor")
     print("  [10] selected profile settings")
+    print("  [A] advanced profile workspace / scripts / JSON")
     print("  [R] return")
     choice = input("  선택 > ").strip()
     return {
@@ -2207,10 +2244,12 @@ def choose_vllm_menu_action(profile: Any = None, profile_id: str = "custom-draft
         "4": "Z",
         "5": "W",
         "6": "HERMES_VLLM_SYNC",
-        "7": "HERMES_VLLM_SMOKE",
-        "8": "B",
+        "7": "HERMES_VLLM_CHAT_SMOKE",
+        "8": "HERMES_VLLM_TOOL_AGENT_SMOKE",
         "9": "VLLM_DOCTOR",
         "10": "VLLM_SELECTED_SETTINGS",
+        "A": "B",
+        "a": "B",
     }.get(choice, "")
 
 
@@ -2417,8 +2456,13 @@ def main() -> None:
             pause()
             continue
 
-        if upper == "HERMES_VLLM_SMOKE":
-            show_hermes_vllm_smoke()
+        if upper == "HERMES_VLLM_CHAT_SMOKE":
+            show_hermes_vllm_chat_smoke()
+            pause()
+            continue
+
+        if upper == "HERMES_VLLM_TOOL_AGENT_SMOKE":
+            show_hermes_vllm_tool_agent_smoke()
             pause()
             continue
 
