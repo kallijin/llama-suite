@@ -36,6 +36,7 @@ modules = [
     "modules.vllm_script_builder",
     "modules.hermes_integration",
     "modules.hermes_runner",
+    "modules.hermes_smoke_evidence",
 ]
 
 for name in modules:

@@ -34,6 +34,7 @@ from modules.config_store import (
 )
 from modules.hermes_integration import build_hermes_vllm_sync_plan, format_hermes_vllm_sync_plan, write_hermes_vllm_sync_plan
 from modules.hermes_runner import build_hermes_vllm_smoke_plan, build_hermes_vllm_tool_agent_smoke_plan, run_hermes_vllm_smoke, run_hermes_vllm_tool_agent_smoke
+from modules.hermes_smoke_evidence import write_hermes_smoke_evidence
 from modules.model_scan import get_model_list
 from modules.profiles import default_model_profile, get_model_profile, load_profiles, save_profiles
 from modules.probes import quick_no_think_test, show_status
@@ -890,6 +891,7 @@ def show_hermes_integration_menu(cfg: dict[str, Any]) -> dict[str, Any]:
         confirm = input("  confirmation > ").strip()
         result = run_hermes_vllm_smoke(confirmed=(confirm.lower() == "smoke"))
         print_hermes_smoke_result("Hermes latest vLLM chat smoke result", result)
+        print_hermes_smoke_evidence_result(write_hermes_smoke_evidence(result))
         return cfg
 
     print("  취소했습니다.")
@@ -948,6 +950,7 @@ def show_hermes_vllm_chat_smoke() -> None:
     reason = "raw tool-call markup leaked" if getattr(result, "raw_markup_detected", False) else ""
     print_vllm_readiness_summary(api_status="UNKNOWN", hermes_chat_status=readiness_label(result.status), hermes_tool_status="NOT RUN", reason=reason)
     print_hermes_smoke_result("Hermes chat smoke result", result)
+    print_hermes_smoke_evidence_result(write_hermes_smoke_evidence(result))
 
 
 def show_hermes_vllm_tool_agent_smoke() -> None:
@@ -961,6 +964,7 @@ def show_hermes_vllm_tool_agent_smoke() -> None:
     result = run_hermes_vllm_tool_agent_smoke(confirmed=False)
     print_vllm_readiness_summary(api_status="UNKNOWN", hermes_chat_status="UNKNOWN", hermes_tool_status=readiness_label(result.status))
     print_hermes_smoke_result("Hermes tool-agent smoke result", result)
+    print_hermes_smoke_evidence_result(write_hermes_smoke_evidence(result))
 
 
 def readiness_label(status: str) -> str:
@@ -996,6 +1000,17 @@ def print_hermes_smoke_result(title: str, result: Any) -> None:
             print(f"    {line}")
     for message in result.messages:
         print(f"  - {message}")
+
+
+def print_hermes_smoke_evidence_result(result: Any) -> None:
+    print("\n  Hermes smoke evidence:")
+    if getattr(result, "evidence_path", None):
+        print(f"  saved: {result.evidence_path}")
+    for message in getattr(result, "messages", []) or []:
+        if not getattr(result, "evidence_path", None):
+            print(f"  {message}")
+        elif not str(message).startswith("saved:"):
+            print(f"  {message}")
 
 
 def final_preview_text(draft: dict[str, Any]) -> str:

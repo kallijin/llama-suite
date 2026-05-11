@@ -1092,6 +1092,136 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(result.status, "unsupported")
         self.assertTrue(any("unsupported" in message for message in result.messages))
 
+    def test_hermes_smoke_evidence_redacts_sensitive_text(self) -> None:
+        from modules.hermes_smoke_evidence import redact_sensitive_text
+
+        text = (
+            "sk-abc123456789 ghp_abc123456789 github_pat_abc123456789 "
+            "Bearer abc123 api_key: abc password=abc token: abc "
+            "\"secret\": \"abc\" authorization: abc"
+        )
+
+        redacted = redact_sensitive_text(text)
+
+        self.assertNotIn("sk-abc123456789", redacted)
+        self.assertNotIn("ghp_abc123456789", redacted)
+        self.assertNotIn("github_pat_abc123456789", redacted)
+        self.assertNotIn("Bearer abc123", redacted)
+        self.assertNotIn("api_key: abc", redacted)
+        self.assertNotIn("password=abc", redacted)
+        self.assertNotIn("token: abc", redacted)
+        self.assertNotIn('"secret": "abc"', redacted)
+        self.assertNotIn("authorization: abc", redacted)
+        self.assertIn("sk-[REDACTED]", redacted)
+        self.assertIn("Bearer [REDACTED]", redacted)
+
+    def test_hermes_smoke_evidence_writes_redacted_json_for_raw_markup(self) -> None:
+        from modules.hermes_runner import HermesSmokeResult
+        from modules.hermes_smoke_evidence import HERMES_SMOKE_EVIDENCE_SCHEMA, write_hermes_smoke_evidence
+
+        with TemporaryDirectory() as directory:
+            result = HermesSmokeResult(
+                ok=False,
+                command=["hermes", "chat", "--token", "ghp_abc123456789"],
+                stdout="<|tool_call>call:terminal{}<tool_call|> sk-abc123456789 " + ("x" * 80),
+                stderr="password: abc123",
+                returncode=0,
+                messages=["raw tool-call markup leaked"],
+                smoke_kind="chat",
+                status="fail",
+                raw_markup_detected=True,
+                raw_markup_patterns=["<|tool_call>", "call:terminal"],
+            )
+            written = write_hermes_smoke_evidence(
+                result,
+                evidence_root=directory,
+                timestamp="20260511-213000",
+                max_chars=48,
+            )
+
+            self.assertTrue(written.ok, written.messages)
+            self.assertIsNotNone(written.evidence_path)
+            path = Path(str(written.evidence_path))
+            self.assertEqual(path.parent, Path(directory))
+            self.assertEqual(path.name, "hermes-chat-20260511-213000.json")
+            payload = json.loads(path.read_text())
+
+        self.assertEqual(payload["schema"], HERMES_SMOKE_EVIDENCE_SCHEMA)
+        self.assertEqual(payload["smoke_kind"], "chat")
+        self.assertEqual(payload["status"], "fail")
+        self.assertEqual(payload["raw_markup_patterns"], ["<|tool_call>", "call:terminal"])
+        self.assertNotIn("ghp_abc123456789", payload["command_excerpt"])
+        self.assertNotIn("sk-abc123456789", payload["stdout_excerpt"])
+        self.assertNotIn("password: abc123", payload["stderr_excerpt"])
+        self.assertLessEqual(len(payload["stdout_excerpt"]), 48)
+
+    def test_hermes_smoke_evidence_skips_clean_success(self) -> None:
+        from modules.hermes_runner import HermesSmokeResult
+        from modules.hermes_smoke_evidence import write_hermes_smoke_evidence
+
+        with TemporaryDirectory() as directory:
+            result = HermesSmokeResult(
+                ok=True,
+                command=["hermes", "chat"],
+                stdout="llama-suite-ok\n",
+                stderr="",
+                returncode=0,
+                messages=["Hermes chat smoke completed"],
+                smoke_kind="chat",
+                status="pass",
+                raw_markup_detected=False,
+                raw_markup_patterns=[],
+            )
+            written = write_hermes_smoke_evidence(result, evidence_root=directory, timestamp="20260511-213000")
+
+            self.assertTrue(written.ok, written.messages)
+            self.assertIsNone(written.evidence_path)
+            self.assertEqual(list(Path(directory).iterdir()), [])
+            self.assertTrue(any("not saved" in message for message in written.messages))
+
+    def test_hermes_smoke_evidence_write_failure_is_structured(self) -> None:
+        from modules.hermes_runner import HermesSmokeResult
+        from modules.hermes_smoke_evidence import write_hermes_smoke_evidence
+
+        with TemporaryDirectory() as directory:
+            blocked_root = Path(directory) / "not-a-directory"
+            blocked_root.write_text("blocked")
+            result = HermesSmokeResult(
+                ok=False,
+                command=["hermes", "chat"],
+                stdout="failure",
+                stderr="",
+                returncode=1,
+                messages=["Hermes chat smoke did not return expected marker"],
+                smoke_kind="chat",
+                status="fail",
+                raw_markup_detected=False,
+                raw_markup_patterns=[],
+            )
+            written = write_hermes_smoke_evidence(result, evidence_root=blocked_root, timestamp="20260511-213000")
+
+        self.assertFalse(written.ok)
+        self.assertIsNone(written.evidence_path)
+        self.assertTrue(any("save failed" in message for message in written.messages))
+
+    def test_hermes_smoke_evidence_ui_prints_not_saved_path(self) -> None:
+        launcher = load_launcher_module()
+
+        class Result:
+            ok = True
+            evidence_path = None
+            messages = ["not saved: smoke passed without raw markup"]
+
+        from io import StringIO
+        import contextlib
+
+        stdout = StringIO()
+        with contextlib.redirect_stdout(stdout):
+            launcher.print_hermes_smoke_evidence_result(Result())
+
+        self.assertIn("Hermes smoke evidence:", stdout.getvalue())
+        self.assertIn("not saved: smoke passed without raw markup", stdout.getvalue())
+
     def test_hermes_vllm_smoke_refuses_non_ready_run(self) -> None:
         from modules.hermes_runner import build_hermes_vllm_smoke_plan
         from modules.vllm_runner import VllmRunRecord, VllmRunRecordResult
