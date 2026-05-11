@@ -43,6 +43,7 @@ def write_hermes_smoke_evidence(
     evidence_root: str | Path | None = None,
     timestamp: str | None = None,
     max_chars: int = 4000,
+    force: bool = False,
 ) -> HermesSmokeEvidenceResult:
     raw_markup_detected = bool(getattr(result, "raw_markup_detected", False))
     ok = bool(getattr(result, "ok", False))
@@ -50,9 +51,9 @@ def write_hermes_smoke_evidence(
     stderr = str(getattr(result, "stderr", "") or "")
     status = str(getattr(result, "status", "") or "not_run")
     smoke_kind = str(getattr(result, "smoke_kind", "") or "unknown")
-    if ok and not raw_markup_detected:
+    if ok and not raw_markup_detected and not force:
         return HermesSmokeEvidenceResult(True, None, ["not saved: smoke passed without raw markup"])
-    if status in {"not_run", "unsupported"} and not raw_markup_detected and not stdout and not stderr:
+    if status in {"not_run", "unsupported"} and not raw_markup_detected and not stdout and not stderr and not force:
         return HermesSmokeEvidenceResult(True, None, [f"not saved: {status} smoke produced no runtime output"])
 
     root = Path(evidence_root or DEFAULT_HERMES_EVIDENCE_ROOT).expanduser()

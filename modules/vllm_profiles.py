@@ -146,7 +146,7 @@ def verified_gemma4_26b_awq_vllm_profile() -> VllmProfile:
         tensor_parallel_size=2,
         kv_cache_dtype="fp8",
         max_num_seqs=1,
-        extra_args=f"--served-model-name {VERIFIED_GEMMA4_26B_AWQ_SERVED_MODEL} --enforce-eager --enable-auto-tool-choice --tool-call-parser hermes",
+        extra_args=f"--served-model-name {VERIFIED_GEMMA4_26B_AWQ_SERVED_MODEL} --enforce-eager --enable-auto-tool-choice --tool-call-parser gemma4",
     )
 
 

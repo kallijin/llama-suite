@@ -1179,6 +1179,34 @@ class BeginnerFlowTests(unittest.TestCase):
             self.assertEqual(list(Path(directory).iterdir()), [])
             self.assertTrue(any("not saved" in message for message in written.messages))
 
+    def test_hermes_smoke_evidence_can_force_save_clean_success(self) -> None:
+        from modules.hermes_runner import HermesSmokeResult
+        from modules.hermes_smoke_evidence import write_hermes_smoke_evidence
+
+        with TemporaryDirectory() as directory:
+            result = HermesSmokeResult(
+                ok=True,
+                command=["direct-vllm-api", "tools=get_weather"],
+                stdout="has_tool_calls: True\n",
+                stderr="",
+                returncode=0,
+                messages=["direct vLLM tool-call probe produced structured tool_calls"],
+                smoke_kind="direct-vllm-tool",
+                status="pass",
+                raw_markup_detected=False,
+                raw_markup_patterns=[],
+            )
+            written = write_hermes_smoke_evidence(result, evidence_root=directory, timestamp="20260511-223000", force=True)
+
+            self.assertTrue(written.ok, written.messages)
+            self.assertIsNotNone(written.evidence_path)
+            payload = json.loads(Path(str(written.evidence_path)).read_text())
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["status"], "pass")
+        self.assertEqual(payload["smoke_kind"], "direct-vllm-tool")
+        self.assertIn("has_tool_calls: True", payload["stdout_excerpt"])
+
     def test_hermes_smoke_evidence_write_failure_is_structured(self) -> None:
         from modules.hermes_runner import HermesSmokeResult
         from modules.hermes_smoke_evidence import write_hermes_smoke_evidence
@@ -1384,7 +1412,7 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertNotIn("--max-model-len", verified_command)
         self.assertIn("--enable-auto-tool-choice", verified_command)
         self.assertIn("--tool-call-parser", verified_command)
-        self.assertIn("hermes", verified_command)
+        self.assertIn("gemma4", verified_command)
         self.assertEqual(future_launch_preset_id(), "smoke-qwen-0.5b")
 
     def test_vllm_profile_validation_reports_structured_messages(self) -> None:
@@ -2246,9 +2274,11 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("HF/safetensors Q4", text)
         self.assertIn("Verified local Gemma4 26B AWQ profile (read-only)", text)
         self.assertIn("vLLM beta launch / API smoke / Hermes plain chat", text)
-        self.assertIn("tool-agent coding 기준 profile로는 아직 검증하지 않았습니다", text)
+        self.assertIn("tool-call parser는 Gemma4 전용 parser를 사용합니다", text)
+        self.assertIn("Hermes parser 사용 시 raw tool-call markup leak", text)
+        self.assertIn("tool-agent coding 완전 합격은 실제 Hermes tool-agent smoke 통과 뒤에만 표시합니다", text)
         self.assertIn("gemma4-26b-awq-auto", text)
-        self.assertIn("--enable-auto-tool-choice --tool-call-parser hermes", text)
+        self.assertIn("--enable-auto-tool-choice --tool-call-parser gemma4", text)
         self.assertIn("vLLM-only fields:", text)
         self.assertIn("- wrapper_path: ~/bin/vllm-rocm", text)
         self.assertIn("- host: 127.0.0.1", text)
@@ -2809,7 +2839,7 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(profile.dtype, "bfloat16")
         self.assertEqual(profile.tensor_parallel_size, 2)
         self.assertEqual(profile.max_model_len, "")
-        self.assertIn("--tool-call-parser hermes", profile.extra_args)
+        self.assertIn("--tool-call-parser gemma4", profile.extra_args)
         self.assertIn("Verified Gemma4 26B AWQ auto", stdout.getvalue())
         self.assertIn("draft-from-verified-gemma4-26b-awq-auto.json", stdout.getvalue())
 
@@ -3024,6 +3054,7 @@ class BeginnerFlowTests(unittest.TestCase):
         assert loaded.profile is not None
         self.assertEqual(loaded.profile.model, VERIFIED_GEMMA4_26B_AWQ_MODEL_PATH)
         self.assertIn("--served-model-name gemma4-26b-awq-auto", loaded.profile.extra_args)
+        self.assertIn("--tool-call-parser gemma4", loaded.profile.extra_args)
 
     def test_vllm_profile_menu_delete_cancel_does_not_call_delete(self) -> None:
         launcher = load_launcher_module()

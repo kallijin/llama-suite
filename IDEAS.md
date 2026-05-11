@@ -132,12 +132,16 @@ Observed with local `cyankiwi-gemma-4-26B-A4B-it-AWQ-4bit`:
 - Manual numeric `max_model_len` values around the Hermes 64K target can make startup fail before the server reaches READY.
 - Leaving `max_model_len` empty let vLLM choose the server context for this model.
 - The successful run reported `max_model_len: 262144` from `/v1/models`, and Hermes Agent smoke passed with `context_length: 64000`.
-- The working Hermes-oriented extra args were `--served-model-name gemma4-26b-awq-auto --enforce-eager --enable-auto-tool-choice --tool-call-parser hermes`.
+- The working Gemma4-oriented extra args are `--served-model-name gemma4-26b-awq-auto --enforce-eager --enable-auto-tool-choice --tool-call-parser gemma4`.
+- Using `--tool-call-parser hermes` with this Gemma4 model caused raw `<|tool_call>...<tool_call|>` markup to leak into `content` and left OpenAI `tool_calls` empty.
+- Switching only the parser to `gemma4` produced structured OpenAI `tool_calls` for the same model and same quantization.
+- Evidence: `/home/kalijin/.local/state/llama-suite/evidence/hermes/hermes-direct-vllm-tool-20260511-222415.json` records the raw markup leak from the mismatched parser.
 
 Practical conclusion:
 
 - Treat `vLLM API smoke passed` and `Hermes Agent smoke passed` as separate readiness levels.
 - Do not assume a model that serves `/v1/chat/completions` is large-context enough for Hermes Agent.
+- Do not generalize parser settings across model families. Gemma4 uses `--tool-call-parser gemma4`; Hermes/Qwen-family profiles may need different parser settings.
 - For large local vLLM server profiles, prefer empty/auto `max_model_len` first, then verify the returned `/v1/models` `max_model_len` after READY.
 - Only force numeric `max_model_len` when vLLM's automatic choice fails or when intentionally limiting context.
 - Future UI should show Hermes readiness as an additional layer: API reachable, tool parser enabled, Hermes context metadata synced, and actual prompt context large enough.

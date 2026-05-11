@@ -1365,7 +1365,10 @@ def vllm_profile_preview_text(port_check: Any = None) -> str:
         if preset.id == "verified-gemma4-26b-awq-auto":
             lines.append("Verified local Gemma4 26B AWQ profile (read-only)")
             lines.append("이 시스템의 vLLM beta launch / API smoke / Hermes plain chat 기준 profile입니다.")
-            lines.append("tool-agent coding 기준 profile로는 아직 검증하지 않았습니다. 실행하려면 custom draft로 복사하세요.")
+            lines.append("tool-call parser는 Gemma4 전용 parser를 사용합니다.")
+            lines.append("Hermes parser 사용 시 raw tool-call markup leak가 발생한 실전 evidence가 있습니다.")
+            lines.append("tool-agent coding 완전 합격은 실제 Hermes tool-agent smoke 통과 뒤에만 표시합니다.")
+            lines.append("실행하려면 custom draft로 복사하세요.")
         lines.extend(format_vllm_profile_section(f"Preset {preset.id}: {preset.label}", preset.profile, port_check=port_check))
     lines.extend(["", "Host guidance:"])
     for guidance in host_guidance_lines():
