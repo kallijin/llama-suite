@@ -325,7 +325,7 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("[8] llama.cpp 스크립트 관리", output)
         self.assertIn("vLLM workspace", output)
         self.assertIn("vLLM profile과 OpenAI-compatible server 흐름 전용", output)
-        self.assertIn("[1] vLLM profile / edit / materials / preview / preflight / script / selected launch", output)
+        self.assertIn("[1] selected vLLM profile workspace / launch / preview / scripts", output)
         self.assertIn("[5] vLLM doctor", output)
 
     def test_main_script_management_is_labeled_llama_cpp_only(self) -> None:
@@ -2168,8 +2168,8 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(saved_id, "large-q4")
         self.assertEqual(loaded.model, "loaded-model")
         self.assertEqual(loaded_id, "large-q4")
-        self.assertIn("selected custom profile: custom-draft", stdout.getvalue())
-        self.assertIn("selected custom profile: large-q4", stdout.getvalue())
+        self.assertIn("selected profile: custom-draft", stdout.getvalue())
+        self.assertIn("selected profile: large-q4", stdout.getvalue())
         self.assertIn("profile store root:", stdout.getvalue())
         self.assertIn("selected draft JSON path:", stdout.getvalue())
         self.assertIn("large-q4.json", stdout.getvalue())
@@ -2256,11 +2256,15 @@ class BeginnerFlowTests(unittest.TestCase):
             launcher.show_vllm_profile_menu(VllmProfile())
 
         output = stdout.getvalue()
-        self.assertIn("View", output)
-        self.assertIn("Draft / files", output)
-        self.assertIn("Script / launch", output)
+        self.assertIn("vLLM selected profile workspace", output)
+        self.assertIn("Run / verify selected profile", output)
+        self.assertIn("Choose / import profile", output)
+        self.assertIn("Edit selected profile", output)
+        self.assertIn("Reference", output)
         self.assertIn("[1] built-in profile preview", output)
-        self.assertIn("[11] launch custom profile", output)
+        self.assertIn("[2] selected profile preview / dry-run / preflight", output)
+        self.assertIn("[10] save selected profile script", output)
+        self.assertIn("[11] launch selected vLLM profile", output)
 
     def test_vllm_profile_menu_save_uses_default_profile_id_and_no_duplicate_load_menu(self) -> None:
         launcher = load_launcher_module()
@@ -2282,7 +2286,7 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertNotIn("[5] load custom profile draft", stdout.getvalue())
         self.assertIn("[6] load saved custom profile from list", stdout.getvalue())
         self.assertIn("[8] profile JSON import/validate/preview", stdout.getvalue())
-        self.assertIn("[11] launch custom profile", stdout.getvalue())
+        self.assertIn("[11] launch selected vLLM profile", stdout.getvalue())
 
     def test_vllm_profile_menu_can_list_saved_custom_profiles(self) -> None:
         launcher = load_launcher_module()
