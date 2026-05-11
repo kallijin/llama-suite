@@ -242,8 +242,10 @@ class BeginnerFlowTests(unittest.TestCase):
             )
 
         self.assertEqual(completed.returncode, 0)
+        self.assertIn("llama-suite local AI engine control", completed.stdout)
+        self.assertIn("llama.cpp / vLLM 로컬 AI 엔진 관제판", completed.stdout)
         self.assertIn("GGUF 파일을 찾을 수 없습니다", completed.stdout)
-        self.assertIn("[L] llama.cpp 세팅", completed.stdout)
+        self.assertIn("[L] llama.cpp workspace", completed.stdout)
         self.assertIn("[E] Hermes 등록", completed.stdout)
         self.assertIn("Hermes 설정 변경: 비활성화", completed.stdout)
         self.assertIn("실행 예정 요약", completed.stdout)
@@ -253,8 +255,10 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("llama.cpp actions: [L] GGUF model selection / params / preview / run / scripts", completed.stdout)
         self.assertIn("vLLM actions: [V] profile / materials / command preview / preflight / launch / scripts / status / API smoke", completed.stdout)
         self.assertIn("Selected vLLM profile actions are under [V]", completed.stdout)
-        self.assertIn("[L] llama.cpp 세팅", completed.stdout)
-        self.assertIn("[V] vLLM 세팅", completed.stdout)
+        self.assertIn("llama.cpp GGUF models: 0 found", completed.stdout)
+        self.assertIn("full list: [L] llama.cpp workspace", completed.stdout)
+        self.assertIn("[L] llama.cpp workspace", completed.stdout)
+        self.assertIn("[V] vLLM workspace", completed.stdout)
         self.assertIn("[S] llama.cpp 스크립트 관리", completed.stdout)
         self.assertNotIn("[K] llama.cpp 파라미터", completed.stdout)
         self.assertNotIn("[P] llama.cpp 최종 미리보기", completed.stdout)
@@ -287,7 +291,11 @@ class BeginnerFlowTests(unittest.TestCase):
             )
 
         self.assertEqual(completed.returncode, 0)
-        self.assertIn("llama.cpp GGUF 모델 목록 (1개)", completed.stdout)
+        self.assertIn("llama.cpp GGUF models: 1 found", completed.stdout)
+        self.assertIn("selected: (none)", completed.stdout)
+        self.assertIn("full list: [L] llama.cpp workspace", completed.stdout)
+        self.assertNotIn("llama.cpp GGUF model list (1 found)", completed.stdout)
+        self.assertNotIn("[ 1] models", completed.stdout)
         self.assertIn("[S] llama.cpp 스크립트 관리", completed.stdout)
         self.assertIn("Selected vLLM profile actions are under [V]", completed.stdout)
 
@@ -299,7 +307,7 @@ class BeginnerFlowTests(unittest.TestCase):
 
         stdout = StringIO()
         with patch("builtins.input", side_effect=["1"]), contextlib.redirect_stdout(stdout):
-            load_action = launcher.choose_llama_cpp_menu_action()
+            load_action = launcher.choose_llama_cpp_menu_action({}, {}, None)
         with patch("builtins.input", side_effect=["4"]), contextlib.redirect_stdout(stdout):
             llama_action = launcher.choose_llama_cpp_menu_action()
         with patch("builtins.input", side_effect=["5"]), contextlib.redirect_stdout(stdout):
@@ -309,12 +317,13 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(llama_action, "K")
         self.assertEqual(vllm_action, "VLLM_DOCTOR")
         output = stdout.getvalue()
-        self.assertIn("llama.cpp 세팅", output)
+        self.assertIn("llama.cpp workspace", output)
         self.assertIn("GGUF 모델과 llama.cpp 실행 흐름 전용", output)
+        self.assertIn("llama.cpp GGUF model list: none found", output)
         self.assertIn("[2] llama.cpp GGUF 모델 변경", output)
         self.assertIn("[4] llama.cpp 파라미터", output)
         self.assertIn("[8] llama.cpp 스크립트 관리", output)
-        self.assertIn("vLLM 세팅", output)
+        self.assertIn("vLLM workspace", output)
         self.assertIn("vLLM profile과 OpenAI-compatible server 흐름 전용", output)
         self.assertIn("[1] vLLM profile / edit / materials / preview / preflight / script / selected launch", output)
         self.assertIn("[5] vLLM doctor", output)
@@ -338,7 +347,7 @@ class BeginnerFlowTests(unittest.TestCase):
         output = stdout.getvalue()
         self.assertIn("저장된 llama.cpp 스크립트", output)
         self.assertIn("llama.cpp GGUF 실행 스크립트 전용", output)
-        self.assertIn("vLLM 스크립트 preview/save는 [V] vLLM 세팅", output)
+        self.assertIn("vLLM 스크립트 preview/save는 [V] vLLM workspace", output)
 
     def test_recent_vllm_run_summary_line_renders_no_record(self) -> None:
         launcher = load_launcher_module()

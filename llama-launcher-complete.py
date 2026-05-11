@@ -98,7 +98,7 @@ def color(text: str, key: str) -> str:
 # ─── 작은 유틸 ─────────────────────────────────────────
 def print_header() -> None:
     print("\n" + color("=" * 64, "title"))
-    print(color("  🦙  LLAMA.CPP 모델 실행기 — Hermes / ROCm 완성판", "title"))
+    print(color("  🦙  llama-suite local AI engine control", "title"))
     print(color("=" * 64, "title"))
 
 
@@ -670,6 +670,28 @@ def print_backend_workflow_bridge_hints() -> None:
     print("    Selected vLLM profile actions are under [V]")
 
 
+def print_llama_cpp_model_summary(models: dict[str, str], draft: dict[str, Any]) -> None:
+    selected = draft.get("model_name") or "(none)"
+    print(f"  llama.cpp GGUF models: {len(models)} found")
+    print(f"    selected: {selected}")
+    print("    full list: [L] llama.cpp workspace")
+
+
+def print_llama_cpp_model_list(models: dict[str, str], draft: dict[str, Any], running: str | None = None) -> None:
+    numbered = list(enumerate(models.items(), 1))
+    if not numbered:
+        print("  llama.cpp GGUF model list: none found")
+        return
+    print(f"\n  llama.cpp GGUF model list ({len(models)} found)\n")
+    for i, (name, _path) in numbered:
+        marker = ""
+        if name == running:
+            marker = " ◀ 실행 중"
+        elif name == draft.get("model_name"):
+            marker = " ◀ 현재 작업 설정"
+        print(f"  [{i:>2}] {name}{marker}")
+
+
 def print_startup_warnings(messages: list[str]) -> None:
     if not messages:
         return
@@ -1016,7 +1038,7 @@ def show_scripts() -> None:
 
     print(f"\n  📜 저장된 llama.cpp 스크립트 ({len(scripts)}개)\n")
     print("  이 목록은 llama.cpp GGUF 실행 스크립트 전용입니다.")
-    print("  vLLM 스크립트 preview/save는 [V] vLLM 세팅 → vLLM profile 안에 있습니다.\n")
+    print("  vLLM 스크립트 preview/save는 [V] vLLM workspace → vLLM profile 안에 있습니다.\n")
     for i, (name, path) in enumerate(scripts, 1):
         model_info = read_script_field(path, "MODEL") or name
         model_path = read_script_field(path, "MODEL_PATH") or read_script_field(path, "PATH") or ""
@@ -1798,9 +1820,16 @@ def initial_vllm_profile_selection() -> tuple[Any, str]:
     return profile, profile_id
 
 
-def choose_llama_cpp_menu_action() -> str:
-    print("\n  ── llama.cpp 세팅 ──")
+def choose_llama_cpp_menu_action(
+    models: dict[str, str] | None = None,
+    draft: dict[str, Any] | None = None,
+    running: str | None = None,
+) -> str:
+    print("\n  ── llama.cpp workspace ──")
     print("  이 메뉴는 GGUF 모델과 llama.cpp 실행 흐름 전용입니다.")
+    if models is not None and draft is not None:
+        print_llama_cpp_model_list(models, draft, running)
+        print()
     print("  [1] llama.cpp 설정/스크립트 불러오기")
     print("  [2] llama.cpp GGUF 모델 변경")
     print("  [3] llama.cpp 설정 변경 / 현재 설정 저장")
@@ -1823,7 +1852,7 @@ def choose_llama_cpp_menu_action() -> str:
 
 
 def choose_vllm_menu_action() -> str:
-    print("\n  ── vLLM 세팅 ──")
+    print("\n  ── vLLM workspace ──")
     print("  이 메뉴는 vLLM profile과 OpenAI-compatible server 흐름 전용입니다.")
     print("  [1] vLLM profile / edit / materials / preview / preflight / script / selected launch")
     print("  [2] vLLM API smoke")
@@ -1850,7 +1879,7 @@ def main() -> None:
 
     while True:
         print_header()
-        print("  고급 기능을 품은 초보용 llama.cpp 운용 조정판")
+        print("  llama.cpp / vLLM 로컬 AI 엔진 관제판")
         print(f"  모델 디렉터리: {MODELS_DIR}")
         print_working_draft_status(draft)
         print_integration_status(cfg)
@@ -1860,30 +1889,22 @@ def main() -> None:
         print_recent_vllm_run_summary(vllm_run_summary)
         print_selected_vllm_profile_summary(vllm_profile_draft, vllm_profile_draft_id)
         print_backend_workflow_bridge_hints()
+        print_llama_cpp_model_summary(models, draft)
         print_startup_warnings(startup_warnings + recent_vllm_run_startup_warnings(vllm_run_summary))
         if not models:
             print(f"\n  ⚠️  {MODELS_DIR} 에서 GGUF 파일을 찾을 수 없습니다.")
-            print("     그래도 [L] llama.cpp 세팅, [I] 시스템 정보, [E] Hermes 등록, [C] OpenClaw 등록은 사용할 수 있습니다.")
+            print("     그래도 [L] llama.cpp workspace, [I] 시스템 정보, [E] Hermes 등록, [C] OpenClaw 등록은 사용할 수 있습니다.")
 
         if running:
             print(f"  🔴 실행 중: {running}\n")
 
         numbered = list(enumerate(models.items(), 1))
-        if numbered:
-            print(f"\n  llama.cpp GGUF 모델 목록 ({len(models)}개)\n")
-        for i, (name, _path) in numbered:
-            marker = ""
-            if name == running:
-                marker = " ◀ 실행 중"
-            elif name == draft.get("model_name"):
-                marker = " ◀ 현재 작업 설정"
-            print(f"  [{i:>2}] {name}{marker}")
 
         existing_scripts = list_scripts()
         script_info = f" ({len(existing_scripts)}개)" if existing_scripts else ""
 
-        print("\n  [L] llama.cpp 세팅")
-        print("  [V] vLLM 세팅")
+        print("\n  [L] llama.cpp workspace")
+        print("  [V] vLLM workspace")
         print(f"  [S] llama.cpp 스크립트 관리{script_info}")
         print("  [E] Hermes 등록/연동")
         print("  [C] OpenClaw 등록")
@@ -1909,7 +1930,7 @@ def main() -> None:
             break
 
         if upper == "L":
-            upper = choose_llama_cpp_menu_action()
+            upper = choose_llama_cpp_menu_action(models, draft, running)
             if not upper:
                 print("  취소했습니다.")
                 pause()
