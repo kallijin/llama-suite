@@ -2714,7 +2714,10 @@ def print_vllm_workspace_model_candidates(cache: Any) -> None:
         index += 1
 
     if incomplete:
-        print("\n  Incomplete folders / needs files")
+        print("\n  vLLM 일반 후보 아님 / HF 필수 files 부족")
+        print("  이 항목들은 vLLM의 기본 HF 모델 폴더 형태가 아닙니다.")
+        print("  config / tokenizer / weights 같은 HF 필수 files가 필요합니다.")
+        print("  GGUF는 llama.cpp workspace가 기본 경로입니다.")
         for candidate in incomplete[:6]:
             print_vllm_workspace_candidate_line(index, candidate)
             index += 1

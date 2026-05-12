@@ -378,6 +378,8 @@ class BeginnerFlowTests(unittest.TestCase):
             (ready / "config.json").write_text(json.dumps({"model_type": "qwen2", "quantization_config": {"quant_method": "awq"}}))
             (ready / "tokenizer.json").write_text("{}")
             (ready / "model.safetensors").write_text("fake")
+            incomplete = root / "Needs-Files-AWQ"
+            incomplete.mkdir()
             (root / "EXAONE-4.5-33B-IQ4_XS.gguf").write_text("fake")
             cache = scan_vllm_model_candidates([root])
             stdout = StringIO()
@@ -391,6 +393,9 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("Choose a model number to inspect", output)
         self.assertIn("GGUF routed to llama.cpp: 1 hidden", output)
         self.assertIn("Use llama.cpp workspace for GGUF", output)
+        self.assertIn("vLLM 일반 후보 아님 / HF 필수 files 부족", output)
+        self.assertIn("config / tokenizer / weights 같은 HF 필수 files가 필요합니다.", output)
+        self.assertIn("GGUF는 llama.cpp workspace가 기본 경로입니다.", output)
         self.assertNotIn("[2] Show vLLM Model Folders", output)
         self.assertNotIn("[2] EXAONE-4.5-33B-IQ4_XS.gguf", output)
 
