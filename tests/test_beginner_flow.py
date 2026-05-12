@@ -412,7 +412,7 @@ class BeginnerFlowTests(unittest.TestCase):
             launch_mock = Mock()
             stdout = StringIO()
             try:
-                with patch.object(launcher, "launch_vllm_profile_once", launch_mock), patch("builtins.input", side_effect=[""]), contextlib.redirect_stdout(stdout):
+                with patch.object(launcher, "launch_vllm_profile_once", launch_mock), patch("builtins.input", side_effect=["", ""]), contextlib.redirect_stdout(stdout):
                     _profile, _profile_id, _cfg, handled = launcher.handle_vllm_workspace_action("VLLM_MODEL_DETAIL:1", None, "custom-draft", {})
             finally:
                 launcher.MODELS_DIR = old_models_dir
@@ -424,6 +424,175 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("Qwen2.5-14B-Instruct-AWQ", output)
         self.assertIn("can launch: YES after profile setup", output)
         self.assertIn("Model number selection only inspected readiness", output)
+
+    def test_vllm_model_detail_imports_suite_profile_without_launch(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profile_store import VllmProfileSelectionResult, format_vllm_profile_draft_json
+        from modules.vllm_profiles import VllmProfile
+        from unittest.mock import Mock, patch
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            ready = root / "Gemma-4-26B-AWQ"
+            ready.mkdir()
+            (ready / "config.json").write_text(json.dumps({"model_type": "gemma", "quantization_config": {"quant_method": "awq"}}))
+            (ready / "tokenizer.json").write_text("{}")
+            (ready / "model.safetensors").write_text("fake")
+            imported_profile = VllmProfile(model=str(ready), extra_args="--served-model-name gemma")
+            (ready / "llama-suite-vllm-profile.json").write_text(format_vllm_profile_draft_json(imported_profile, profile_id="gemma"))
+            old_models_dir = launcher.MODELS_DIR
+            launcher.MODELS_DIR = str(root)
+            launch_mock = Mock()
+            import_result = VllmProfileSelectionResult(True, imported_profile, "gemma", "/tmp/gemma.json", "/tmp/latest.json", ["imported"])
+            stdout = StringIO()
+            try:
+                with (
+                    patch.object(launcher, "import_vllm_model_profile_hint", Mock(return_value=import_result)) as import_mock,
+                    patch.object(launcher, "launch_vllm_profile_once", launch_mock),
+                    patch("builtins.input", side_effect=["1", "import", ""]),
+                    contextlib.redirect_stdout(stdout),
+                ):
+                    profile, profile_id, _cfg, handled = launcher.handle_vllm_workspace_action(
+                        "VLLM_MODEL_DETAIL:1",
+                        VllmProfile(model="/old/model"),
+                        "current",
+                        {},
+                    )
+            finally:
+                launcher.MODELS_DIR = old_models_dir
+
+        self.assertTrue(handled)
+        import_mock.assert_called_once_with(str(ready), selected_profile_id="current", confirmed=True)
+        launch_mock.assert_not_called()
+        self.assertIs(profile, imported_profile)
+        self.assertEqual(profile_id, "gemma")
+        output = stdout.getvalue()
+        self.assertIn("Import suite profile", output)
+        self.assertIn("launch는 하지 않았습니다", output)
+
+    def test_vllm_model_detail_saves_current_profile_hint_without_launch(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profiles import VllmProfile
+        from unittest.mock import Mock, patch
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            ready = root / "Gemma-4-26B-AWQ"
+            ready.mkdir()
+            (ready / "config.json").write_text(json.dumps({"model_type": "gemma", "quantization_config": {"quant_method": "awq"}}))
+            (ready / "tokenizer.json").write_text("{}")
+            (ready / "model.safetensors").write_text("fake")
+            (ready / "llama-suite-vllm-profile.json").write_text("old hint\n")
+            old_models_dir = launcher.MODELS_DIR
+            launcher.MODELS_DIR = str(root)
+            launch_mock = Mock()
+            stdout = StringIO()
+            try:
+                with (
+                    patch.object(launcher, "launch_vllm_profile_once", launch_mock),
+                    patch("builtins.input", side_effect=["2", "save", ""]),
+                    contextlib.redirect_stdout(stdout),
+                ):
+                    launcher.handle_vllm_workspace_action(
+                        "VLLM_MODEL_DETAIL:1",
+                        VllmProfile(model="/old/model", extra_args="--served-model-name old"),
+                        "current",
+                        {},
+                    )
+            finally:
+                launcher.MODELS_DIR = old_models_dir
+
+            hint_path = ready / "llama-suite-vllm-profile.json"
+            payload = json.loads(hint_path.read_text())
+
+        launch_mock.assert_not_called()
+        self.assertEqual(payload["profile"]["model"], str(ready))
+        output = stdout.getvalue()
+        self.assertIn("Save current profile to model folder", output)
+        self.assertIn("backup path:", output)
+        self.assertIn("launch는 하지 않았습니다", output)
+
+    def test_vllm_model_detail_preview_does_not_launch(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profile_store import format_vllm_profile_draft_json
+        from modules.vllm_profiles import VllmProfile
+        from unittest.mock import Mock, patch
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            ready = root / "Gemma-4-26B-AWQ"
+            ready.mkdir()
+            (ready / "config.json").write_text(json.dumps({"model_type": "gemma", "quantization_config": {"quant_method": "awq"}}))
+            (ready / "tokenizer.json").write_text("{}")
+            (ready / "model.safetensors").write_text("fake")
+            (ready / "llama-suite-vllm-profile.json").write_text(
+                format_vllm_profile_draft_json(VllmProfile(model=str(ready), extra_args="--served-model-name gemma"), profile_id="gemma")
+            )
+            old_models_dir = launcher.MODELS_DIR
+            launcher.MODELS_DIR = str(root)
+            launch_mock = Mock()
+            stdout = StringIO()
+            try:
+                with patch.object(launcher, "launch_vllm_profile_once", launch_mock), patch("builtins.input", side_effect=["P", ""]), contextlib.redirect_stdout(stdout):
+                    launcher.handle_vllm_workspace_action("VLLM_MODEL_DETAIL:1", VllmProfile(model="/old/model"), "current", {})
+            finally:
+                launcher.MODELS_DIR = old_models_dir
+
+        launch_mock.assert_not_called()
+        output = stdout.getvalue()
+        self.assertIn("Command preview / dry-run:", output)
+        self.assertIn("vllm-rocm serve", output)
+
+    def test_vllm_model_detail_missing_profile_builds_in_memory_candidate_without_saving(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profiles import VllmProfile
+        from unittest.mock import Mock, patch
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            ready = root / "Qwen2.5-14B-Instruct-AWQ"
+            ready.mkdir()
+            (ready / "config.json").write_text(json.dumps({"model_type": "qwen2", "quantization_config": {"quant_method": "awq"}}))
+            (ready / "tokenizer.json").write_text("{}")
+            (ready / "model.safetensors").write_text("fake")
+            old_models_dir = launcher.MODELS_DIR
+            launcher.MODELS_DIR = str(root)
+            launch_mock = Mock()
+            save_mock = Mock()
+            stdout = StringIO()
+            try:
+                with (
+                    patch.object(launcher, "launch_vllm_profile_once", launch_mock),
+                    patch.object(launcher, "save_vllm_model_profile_hint", save_mock),
+                    patch("builtins.input", side_effect=["1", ""]),
+                    contextlib.redirect_stdout(stdout),
+                ):
+                    profile, profile_id, _cfg, handled = launcher.handle_vllm_workspace_action(
+                        "VLLM_MODEL_DETAIL:1",
+                        VllmProfile(model="/old/model", extra_args="--served-model-name old"),
+                        "current",
+                        {},
+                    )
+            finally:
+                launcher.MODELS_DIR = old_models_dir
+
+        self.assertTrue(handled)
+        self.assertEqual(profile.model, "/old/model")
+        self.assertEqual(profile_id, "current")
+        launch_mock.assert_not_called()
+        save_mock.assert_not_called()
+        output = stdout.getvalue()
+        self.assertIn("Candidate profile preview", output)
+        self.assertIn(str(ready), output)
+        self.assertIn("In-memory only. Nothing is saved", output)
 
     def test_vllm_workspace_ready_awq_with_suite_profile_shows_ready_status(self) -> None:
         launcher = load_launcher_module()

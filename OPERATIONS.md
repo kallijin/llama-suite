@@ -167,6 +167,52 @@ OK
 SMOKE CHECK OK
 ```
 
+## 2026-05-12 KST - vLLM model readiness action wiring
+
+### Context
+
+The vLLM model readiness detail screen showed safe next actions, but the first
+version only rendered the labels. That left import, profile-hint save, and
+command preview one step short of the existing safe flows.
+
+### Change
+
+Wired the model detail actions to existing vLLM profile hint import/export and
+command preview paths. A ready folder with a suite profile can import the hint
+or preview its command. A ready folder without a suite profile can preview an
+in-memory selected-profile draft for that folder, apply the safe default policy
+for preview, or save a profile hint after exact confirmation.
+
+### Safety
+
+This is still an import/save/preview-only patch.
+
+- no model launch from the detail screen
+- no model download
+- no edit to `config.json`, tokenizer files, or weights
+- existing import/save helpers keep validation, preview, exact confirmation,
+  and backup behavior
+- incomplete folders show recovery guidance and no launch action
+
+### Verification
+
+```sh
+python3 -m py_compile llama-launcher-complete.py modules/*.py
+python3 scripts/policy-check.py
+git diff --check
+python3 -m unittest discover -v
+bash scripts/smoke-check.sh
+```
+
+Result:
+
+```text
+POLICY CHECK OK
+Ran 214 tests
+OK
+SMOKE CHECK OK
+```
+
 ## 2026-05-08 23:48 KST - Beginner-first working draft baseline
 
 ### Context

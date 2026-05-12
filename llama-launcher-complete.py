@@ -2436,21 +2436,22 @@ def show_vllm_model_folders() -> None:
         print(f"  {line}" if line else "")
 
 
-def show_vllm_model_readiness_detail(index_text: str) -> None:
+def show_vllm_model_readiness_detail(index_text: str, profile: Any | None = None, profile_id: str = "custom-draft") -> tuple[Any | None, str]:
     cache = scan_vllm_model_candidates([MODELS_DIR])
     candidates = vllm_workspace_primary_candidates(cache) + vllm_workspace_incomplete_candidates(cache)
     try:
         index = int(index_text)
     except ValueError:
         print("  invalid model selection")
-        return
+        return profile, profile_id
     if not 1 <= index <= len(candidates):
         print("  invalid model selection")
-        return
+        return profile, profile_id
 
     candidate = candidates[index - 1]
     status, reason, can_launch = vllm_candidate_status(candidate)
     missing = list(getattr(candidate.readiness, "missing", []))
+    hint_profile = None
     print("\n  ── vLLM model readiness ──")
     print("\n  Model:")
     print(f"  - name: {candidate.source.original_name}")
@@ -2479,6 +2480,7 @@ def show_vllm_model_readiness_detail(index_text: str) -> None:
         print("\n  Suite profile:")
         print(f"  - hint path: {result.profile_path or vllm_model_profile_hint_path(candidate.source.path)}")
         if result.ok and result.profile is not None:
+            hint_profile = result.profile
             print(f"  - profile id: {result.profile_id or '-'}")
             print_vllm_profile_launch_parameter_summary(result.profile)
             command, command_messages = build_vllm_command(result.profile)
@@ -2495,11 +2497,11 @@ def show_vllm_model_readiness_detail(index_text: str) -> None:
     print("\n  Actions:")
     if missing:
         print("  No launch action: this folder needs files first.")
+        print("  Recovery: add missing config/tokenizer/weights files, then rescan this workspace.")
     elif candidate.has_suite_profile:
         print("  [1] Import suite profile")
         print("  [2] Save current profile to model folder")
-        print("  [3] Preview launch command")
-        print("  [L] Launch with this profile")
+        print("  [P] Preview launch command")
         print("  [R] Back")
     else:
         print("  [1] Use selected profile draft for this folder")
@@ -2508,6 +2510,63 @@ def show_vllm_model_readiness_detail(index_text: str) -> None:
         print("  [P] Preview")
         print("  [R] Back")
     print("  Model number selection only inspected readiness. It did not launch a model.")
+
+    if missing:
+        return profile, profile_id
+
+    choice = input("  detail 선택 > ").strip().upper()
+    candidate_profile = vllm_candidate_profile_from_selected(profile, candidate)
+    if candidate.has_suite_profile:
+        if choice == "1":
+            return import_vllm_profile_hint_from_model_directory(candidate_profile, profile_id)
+        if choice == "2":
+            save_vllm_profile_hint_to_model_directory(candidate_profile, profile_id)
+            return profile, profile_id
+        if choice == "P":
+            if hint_profile is not None:
+                print_vllm_command_preview_for_profile(hint_profile)
+            else:
+                print("  preview unavailable: suite profile could not be loaded")
+            return profile, profile_id
+    else:
+        if choice == "1":
+            print("\n  ── Candidate profile preview ──")
+            print("  In-memory only. Nothing is saved and no model is launched.")
+            print_selected_profile_validation_and_preview(candidate_profile)
+            return profile, profile_id
+        if choice == "2":
+            preview, messages = apply_vllm_default_profile_policy(candidate_profile, "hermes-desktop-strong", profile_id=profile_id)
+            print("\n  ── Candidate profile with safe defaults ──")
+            print("  Preview only. Nothing is saved and no model is launched.")
+            for message in messages:
+                print(f"  - {message}")
+            print_selected_profile_validation_and_preview(preview)
+            return profile, profile_id
+        if choice == "3":
+            save_vllm_profile_hint_to_model_directory(candidate_profile, profile_id)
+            return profile, profile_id
+        if choice == "P":
+            print_vllm_command_preview_for_profile(candidate_profile)
+            return profile, profile_id
+    print("  취소했습니다.")
+    return profile, profile_id
+
+
+def vllm_candidate_profile_from_selected(profile: Any | None, candidate: Any) -> Any:
+    base = profile if profile is not None else default_vllm_profile()
+    data = base.to_dict()
+    data["model"] = str(candidate.source.path)
+    return type(base)(**data)
+
+
+def print_vllm_command_preview_for_profile(profile: Any) -> None:
+    print("\n  Command preview / dry-run:")
+    command, messages = build_vllm_command(profile)
+    if command is None:
+        for message in messages:
+            print(f"  - {message}")
+        return
+    print("  " + shlex.join(command))
 
 
 def print_vllm_profile_launch_parameter_summary(profile: Any) -> None:
@@ -2719,7 +2778,7 @@ def handle_vllm_workspace_action(action: str, profile: Any, profile_id: str, cfg
 
     if upper.startswith(VLLM_MODEL_DETAIL_ACTION_PREFIX):
         index_text = action_text.split(":", 1)[1]
-        show_vllm_model_readiness_detail(index_text)
+        profile, profile_id = show_vllm_model_readiness_detail(index_text, profile, profile_id)
         pause()
         return profile, profile_id, cfg, True
 
