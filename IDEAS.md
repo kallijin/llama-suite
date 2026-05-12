@@ -214,6 +214,33 @@ This boundary marks where the project moved from vLLM foundation MVP into custom
 필요하지만 전체 구조를 건드릴 수 있으므로 설계 후 단계적으로 한다.
 
 - 공통 action layer를 backend-aware로 정리한다. parameters, preview, script generation, run은 backend-specific handler로 dispatch되어야 한다.
+- Future cleanup: centralize model source classification.
+  Context: `_looks_like_hf_model_id()` was added in `modules/vllm_profile_store.py`
+  for saving vLLM model-directory profile hints. Similar checks already exist
+  or may grow in vLLM profile inspection, model scan, preflight, and UI code.
+  If each module decides independently whether a model string is a Hugging Face
+  ID, local HF directory, GGUF file, missing path, invalid value, or unknown
+  source, the launcher can show inconsistent guidance.
+
+  Desired direction: create one shared classifier for model source strings,
+  possibly `modules/model_source_classifier.py` or `modules/vllm_model_source.py`.
+  The structured result should include `kind`, `original`, `resolved_path`,
+  `messages`, `warnings`, and `blocking`.
+
+  Candidate `kind` values:
+  `hf_model_id`, `local_hf_directory`, `local_gguf_file`,
+  `missing_local_path`, `invalid`, `unknown`.
+
+  Use it from `modules/vllm_profile_store.py`, `modules/vllm_profiles.py`,
+  vLLM preflight, vLLM import/export profile hint UI, and future
+  model registry/discovery work.
+
+  Priority: not urgent. Do this after the engine-separated menu baseline and
+  the vLLM HF/AWQ model-folder path are clearer, or before the larger
+  model registry/discovery UI cleanup.
+
+  Safety: no behavior change at first. Start with tests that preserve current
+  behavior.
 - llama.cpp도 vLLM과 같은 run record 구조로 정리한다. 그 전까지 `Recent engine` 같은 전체 엔진 요약 문구는 쓰지 않는다.
 - CLI control `--json`과 MCP adapter는 TUI와 분리된 control surface가 생긴 뒤 추가한다.
 - 모델 기본 지식 파일을 만들어 모델 선택/검색 시 초기 파라미터 후보를 제공하는 방안을 고려한다. 이 값은 정답이 아니라 정비 수첩이며 자동 적용하지 않는다.
