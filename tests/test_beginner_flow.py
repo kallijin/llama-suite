@@ -312,8 +312,12 @@ class BeginnerFlowTests(unittest.TestCase):
             load_action = launcher.choose_llama_cpp_menu_action({}, {}, None)
         with patch("builtins.input", side_effect=["4"]), contextlib.redirect_stdout(stdout):
             llama_action = launcher.choose_llama_cpp_menu_action()
-        with patch("builtins.input", side_effect=["10"]), contextlib.redirect_stdout(stdout):
-            vllm_action = launcher.choose_vllm_menu_action()
+        from modules.vllm_model_scan import scan_vllm_model_candidates
+
+        with TemporaryDirectory() as directory:
+            empty_cache = scan_vllm_model_candidates([directory])
+            with patch("builtins.input", side_effect=["T"]), contextlib.redirect_stdout(stdout):
+                vllm_action = launcher.choose_vllm_menu_action(candidate_cache=empty_cache)
 
         self.assertEqual(load_action, "LOAD")
         self.assertEqual(llama_action, "K")
@@ -325,21 +329,19 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("[2] llama.cpp GGUF 모델 변경", output)
         self.assertIn("[4] llama.cpp 파라미터", output)
         self.assertIn("[8] llama.cpp 스크립트 관리", output)
-        self.assertIn("vLLM workspace", output)
-        self.assertIn("vLLM beta launch path", output)
-        self.assertIn("[1] Load Verified Gemma4 Profile", output)
-        self.assertIn("[2] Show vLLM Model Folders", output)
-        self.assertIn("[3] Profile Preview / Run Check", output)
-        self.assertIn("[4] Start AI Model", output)
-        self.assertIn("[5] Server Check / Log / Stop", output)
-        self.assertIn("[6] API Connection Test", output)
-        self.assertIn("[7] Hermes Config Sync", output)
-        self.assertIn("[8] Hermes Chat Test", output)
-        self.assertIn("[9] Hermes Tool Test / Raw Markup Check", output)
-        self.assertIn("[10] vLLM Start Check", output)
-        self.assertIn("[11] Profile Settings", output)
+        self.assertIn("vLLM engine", output)
+        self.assertIn("This workspace operates local HF/AWQ-style vLLM model folders.", output)
+        self.assertIn("vLLM model candidates", output)
+        self.assertIn("Choose a model number to inspect", output)
+        self.assertNotIn("Show vLLM Model Folders", output)
+        self.assertIn("[P] Selected profile preview", output)
+        self.assertIn("[S] Server Check / Log / Stop", output)
+        self.assertIn("[C] API / Hermes checks", output)
+        self.assertIn("[D] Load Verified Gemma4 Profile", output)
+        self.assertIn("[T] vLLM Start Check", output)
+        self.assertIn("[E] Profile Settings", output)
         self.assertIn("[A] Advanced Profile / JSON", output)
-        self.assertNotIn("[9] vLLM doctor", output)
+        self.assertNotIn("vLLM doctor", output)
 
     def test_vllm_workspace_stays_open_after_submenu_action(self) -> None:
         with TemporaryDirectory() as home:
@@ -351,7 +353,7 @@ class BeginnerFlowTests(unittest.TestCase):
             completed = subprocess.run(
                 [sys.executable, "llama-launcher-complete.py"],
                 cwd=ROOT,
-                input="v\n3\n\nr\nq\n",
+                input="v\np\n\nr\nq\n",
                 text=True,
                 capture_output=True,
                 check=False,
@@ -359,8 +361,164 @@ class BeginnerFlowTests(unittest.TestCase):
             )
 
         self.assertEqual(completed.returncode, 0)
-        self.assertGreaterEqual(completed.stdout.count("── vLLM workspace ──"), 2)
-        self.assertIn("Profile Preview / Run Check", completed.stdout)
+        self.assertGreaterEqual(completed.stdout.count("── vLLM engine ──"), 2)
+        self.assertIn("Selected profile preview", completed.stdout)
+
+    def test_vllm_workspace_shows_model_candidates_directly_and_routes_gguf(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_model_scan import scan_vllm_model_candidates
+        from unittest.mock import patch
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            ready = root / "Qwen2.5-14B-Instruct-AWQ"
+            ready.mkdir()
+            (ready / "config.json").write_text(json.dumps({"model_type": "qwen2", "quantization_config": {"quant_method": "awq"}}))
+            (ready / "tokenizer.json").write_text("{}")
+            (ready / "model.safetensors").write_text("fake")
+            (root / "EXAONE-4.5-33B-IQ4_XS.gguf").write_text("fake")
+            cache = scan_vllm_model_candidates([root])
+            stdout = StringIO()
+
+            with patch("builtins.input", side_effect=["R"]), contextlib.redirect_stdout(stdout):
+                action = launcher.choose_vllm_menu_action(candidate_cache=cache)
+
+        output = stdout.getvalue()
+        self.assertEqual(action, "")
+        self.assertIn("Qwen2.5-14B-Instruct-AWQ", output)
+        self.assertIn("Choose a model number to inspect", output)
+        self.assertIn("GGUF routed to llama.cpp: 1 hidden", output)
+        self.assertIn("Use llama.cpp workspace for GGUF", output)
+        self.assertNotIn("[2] Show vLLM Model Folders", output)
+        self.assertNotIn("[2] EXAONE-4.5-33B-IQ4_XS.gguf", output)
+
+    def test_vllm_workspace_model_number_opens_detail_without_launch(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from unittest.mock import Mock, patch
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            ready = root / "Qwen2.5-14B-Instruct-AWQ"
+            ready.mkdir()
+            (ready / "config.json").write_text(json.dumps({"model_type": "qwen2", "quantization_config": {"quant_method": "awq"}}))
+            (ready / "tokenizer.json").write_text("{}")
+            (ready / "model.safetensors").write_text("fake")
+            old_models_dir = launcher.MODELS_DIR
+            launcher.MODELS_DIR = str(root)
+            launch_mock = Mock()
+            stdout = StringIO()
+            try:
+                with patch.object(launcher, "launch_vllm_profile_once", launch_mock), patch("builtins.input", side_effect=[""]), contextlib.redirect_stdout(stdout):
+                    _profile, _profile_id, _cfg, handled = launcher.handle_vllm_workspace_action("VLLM_MODEL_DETAIL:1", None, "custom-draft", {})
+            finally:
+                launcher.MODELS_DIR = old_models_dir
+
+        output = stdout.getvalue()
+        self.assertTrue(handled)
+        launch_mock.assert_not_called()
+        self.assertIn("vLLM model readiness", output)
+        self.assertIn("Qwen2.5-14B-Instruct-AWQ", output)
+        self.assertIn("can launch: YES after profile setup", output)
+        self.assertIn("Model number selection only inspected readiness", output)
+
+    def test_vllm_workspace_ready_awq_with_suite_profile_shows_ready_status(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profile_store import format_vllm_profile_draft_json
+        from modules.vllm_profiles import VllmProfile
+        from modules.vllm_model_scan import scan_vllm_model_candidates
+        from unittest.mock import patch
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            ready = root / "Gemma-4-26B-AWQ"
+            ready.mkdir()
+            (ready / "config.json").write_text(json.dumps({"model_type": "gemma", "quantization_config": {"quant_method": "awq"}}))
+            (ready / "tokenizer.json").write_text("{}")
+            (ready / "model.safetensors").write_text("fake")
+            (ready / "llama-suite-vllm-profile.json").write_text(format_vllm_profile_draft_json(VllmProfile(model=str(ready)), profile_id="gemma"))
+            cache = scan_vllm_model_candidates([root])
+            stdout = StringIO()
+
+            with patch("builtins.input", side_effect=["R"]), contextlib.redirect_stdout(stdout):
+                launcher.choose_vllm_menu_action(candidate_cache=cache)
+
+        output = stdout.getvalue()
+        self.assertIn("READY", output)
+        self.assertIn("config OK", output)
+        self.assertIn("tokenizer OK", output)
+        self.assertIn("weights OK", output)
+        self.assertIn("profile OK", output)
+        self.assertIn("can launch: YES", output)
+
+    def test_vllm_workspace_ready_awq_without_suite_profile_shows_warn(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_model_scan import scan_vllm_model_candidates
+        from unittest.mock import patch
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            ready = root / "Qwen2.5-14B-Instruct-AWQ"
+            ready.mkdir()
+            (ready / "config.json").write_text(json.dumps({"model_type": "qwen2", "quantization_config": {"quant_method": "awq"}}))
+            (ready / "tokenizer.json").write_text("{}")
+            (ready / "model.safetensors").write_text("fake")
+            cache = scan_vllm_model_candidates([root])
+            stdout = StringIO()
+
+            with patch("builtins.input", side_effect=["R"]), contextlib.redirect_stdout(stdout):
+                launcher.choose_vllm_menu_action(candidate_cache=cache)
+
+        output = stdout.getvalue()
+        self.assertIn("WARN", output)
+        self.assertIn("profile MISSING", output)
+        self.assertIn("profile setup needed", output)
+
+    def test_vllm_workspace_incomplete_detail_shows_missing_files_and_no_launch_action(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from unittest.mock import Mock, patch
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            incomplete = root / "alonsoko__gemma-4-31b-it-abliterated-heretic-ara-AWQ"
+            incomplete.mkdir()
+            old_models_dir = launcher.MODELS_DIR
+            launcher.MODELS_DIR = str(root)
+            launch_mock = Mock()
+            stdout = StringIO()
+            try:
+                with patch.object(launcher, "launch_vllm_profile_once", launch_mock), patch("builtins.input", side_effect=[""]), contextlib.redirect_stdout(stdout):
+                    launcher.handle_vllm_workspace_action("VLLM_MODEL_DETAIL:1", None, "custom-draft", {})
+            finally:
+                launcher.MODELS_DIR = old_models_dir
+
+        output = stdout.getvalue()
+        launch_mock.assert_not_called()
+        self.assertIn("FAIL", output)
+        self.assertIn("다음 파일이 필요합니다: config, tokenizer, weights", output)
+        self.assertIn("No launch action: this folder needs files first.", output)
+        self.assertNotIn("[L] Launch", output)
+
+    def test_terminal_status_color_helpers_keep_visible_words_and_honor_no_color(self) -> None:
+        launcher = load_launcher_module()
+
+        self.assertIn("OK", launcher.status_badge("OK", enabled=True))
+        self.assertIn("WARN", launcher.status_badge("WARN", enabled=True))
+        self.assertIn("FAIL", launcher.status_badge("FAIL", enabled=True))
+        self.assertIn("\033[", launcher.status_badge("OK", enabled=True))
+        self.assertEqual(launcher.status_badge("OK", enabled=False), "OK")
+        self.assertFalse(launcher.terminal_color_enabled(is_tty=True, environ={"NO_COLOR": "1", "TERM": "xterm"}))
+        self.assertFalse(launcher.terminal_color_enabled(is_tty=True, environ={"TERM": "dumb"}))
+        self.assertFalse(launcher.terminal_color_enabled(is_tty=False, environ={"TERM": "xterm"}))
 
     def test_vllm_server_check_menu_explains_latest_suite_server_scope(self) -> None:
         launcher = load_launcher_module()

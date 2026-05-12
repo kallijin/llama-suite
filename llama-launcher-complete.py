@@ -81,20 +81,48 @@ OPENCLAW_CONFIG_CANDIDATES = (
     "~/.config/openclaw/config.yaml",
     "~/OpenClaw/config.yaml",
 )
-USE_COLOR = bool(getattr(sys.stdout, "isatty", lambda: False)()) and os.environ.get("NO_COLOR") is None
 COLORS = {
     "title": "\033[1;36m",
     "section": "\033[1;34m",
+    "selected": "\033[1;37m",
     "ok": "\033[1;32m",
     "warn": "\033[1;33m",
+    "error": "\033[1;31m",
+    "danger": "\033[1;31m",
+    "muted": "\033[2m",
+    "path": "\033[36m",
     "reset": "\033[0m",
 }
+VLLM_MODEL_DETAIL_ACTION_PREFIX = "VLLM_MODEL_DETAIL:"
 
 
-def color(text: str, key: str) -> str:
-    if not USE_COLOR:
+def terminal_color_enabled(*, is_tty: bool | None = None, environ: dict[str, str] | None = None) -> bool:
+    env = environ if environ is not None else os.environ
+    tty = bool(getattr(sys.stdout, "isatty", lambda: False)()) if is_tty is None else bool(is_tty)
+    return tty and env.get("NO_COLOR") is None and env.get("TERM") != "dumb"
+
+
+USE_COLOR = terminal_color_enabled()
+
+
+def color(text: str, key: str, *, enabled: bool | None = None) -> str:
+    active = USE_COLOR if enabled is None else enabled
+    if not active:
         return text
     return f"{COLORS.get(key, '')}{text}{COLORS['reset']}"
+
+
+def status_badge(text: str, *, enabled: bool | None = None) -> str:
+    word = str(text or "").upper()
+    if word in {"OK", "READY", "YES"}:
+        role = "ok"
+    elif word in {"WARN", "MISSING"}:
+        role = "warn"
+    elif word in {"FAIL", "NO", "DANGER"}:
+        role = "danger"
+    else:
+        role = "muted"
+    return color(word, role, enabled=enabled)
 
 
 # ─── 작은 유틸 ─────────────────────────────────────────
@@ -2408,6 +2436,92 @@ def show_vllm_model_folders() -> None:
         print(f"  {line}" if line else "")
 
 
+def show_vllm_model_readiness_detail(index_text: str) -> None:
+    cache = scan_vllm_model_candidates([MODELS_DIR])
+    candidates = vllm_workspace_primary_candidates(cache) + vllm_workspace_incomplete_candidates(cache)
+    try:
+        index = int(index_text)
+    except ValueError:
+        print("  invalid model selection")
+        return
+    if not 1 <= index <= len(candidates):
+        print("  invalid model selection")
+        return
+
+    candidate = candidates[index - 1]
+    status, reason, can_launch = vllm_candidate_status(candidate)
+    missing = list(getattr(candidate.readiness, "missing", []))
+    print("\n  ── vLLM model readiness ──")
+    print("\n  Model:")
+    print(f"  - name: {candidate.source.original_name}")
+    print(f"  - path: {color(candidate.source.path, 'path')}")
+    print("\n  Classification:")
+    print(f"  - family: {candidate.classification_guess.family}")
+    print(f"  - size: {candidate.classification_guess.size_b or '-'}")
+    print(f"  - quant: {candidate.classification_guess.quant}")
+    print(f"  - backend: {candidate.candidate_backend}")
+    print("\n  Files:")
+    print(f"  - config: {'MISSING' if 'config' in missing else 'OK'}")
+    print(f"  - tokenizer: {'MISSING' if 'tokenizer' in missing else 'OK'}")
+    print(f"  - weights: {'MISSING' if 'weights' in missing else 'OK'}")
+    print(f"  - suite profile: {'OK' if candidate.has_suite_profile else 'MISSING'}")
+    print("\n  Readiness:")
+    print(f"  - {status_badge(status)} / {reason}")
+    print(f"  - can launch: {can_launch}")
+    if missing:
+        print("  - 다음 파일이 필요합니다: " + ", ".join(missing))
+    print("\n  Evidence:")
+    for evidence in candidate.classification_guess.evidence:
+        print(f"  - {evidence}")
+
+    if candidate.has_suite_profile:
+        result = load_vllm_model_profile_hint(candidate.source.path)
+        print("\n  Suite profile:")
+        print(f"  - hint path: {result.profile_path or vllm_model_profile_hint_path(candidate.source.path)}")
+        if result.ok and result.profile is not None:
+            print(f"  - profile id: {result.profile_id or '-'}")
+            print_vllm_profile_launch_parameter_summary(result.profile)
+            command, command_messages = build_vllm_command(result.profile)
+            print("  Command preview / dry-run:")
+            if command is None:
+                for message in command_messages:
+                    print(f"  - {message}")
+            else:
+                print("  " + shlex.join(command))
+        else:
+            for message in result.messages:
+                print(f"  - {message}")
+
+    print("\n  Actions:")
+    if missing:
+        print("  No launch action: this folder needs files first.")
+    elif candidate.has_suite_profile:
+        print("  [1] Import suite profile")
+        print("  [2] Save current profile to model folder")
+        print("  [3] Preview launch command")
+        print("  [L] Launch with this profile")
+        print("  [R] Back")
+    else:
+        print("  [1] Use selected profile draft for this folder")
+        print("  [2] Apply safe defaults")
+        print("  [3] Save profile to model folder")
+        print("  [P] Preview")
+        print("  [R] Back")
+    print("  Model number selection only inspected readiness. It did not launch a model.")
+
+
+def print_vllm_profile_launch_parameter_summary(profile: Any) -> None:
+    tokens, _messages = tokenize_vllm_extra_args(profile)
+    parser = "-"
+    for index, token in enumerate(tokens):
+        if token == "--tool-call-parser" and index + 1 < len(tokens):
+            parser = tokens[index + 1]
+            break
+    for field_name in ("max_model_len", "gpu_memory_utilization", "tensor_parallel_size", "kv_cache_dtype", "max_num_seqs", "max_num_batched_tokens"):
+        print(f"  - {field_name}: {getattr(profile, field_name, '-')}")
+    print(f"  - tool-call parser: {parser}")
+
+
 def initial_vllm_profile_selection_with_messages() -> tuple[Any, str, list[str]]:
     result = load_selected_vllm_profile_draft()
     if result.ok and result.profile and result.profile_id:
@@ -2455,44 +2569,131 @@ def choose_llama_cpp_menu_action(
     }.get(choice, "")
 
 
-def choose_vllm_menu_action(profile: Any = None, profile_id: str = "custom-draft", run_summary: Any = None) -> str:
-    print("\n  ── vLLM workspace ──")
-    print("  이 메뉴는 vLLM beta launch path와 OpenAI-compatible server 흐름 전용입니다.")
+def choose_vllm_menu_action(profile: Any = None, profile_id: str = "custom-draft", run_summary: Any = None, candidate_cache: Any = None) -> str:
+    cache = candidate_cache or scan_vllm_model_candidates([MODELS_DIR])
+    selectable_candidates = vllm_workspace_selectable_candidates(cache)
+    print("\n  ── vLLM engine ──")
+    print("  This workspace operates local HF/AWQ-style vLLM model folders.")
     if profile is not None:
-        print("\n  Selected vLLM profile:")
+        print("\n  Current vLLM status")
         print(selected_vllm_profile_summary_line(profile, profile_id))
         print(selected_vllm_profile_path_line(profile_id))
     print("\n  Recent vLLM run:")
     print(recent_vllm_run_summary_line(run_summary))
-    print("\n  [1] Load Verified Gemma4 Profile")
-    print("  [2] Show vLLM Model Folders")
-    print("  [3] Profile Preview / Run Check")
-    print("  [4] Start AI Model")
-    print("  [5] Server Check / Log / Stop")
-    print("  [6] API Connection Test")
-    print("  [7] Hermes Config Sync")
-    print("  [8] Hermes Chat Test")
-    print("  [9] Hermes Tool Test / Raw Markup Check")
-    print("  [10] vLLM Start Check")
-    print("  [11] Profile Settings")
+
+    print_vllm_workspace_model_candidates(cache)
+
+    print("\n  Choose a model number to inspect.")
+    print("  [P] Selected profile preview")
+    print("  [S] Server Check / Log / Stop")
+    print("  [C] API / Hermes checks")
+    print("  [D] Load Verified Gemma4 Profile")
+    print("  [T] vLLM Start Check")
+    print("  [E] Profile Settings")
     print("  [A] Advanced Profile / JSON")
     print("  [R] Return")
     choice = input("  선택 > ").strip()
+    if choice.isdigit() and 1 <= int(choice) <= len(selectable_candidates):
+        return f"{VLLM_MODEL_DETAIL_ACTION_PREFIX}{choice}"
     return {
-        "1": "VLLM_SELECT_GEMMA4_BETA",
-        "2": "VLLM_MODEL_FOLDERS",
-        "3": "VLLM_SELECTED_PREVIEW",
-        "4": "VLLM_SELECTED_LAUNCH",
-        "5": "Z",
-        "6": "W",
-        "7": "HERMES_VLLM_SYNC",
-        "8": "HERMES_VLLM_CHAT_SMOKE",
-        "9": "HERMES_VLLM_TOOL_AGENT_SMOKE",
-        "10": "VLLM_DOCTOR",
-        "11": "VLLM_SELECTED_SETTINGS",
+        "P": "VLLM_SELECTED_PREVIEW",
+        "p": "VLLM_SELECTED_PREVIEW",
+        "S": "Z",
+        "s": "Z",
+        "C": "VLLM_CHECKS_MENU",
+        "c": "VLLM_CHECKS_MENU",
+        "D": "VLLM_SELECT_GEMMA4_BETA",
+        "d": "VLLM_SELECT_GEMMA4_BETA",
+        "T": "VLLM_DOCTOR",
+        "t": "VLLM_DOCTOR",
+        "E": "VLLM_SELECTED_SETTINGS",
+        "e": "VLLM_SELECTED_SETTINGS",
         "A": "B",
         "a": "B",
     }.get(choice, "")
+
+
+def vllm_workspace_selectable_candidates(cache: Any) -> list[Any]:
+    result: list[Any] = []
+    for candidate in getattr(cache, "candidates", []):
+        if getattr(candidate, "candidate_backend", "") != "vllm":
+            continue
+        if getattr(getattr(candidate, "source", None), "kind", "") != "local_hf_directory":
+            continue
+        result.append(candidate)
+    return result
+
+
+def vllm_workspace_primary_candidates(cache: Any) -> list[Any]:
+    return [candidate for candidate in vllm_workspace_selectable_candidates(cache) if not set(getattr(candidate.readiness, "missing", []))]
+
+
+def vllm_workspace_incomplete_candidates(cache: Any) -> list[Any]:
+    return [candidate for candidate in vllm_workspace_selectable_candidates(cache) if set(getattr(candidate.readiness, "missing", []))]
+
+
+def vllm_workspace_routed_gguf_candidates(cache: Any) -> list[Any]:
+    return [
+        candidate
+        for candidate in getattr(cache, "candidates", [])
+        if getattr(candidate, "candidate_backend", "") == "llama.cpp" or getattr(getattr(candidate, "source", None), "kind", "") == "gguf_file"
+    ]
+
+
+def print_vllm_workspace_model_candidates(cache: Any) -> None:
+    primary = vllm_workspace_primary_candidates(cache)
+    incomplete = vllm_workspace_incomplete_candidates(cache)
+    routed_gguf = vllm_workspace_routed_gguf_candidates(cache)
+    selectable = primary + incomplete
+
+    print("\n  vLLM model candidates")
+    if not selectable:
+        print("  상태: vLLM local HF-style 후보 없음")
+    index = 1
+    for candidate in primary:
+        print_vllm_workspace_candidate_line(index, candidate)
+        index += 1
+
+    if incomplete:
+        print("\n  Incomplete folders / needs files")
+        for candidate in incomplete[:6]:
+            print_vllm_workspace_candidate_line(index, candidate)
+            index += 1
+        if len(incomplete) > 6:
+            print(f"  {color('...', 'muted')} {len(incomplete) - 6} more incomplete folders hidden")
+
+    print("\n  Hidden / routed")
+    print(f"  - GGUF routed to llama.cpp: {len(routed_gguf)} hidden. Use llama.cpp workspace for GGUF.")
+    if getattr(cache, "messages", []):
+        for message in cache.messages:
+            print(f"  - scan note: {message}")
+
+
+def print_vllm_workspace_candidate_line(index: int, candidate: Any) -> None:
+    status, reason, can_launch = vllm_candidate_status(candidate)
+    files = vllm_candidate_file_status(candidate)
+    print(f"  [{index}] {candidate.source.original_name}")
+    print(f"      {status_badge(status):<5}  {files}")
+    print(f"      can launch: {can_launch}")
+    print(f"      next: {reason}")
+
+
+def vllm_candidate_status(candidate: Any) -> tuple[str, str, str]:
+    missing = set(getattr(candidate.readiness, "missing", []))
+    if missing:
+        return "FAIL", "needs files", "NO"
+    if getattr(candidate, "has_suite_profile", False):
+        return "READY", "inspect / import / preview", "YES"
+    return "WARN", "profile setup needed", "YES after profile setup"
+
+
+def vllm_candidate_file_status(candidate: Any) -> str:
+    missing = set(getattr(candidate.readiness, "missing", []))
+    config = status_badge("FAIL" if "config" in missing else "OK")
+    tokenizer = status_badge("FAIL" if "tokenizer" in missing else "OK")
+    weights = status_badge("FAIL" if "weights" in missing else "OK")
+    profile = status_badge("OK" if getattr(candidate, "has_suite_profile", False) else "MISSING")
+    return f"config {config}  tokenizer {tokenizer}  weights {weights}  profile {profile}"
 
 
 VLLM_WORKSPACE_ACTIONS = {
@@ -2501,10 +2702,10 @@ VLLM_WORKSPACE_ACTIONS = {
     "Y",
     "Z",
     "VLLM_SELECT_GEMMA4_BETA",
-    "VLLM_MODEL_FOLDERS",
     "VLLM_SELECTED_PREVIEW",
     "VLLM_SELECTED_LAUNCH",
     "VLLM_SELECTED_SETTINGS",
+    "VLLM_CHECKS_MENU",
     "HERMES_VLLM_SYNC",
     "HERMES_VLLM_CHAT_SMOKE",
     "HERMES_VLLM_TOOL_AGENT_SMOKE",
@@ -2513,7 +2714,14 @@ VLLM_WORKSPACE_ACTIONS = {
 
 
 def handle_vllm_workspace_action(action: str, profile: Any, profile_id: str, cfg: dict[str, Any]) -> tuple[Any, str, dict[str, Any], bool]:
-    upper = str(action or "").upper()
+    action_text = str(action or "")
+    upper = action_text.upper()
+
+    if upper.startswith(VLLM_MODEL_DETAIL_ACTION_PREFIX):
+        index_text = action_text.split(":", 1)[1]
+        show_vllm_model_readiness_detail(index_text)
+        pause()
+        return profile, profile_id, cfg, True
 
     if upper == "B":
         before_profile_id = profile_id
@@ -2531,11 +2739,6 @@ def handle_vllm_workspace_action(action: str, profile: Any, profile_id: str, cfg
         if result.ok and result.profile:
             profile = result.profile
             profile_id = result.profile_id
-        pause()
-        return profile, profile_id, cfg, True
-
-    if upper == "VLLM_MODEL_FOLDERS":
-        show_vllm_model_folders()
         pause()
         return profile, profile_id, cfg, True
 
@@ -2571,6 +2774,21 @@ def handle_vllm_workspace_action(action: str, profile: Any, profile_id: str, cfg
         else:
             print_vllm_profile_store_result(selected)
         profile, profile_id = show_vllm_selected_profile_settings(profile, profile_id)
+        pause()
+        return profile, profile_id, cfg, True
+
+    if upper == "VLLM_CHECKS_MENU":
+        print("\n  ── API / Hermes checks ──")
+        print("  [1] API Connection Test")
+        print("  [2] Hermes Config Sync")
+        print("  [3] Hermes Chat Test")
+        print("  [4] Hermes Tool Test / Raw Markup Check")
+        print("  This menu only routes to existing checks; it does not launch a model.")
+        sub = input("  선택 > ").strip()
+        mapped = {"1": "W", "2": "HERMES_VLLM_SYNC", "3": "HERMES_VLLM_CHAT_SMOKE", "4": "HERMES_VLLM_TOOL_AGENT_SMOKE"}.get(sub, "")
+        if mapped:
+            return handle_vllm_workspace_action(mapped, profile, profile_id, cfg)
+        print("  취소했습니다.")
         pause()
         return profile, profile_id, cfg, True
 

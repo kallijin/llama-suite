@@ -118,6 +118,55 @@ OK
 SMOKE CHECK OK
 ```
 
+## 2026-05-12 KST - vLLM workspace model readiness first
+
+### Context
+
+The vLLM workspace still made beginners discover model candidates through a
+separate "show folders" action. The folder view also mixed GGUF entries that
+belong to the llama.cpp workflow into a vLLM screen, and readiness signals were
+not strong enough at a glance.
+
+### Change
+
+The vLLM workspace now shows local HF/AWQ-style model candidates directly on
+entry. GGUF files are routed to a llama.cpp summary instead of normal vLLM
+candidate rows. Number selection opens a model readiness detail screen with
+classification, file readiness, suite profile status, evidence, and optional
+command preview. The workspace uses explicit `READY` / `WARN` / `FAIL` and
+`OK` / `MISSING` / `NO` words, with terminal color only as a secondary signal.
+
+### Safety
+
+This is a display and routing clarity change only.
+
+- no model launch
+- no model download
+- no runtime launch behavior change
+- no llama.cpp GGUF selection behavior change
+- model number selection only inspects readiness
+- launch remains a separate explicit and confirmed action
+- color is disabled for `NO_COLOR`, `TERM=dumb`, and non-TTY output
+
+### Verification
+
+```sh
+python3 -m py_compile llama-launcher-complete.py modules/*.py
+python3 scripts/policy-check.py
+git diff --check
+python3 -m unittest discover -v
+bash scripts/smoke-check.sh
+```
+
+Result:
+
+```text
+POLICY CHECK OK
+Ran 210 tests
+OK
+SMOKE CHECK OK
+```
+
 ## 2026-05-08 23:48 KST - Beginner-first working draft baseline
 
 ### Context
