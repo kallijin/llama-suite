@@ -2143,6 +2143,7 @@ def show_vllm_smoke_manage() -> None:
             port = input("  port [8000] > ").strip() or "8000"
         result = check_vllm_run_status(pid=pid, run_id=run_id, log_path=log_path, preset_id=preset_id, host=host, port=port)
         print_vllm_status_result(result)
+        print_vllm_model_response_check(result, latest_result if record is latest_record else None)
         return
 
     if choice == "2":
@@ -2215,6 +2216,40 @@ def print_vllm_status_result(result: Any) -> None:
     print(f"  port_listening: {result.port_listening if result.port_listening is not None else '-'}")
     for message in result.messages:
         print(f"  - {message}")
+
+
+def print_vllm_model_response_check(status_result: Any, latest_result: Any = None) -> None:
+    print("\n  Model response check:")
+    if getattr(status_result, "port_listening", None) is True:
+        if latest_result is None:
+            print("  - server port is open, but automatic response check only uses the latest llama-suite run record.")
+            print("  - Use API Connection Test after confirming the latest run record.")
+            return
+        api_result = run_vllm_api_smoke(latest_record=latest_result)
+        if api_result.ok:
+            print("  - PASS: model answered through /v1/chat/completions.")
+            print(f"  - endpoint: {api_result.base_url or '-'}")
+            print(f"  - model: {api_result.model_id or '-'}")
+            return
+        print("  - server port is open, but the model did not answer yet.")
+        for message in api_result.messages:
+            print(f"  - {message}")
+        for check in api_result.checks:
+            status = "PASS" if check.ok else "FAIL"
+            print(f"  [{status}] {check.name}: {check.message}")
+        print("  - 현재 모델을 VRAM에 탑재 중일 수 있습니다. 시스템 성능과 모델 크기에 따라 수십 초에서 수 분 정도 기다려야 할 수 있습니다.")
+        return
+
+    if getattr(status_result, "alive", None) and getattr(status_result, "port_listening", None) is False:
+        print("  - server process is alive, but the API port is not ready yet.")
+        print("  - 현재 모델을 VRAM에 탑재 중입니다. 시스템 성능과 모델 크기에 따라 수십 초에서 수 분 정도 기다려야 할 수 있습니다.")
+        return
+
+    if getattr(status_result, "alive", None) is False:
+        print("  - server process is not running. Start AI Model first.")
+        return
+
+    print("  - server readiness is unknown. Check again after a short wait.")
 
 
 def print_vllm_log_result(result: Any) -> None:

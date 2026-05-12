@@ -382,6 +382,85 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("[2] View Log", output)
         self.assertIn("[3] Stop Server", output)
 
+    def test_vllm_server_check_runs_model_response_check_when_port_ready(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_runner import VllmRunRecord, VllmRunRecordResult
+        from modules.vllm_api_probe import VllmApiSmokeResult
+        from unittest.mock import Mock, patch
+
+        record = VllmRunRecord(
+            backend="vllm",
+            preset_id="gemma4",
+            run_id="run-ready",
+            pid=1234,
+            command=["/bin/vllm", "serve", "/models/gemma4"],
+            env_preview={},
+            log_path="/tmp/ready.log",
+            host="127.0.0.1",
+            port=8000,
+            started_at="2026-05-12T19:00:00+09:00",
+            status_hint="started",
+        )
+        latest = VllmRunRecordResult(True, record, "/tmp/latest.json", [])
+        mocked_status = Mock(return_value=type("Status", (), {"ok": True, "preset_id": "gemma4", "pid": 1234, "run_id": "run-ready", "log_path": "/tmp/ready.log", "alive": True, "log_exists": True, "port_listening": True, "messages": []})())
+        mocked_api = Mock(return_value=VllmApiSmokeResult(True, "http://127.0.0.1:8000/v1", "gemma4", [], ["vLLM API smoke completed"]))
+        stdout = StringIO()
+
+        with (
+            patch.object(launcher, "latest_vllm_run_record", return_value=latest),
+            patch.object(launcher, "check_vllm_run_status", mocked_status),
+            patch.object(launcher, "run_vllm_api_smoke", mocked_api),
+            patch("builtins.input", side_effect=["1", ""]),
+            contextlib.redirect_stdout(stdout),
+        ):
+            launcher.show_vllm_smoke_manage()
+
+        mocked_api.assert_called_once_with(latest_record=latest)
+        output = stdout.getvalue()
+        self.assertIn("Model response check", output)
+        self.assertIn("PASS: model answered through /v1/chat/completions", output)
+
+    def test_vllm_server_check_reports_loading_when_port_not_ready(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_runner import VllmRunRecord, VllmRunRecordResult
+        from unittest.mock import Mock, patch
+
+        record = VllmRunRecord(
+            backend="vllm",
+            preset_id="gemma4",
+            run_id="run-loading",
+            pid=1234,
+            command=["/bin/vllm", "serve", "/models/gemma4"],
+            env_preview={},
+            log_path="/tmp/loading.log",
+            host="127.0.0.1",
+            port=8000,
+            started_at="2026-05-12T19:00:00+09:00",
+            status_hint="started",
+        )
+        latest = VllmRunRecordResult(True, record, "/tmp/latest.json", [])
+        mocked_status = Mock(return_value=type("Status", (), {"ok": True, "preset_id": "gemma4", "pid": 1234, "run_id": "run-loading", "log_path": "/tmp/loading.log", "alive": True, "log_exists": True, "port_listening": False, "messages": []})())
+        mocked_api = Mock()
+        stdout = StringIO()
+
+        with (
+            patch.object(launcher, "latest_vllm_run_record", return_value=latest),
+            patch.object(launcher, "check_vllm_run_status", mocked_status),
+            patch.object(launcher, "run_vllm_api_smoke", mocked_api),
+            patch("builtins.input", side_effect=["1", ""]),
+            contextlib.redirect_stdout(stdout),
+        ):
+            launcher.show_vllm_smoke_manage()
+
+        mocked_api.assert_not_called()
+        output = stdout.getvalue()
+        self.assertIn("server process is alive, but the API port is not ready yet", output)
+        self.assertIn("현재 모델을 VRAM에 탑재 중입니다", output)
+
     def test_vllm_start_check_screen_uses_easy_english_title(self) -> None:
         launcher = load_launcher_module()
         from io import StringIO
