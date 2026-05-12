@@ -1321,8 +1321,9 @@ def show_system_info() -> None:
 
 
 def show_vllm_doctor() -> None:
-    print("\n  ── vLLM doctor ──")
-    print("  모델은 실행하지 않고 wrapper/version/Torch HIP 상태만 확인합니다.")
+    print("\n  ── vLLM Start Check ──")
+    print("  Check wrapper, Python, Torch HIP, and ROCm GPU detection before launch.")
+    print("  vLLM 실행 전에 wrapper, Python, Torch HIP, ROCm GPU 인식 상태를 확인합니다.")
     report = run_vllm_doctor()
     for line in format_vllm_doctor_report(report).splitlines():
         print(f"  {line}" if line else "")
@@ -2235,7 +2236,8 @@ def print_vllm_stop_result(result: Any) -> None:
 
 
 def show_vllm_api_smoke() -> None:
-    print("\n  ── vLLM API 연결 테스트 ──")
+    print("\n  ── API Connection Test ──")
+    print("  Checks the OpenAI-compatible endpoint. This is separate from Hermes tests.")
     print("  Hermes와 무관한 OpenAI-compatible endpoint를 read-only로 확인합니다.")
     result = run_vllm_api_smoke()
     print_vllm_readiness_summary(
@@ -2315,18 +2317,18 @@ def choose_vllm_menu_action(profile: Any = None, profile_id: str = "custom-draft
         print(selected_vllm_profile_path_line(profile_id))
     print("\n  Recent vLLM run:")
     print(recent_vllm_run_summary_line(run_summary))
-    print("\n  [1] vLLM 검증 기준 profile 불러오기: Gemma4 26B AWQ")
-    print("  [2] selected profile preview / preflight")
-    print("  [3] launch selected vLLM profile")
-    print("  [4] latest run status / log / stop")
-    print("  [5] vLLM API 연결 테스트")
-    print("  [6] Hermes 설정 동기화 preview/write")
-    print("  [7] Hermes 단순 chat 테스트")
-    print("  [8] Hermes tool-agent 테스트 / raw markup 검사")
-    print("  [9] vLLM doctor")
-    print("  [10] selected profile settings")
-    print("  [A] advanced profile workspace / scripts / JSON")
-    print("  [R] return")
+    print("\n  [1] Load Verified Gemma4 Profile")
+    print("  [2] Profile Preview / Run Check")
+    print("  [3] Launch Selected Profile")
+    print("  [4] Last Run Status / Log / Stop")
+    print("  [5] API Connection Test")
+    print("  [6] Hermes Config Sync")
+    print("  [7] Hermes Chat Test")
+    print("  [8] Hermes Tool Test / Raw Markup Check")
+    print("  [9] vLLM Start Check")
+    print("  [10] Profile Settings")
+    print("  [A] Advanced Profile / JSON")
+    print("  [R] Return")
     choice = input("  선택 > ").strip()
     return {
         "1": "VLLM_SELECT_GEMMA4_BETA",
@@ -2342,6 +2344,117 @@ def choose_vllm_menu_action(profile: Any = None, profile_id: str = "custom-draft
         "A": "B",
         "a": "B",
     }.get(choice, "")
+
+
+VLLM_WORKSPACE_ACTIONS = {
+    "B",
+    "W",
+    "Y",
+    "Z",
+    "VLLM_SELECT_GEMMA4_BETA",
+    "VLLM_SELECTED_PREVIEW",
+    "VLLM_SELECTED_LAUNCH",
+    "VLLM_SELECTED_SETTINGS",
+    "HERMES_VLLM_SYNC",
+    "HERMES_VLLM_CHAT_SMOKE",
+    "HERMES_VLLM_TOOL_AGENT_SMOKE",
+    "VLLM_DOCTOR",
+}
+
+
+def handle_vllm_workspace_action(action: str, profile: Any, profile_id: str, cfg: dict[str, Any]) -> tuple[Any, str, dict[str, Any], bool]:
+    upper = str(action or "").upper()
+
+    if upper == "B":
+        before_profile_id = profile_id
+        profile, profile_id = show_vllm_profile_menu(profile, profile_id, return_profile_id=True)
+        if profile_id != before_profile_id:
+            result = save_selected_vllm_profile_id(profile_id)
+            if not result.ok:
+                print_vllm_selected_profile_result(result)
+        pause()
+        return profile, profile_id, cfg, True
+
+    if upper == "VLLM_SELECT_GEMMA4_BETA":
+        result = save_verified_gemma4_26b_awq_beta_profile()
+        print_vllm_profile_selection_result(result)
+        if result.ok and result.profile:
+            profile = result.profile
+            profile_id = result.profile_id
+        pause()
+        return profile, profile_id, cfg, True
+
+    if upper == "VLLM_SELECTED_PREVIEW":
+        selected = load_selected_vllm_profile_draft()
+        if selected.ok and selected.profile and selected.profile_id:
+            profile = selected.profile
+            profile_id = selected.profile_id
+        else:
+            print_vllm_profile_store_result(selected)
+        show_vllm_selected_profile_preview(profile, profile_id)
+        pause()
+        return profile, profile_id, cfg, True
+
+    if upper == "VLLM_SELECTED_LAUNCH":
+        selected = load_selected_vllm_profile_draft()
+        if selected.ok and selected.profile and selected.profile_id:
+            profile = selected.profile
+            profile_id = selected.profile_id
+        else:
+            print_vllm_profile_store_result(selected)
+            pause()
+            return profile, profile_id, cfg, True
+        profile, profile_id = show_vllm_custom_launch(profile, profile_id)
+        pause()
+        return profile, profile_id, cfg, True
+
+    if upper == "VLLM_SELECTED_SETTINGS":
+        selected = load_selected_vllm_profile_draft()
+        if selected.ok and selected.profile and selected.profile_id:
+            profile = selected.profile
+            profile_id = selected.profile_id
+        else:
+            print_vllm_profile_store_result(selected)
+        profile, profile_id = show_vllm_selected_profile_settings(profile, profile_id)
+        pause()
+        return profile, profile_id, cfg, True
+
+    if upper == "W":
+        show_vllm_api_smoke()
+        pause()
+        return profile, profile_id, cfg, True
+
+    if upper == "Y":
+        show_vllm_smoke_launch_once()
+        pause()
+        return profile, profile_id, cfg, True
+
+    if upper == "Z":
+        show_vllm_smoke_manage()
+        pause()
+        return profile, profile_id, cfg, True
+
+    if upper == "HERMES_VLLM_SYNC":
+        cfg = show_hermes_vllm_sync_menu(cfg)
+        pause()
+        return profile, profile_id, cfg, True
+
+    if upper == "HERMES_VLLM_CHAT_SMOKE":
+        show_hermes_vllm_chat_smoke()
+        pause()
+        return profile, profile_id, cfg, True
+
+    if upper == "HERMES_VLLM_TOOL_AGENT_SMOKE":
+        show_hermes_vllm_tool_agent_smoke()
+        pause()
+        return profile, profile_id, cfg, True
+
+    if upper == "VLLM_DOCTOR":
+        show_vllm_doctor()
+        pause()
+        return profile, profile_id, cfg, True
+
+    return profile, profile_id, cfg, False
 
 
 # ─── 메인 루프 ─────────────────────────────────────────
@@ -2412,10 +2525,29 @@ def main() -> None:
                 continue
 
         if upper == "V":
-            upper = choose_vllm_menu_action(vllm_profile_draft, vllm_profile_draft_id, vllm_run_summary)
-            if not upper:
-                print("  취소했습니다.")
-                pause()
+            while True:
+                vllm_run_summary = latest_vllm_run_summary()
+                action = choose_vllm_menu_action(vllm_profile_draft, vllm_profile_draft_id, vllm_run_summary)
+                if not action:
+                    break
+                vllm_profile_draft, vllm_profile_draft_id, cfg, handled = handle_vllm_workspace_action(
+                    action,
+                    vllm_profile_draft,
+                    vllm_profile_draft_id,
+                    cfg,
+                )
+                if not handled:
+                    break
+            continue
+
+        if upper in VLLM_WORKSPACE_ACTIONS:
+            vllm_profile_draft, vllm_profile_draft_id, cfg, handled = handle_vllm_workspace_action(
+                upper,
+                vllm_profile_draft,
+                vllm_profile_draft_id,
+                cfg,
+            )
+            if handled:
                 continue
 
         if upper == "LOAD":
@@ -2463,97 +2595,6 @@ def main() -> None:
             if draft != before:
                 draft["dirty"] = True
                 draft["status"] = "파라미터 변경으로 생긴 임시 작업 설정입니다."
-            pause()
-            continue
-
-        if upper == "B":
-            before_vllm_profile_id = vllm_profile_draft_id
-            vllm_profile_draft, vllm_profile_draft_id = show_vllm_profile_menu(
-                vllm_profile_draft,
-                vllm_profile_draft_id,
-                return_profile_id=True,
-            )
-            if vllm_profile_draft_id != before_vllm_profile_id:
-                result = save_selected_vllm_profile_id(vllm_profile_draft_id)
-                if not result.ok:
-                    print_vllm_selected_profile_result(result)
-            pause()
-            continue
-
-        if upper == "VLLM_SELECT_GEMMA4_BETA":
-            result = save_verified_gemma4_26b_awq_beta_profile()
-            print_vllm_profile_selection_result(result)
-            if result.ok and result.profile:
-                vllm_profile_draft = result.profile
-                vllm_profile_draft_id = result.profile_id
-            pause()
-            continue
-
-        if upper == "VLLM_SELECTED_PREVIEW":
-            selected = load_selected_vllm_profile_draft()
-            if selected.ok and selected.profile and selected.profile_id:
-                vllm_profile_draft = selected.profile
-                vllm_profile_draft_id = selected.profile_id
-            else:
-                print_vllm_profile_store_result(selected)
-            show_vllm_selected_profile_preview(vllm_profile_draft, vllm_profile_draft_id)
-            pause()
-            continue
-
-        if upper == "VLLM_SELECTED_LAUNCH":
-            selected = load_selected_vllm_profile_draft()
-            if selected.ok and selected.profile and selected.profile_id:
-                vllm_profile_draft = selected.profile
-                vllm_profile_draft_id = selected.profile_id
-            else:
-                print_vllm_profile_store_result(selected)
-                pause()
-                continue
-            vllm_profile_draft, vllm_profile_draft_id = show_vllm_custom_launch(vllm_profile_draft, vllm_profile_draft_id)
-            pause()
-            continue
-
-        if upper == "VLLM_SELECTED_SETTINGS":
-            selected = load_selected_vllm_profile_draft()
-            if selected.ok and selected.profile and selected.profile_id:
-                vllm_profile_draft = selected.profile
-                vllm_profile_draft_id = selected.profile_id
-            else:
-                print_vllm_profile_store_result(selected)
-            vllm_profile_draft, vllm_profile_draft_id = show_vllm_selected_profile_settings(
-                vllm_profile_draft,
-                vllm_profile_draft_id,
-            )
-            pause()
-            continue
-
-        if upper == "W":
-            show_vllm_api_smoke()
-            pause()
-            continue
-
-        if upper == "Y":
-            show_vllm_smoke_launch_once()
-            pause()
-            continue
-
-        if upper == "Z":
-            show_vllm_smoke_manage()
-            pause()
-            continue
-
-        if upper == "HERMES_VLLM_SYNC":
-            cfg = show_hermes_vllm_sync_menu(cfg)
-            pause()
-            continue
-
-        if upper == "HERMES_VLLM_CHAT_SMOKE":
-            show_hermes_vllm_chat_smoke()
-            pause()
-            continue
-
-        if upper == "HERMES_VLLM_TOOL_AGENT_SMOKE":
-            show_hermes_vllm_tool_agent_smoke()
             pause()
             continue
 
@@ -2622,11 +2663,6 @@ def main() -> None:
 
         if upper == "I":
             show_system_info()
-            pause()
-            continue
-
-        if upper == "VLLM_DOCTOR":
-            show_vllm_doctor()
             pause()
             continue
 

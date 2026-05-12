@@ -327,17 +327,58 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("[8] llama.cpp 스크립트 관리", output)
         self.assertIn("vLLM workspace", output)
         self.assertIn("vLLM beta launch path", output)
-        self.assertIn("[1] vLLM 검증 기준 profile 불러오기: Gemma4 26B AWQ", output)
-        self.assertIn("[2] selected profile preview / preflight", output)
-        self.assertIn("[3] launch selected vLLM profile", output)
-        self.assertIn("[4] latest run status / log / stop", output)
-        self.assertIn("[5] vLLM API 연결 테스트", output)
-        self.assertIn("[6] Hermes 설정 동기화 preview/write", output)
-        self.assertIn("[7] Hermes 단순 chat 테스트", output)
-        self.assertIn("[8] Hermes tool-agent 테스트 / raw markup 검사", output)
-        self.assertIn("[9] vLLM doctor", output)
-        self.assertIn("[10] selected profile settings", output)
-        self.assertIn("[A] advanced profile workspace / scripts / JSON", output)
+        self.assertIn("[1] Load Verified Gemma4 Profile", output)
+        self.assertIn("[2] Profile Preview / Run Check", output)
+        self.assertIn("[3] Launch Selected Profile", output)
+        self.assertIn("[4] Last Run Status / Log / Stop", output)
+        self.assertIn("[5] API Connection Test", output)
+        self.assertIn("[6] Hermes Config Sync", output)
+        self.assertIn("[7] Hermes Chat Test", output)
+        self.assertIn("[8] Hermes Tool Test / Raw Markup Check", output)
+        self.assertIn("[9] vLLM Start Check", output)
+        self.assertIn("[10] Profile Settings", output)
+        self.assertIn("[A] Advanced Profile / JSON", output)
+        self.assertNotIn("[9] vLLM doctor", output)
+
+    def test_vllm_workspace_stays_open_after_submenu_action(self) -> None:
+        with TemporaryDirectory() as home:
+            model_dir = Path(home) / "models"
+            model_dir.mkdir()
+            env = dict(os.environ)
+            env["HOME"] = home
+            env["LLAMA_MODELS_DIR"] = str(model_dir)
+            completed = subprocess.run(
+                [sys.executable, "llama-launcher-complete.py"],
+                cwd=ROOT,
+                input="v\n2\n\nr\nq\n",
+                text=True,
+                capture_output=True,
+                check=False,
+                env=env,
+            )
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertGreaterEqual(completed.stdout.count("── vLLM workspace ──"), 2)
+        self.assertIn("Profile Preview / Run Check", completed.stdout)
+
+    def test_vllm_start_check_screen_uses_easy_english_title(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from unittest.mock import Mock, patch
+
+        stdout = StringIO()
+        with (
+            patch.object(launcher, "run_vllm_doctor", Mock(return_value=object())),
+            patch.object(launcher, "format_vllm_doctor_report", Mock(return_value="wrapper: ok")),
+            contextlib.redirect_stdout(stdout),
+        ):
+            launcher.show_vllm_doctor()
+
+        output = stdout.getvalue()
+        self.assertIn("vLLM Start Check", output)
+        self.assertIn("Check wrapper, Python, Torch HIP, and ROCm GPU detection before launch.", output)
+        self.assertNotIn("── vLLM doctor ──", output)
 
     def test_main_script_management_is_labeled_llama_cpp_only(self) -> None:
         launcher = load_launcher_module()
