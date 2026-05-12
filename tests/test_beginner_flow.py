@@ -246,7 +246,9 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("llama.cpp / vLLM 로컬 AI 엔진 관제판", completed.stdout)
         self.assertIn("GGUF 파일을 찾을 수 없습니다", completed.stdout)
         self.assertIn("[L] llama.cpp workspace", completed.stdout)
-        self.assertIn("[E] Hermes 등록", completed.stdout)
+        self.assertIn("[U] Shared tools / integrations", completed.stdout)
+        self.assertNotIn("[E] Hermes 등록", completed.stdout)
+        self.assertNotIn("[C] OpenClaw 등록", completed.stdout)
         self.assertIn("Hermes 설정 변경: 비활성화", completed.stdout)
         self.assertIn("실행 예정 요약", completed.stdout)
         self.assertIn("Recent vLLM run:", completed.stdout)
@@ -329,6 +331,7 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("[2] llama.cpp GGUF 모델 변경", output)
         self.assertIn("[4] llama.cpp 파라미터", output)
         self.assertIn("[8] llama.cpp 스크립트 관리", output)
+        self.assertIn("[9] llama.cpp Hermes/OpenClaw integration", output)
         self.assertIn("vLLM engine", output)
         self.assertIn("This workspace operates local HF/AWQ-style vLLM model folders.", output)
         self.assertIn("vLLM model candidates", output)
@@ -342,6 +345,66 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("[E] Profile Settings", output)
         self.assertIn("[A] Advanced Profile / JSON", output)
         self.assertNotIn("vLLM doctor", output)
+
+    def test_shared_tools_menu_owns_global_integration_registration(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from unittest.mock import patch
+
+        cfg = {"registered_paths": {"hermes_config": None, "openclaw_config": None}}
+        stdout = StringIO()
+        with patch("builtins.input", side_effect=["R"]), contextlib.redirect_stdout(stdout):
+            result = launcher.show_shared_tools_menu(cfg)
+
+        self.assertIs(result, cfg)
+        output = stdout.getvalue()
+        self.assertIn("Shared tools / integrations", output)
+        self.assertIn("Registration is global", output)
+        self.assertIn("Register Hermes config/path", output)
+        self.assertIn("Register OpenClaw config/path", output)
+        self.assertIn("Hermes 설정 변경: 비활성화", output)
+        self.assertIn("OpenClaw inspection: 비활성화", output)
+
+    def test_llama_cpp_workspace_exposes_engine_specific_integration_guidance(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+
+        draft = self.sample_cfg("/bin/echo")
+        draft.update({"model_name": "Tiny-GGUF", "model_path": "/models/Tiny/model.gguf"})
+        stdout = StringIO()
+        with contextlib.redirect_stdout(stdout):
+            launcher.show_llama_cpp_integration_menu({"registered_paths": {}}, draft)
+
+        output = stdout.getvalue()
+        self.assertIn("llama.cpp Hermes/OpenClaw integration", output)
+        self.assertIn("selected GGUF model", output)
+        self.assertIn("generated llama-server scripts", output)
+        self.assertIn("No vLLM profile or latest vLLM run record is used here.", output)
+
+    def test_vllm_checks_menu_labels_engine_specific_integration(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from unittest.mock import patch
+
+        stdout = StringIO()
+        with patch("builtins.input", side_effect=["x", ""]), contextlib.redirect_stdout(stdout):
+            _profile, _profile_id, _cfg, handled = launcher.handle_vllm_workspace_action(
+                "VLLM_CHECKS_MENU",
+                None,
+                "custom-draft",
+                {},
+            )
+
+        self.assertTrue(handled)
+        output = stdout.getvalue()
+        self.assertIn("API Connection Test", output)
+        self.assertIn("Hermes Config Sync for vLLM", output)
+        self.assertIn("Hermes Chat Test", output)
+        self.assertIn("Hermes Tool Test / Raw Markup Check", output)
+        self.assertIn("OpenClaw vLLM sync is not implemented yet.", output)
 
     def test_vllm_workspace_stays_open_after_submenu_action(self) -> None:
         with TemporaryDirectory() as home:

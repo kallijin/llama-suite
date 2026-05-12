@@ -788,6 +788,40 @@ def print_integration_status(cfg: dict[str, Any]) -> None:
     print("  자동 탐지는 후보일 뿐이고, 등록된 경로만 공식 연결 대상입니다.")
 
 
+def show_shared_tools_menu(cfg: dict[str, Any]) -> dict[str, Any]:
+    print("\n  ── Shared tools / integrations ──")
+    print("  Registration is global. Engine sync/test belongs inside each engine workspace.")
+    print_integration_status(cfg)
+    print("\n  [1] System info")
+    print("  [2] Register Hermes config/path")
+    print("  [3] Register OpenClaw config/path")
+    print("  [R] Return")
+    choice = input("  선택 > ").strip().upper()
+    if choice == "1":
+        show_system_info()
+        return cfg
+    if choice == "2":
+        return register_config_path(
+            cfg,
+            "hermes_config",
+            "Hermes",
+            HERMES_CONFIG_CANDIDATES,
+            require_writable=True,
+            read_only=False,
+        )
+    if choice == "3":
+        return register_config_path(
+            cfg,
+            "openclaw_config",
+            "OpenClaw",
+            OPENCLAW_CONFIG_CANDIDATES,
+            require_writable=False,
+            read_only=True,
+        )
+    print("  취소했습니다.")
+    return cfg
+
+
 def print_config_candidates(label: str, candidates: tuple[str, ...]) -> list[str]:
     found: list[str] = []
     for candidate in candidates:
@@ -2668,6 +2702,7 @@ def choose_llama_cpp_menu_action(
     print("  [6] llama.cpp 1회 실행")
     print("  [7] llama.cpp 새 스크립트 생성")
     print("  [8] llama.cpp 스크립트 관리")
+    print("  [9] llama.cpp Hermes/OpenClaw integration")
     choice = input("  선택 > ").strip()
     return {
         "1": "LOAD",
@@ -2678,7 +2713,21 @@ def choose_llama_cpp_menu_action(
         "6": "O",
         "7": "G",
         "8": "S",
+        "9": "LLAMA_CPP_INTEGRATION",
     }.get(choice, "")
+
+
+def show_llama_cpp_integration_menu(cfg: dict[str, Any], draft: dict[str, Any]) -> None:
+    print("\n  ── llama.cpp Hermes/OpenClaw integration ──")
+    print("  This screen is for llama.cpp/GGUF context only.")
+    print("  It uses the selected GGUF model, llama.cpp host/port, and generated llama-server scripts.")
+    print("  vLLM endpoint sync/test lives under [V] vLLM workspace → API / Hermes checks.")
+    print_integration_status(cfg)
+    print("\n  llama.cpp working draft:")
+    print(f"  - model: {draft.get('model_name') or '(none)'}")
+    print(f"  - endpoint: http://{draft.get('host')}:{draft.get('port')}/v1")
+    print("  - scripts: [S] llama.cpp 스크립트 관리")
+    print("  No vLLM profile or latest vLLM run record is used here.")
 
 
 def choose_vllm_menu_action(profile: Any = None, profile_id: str = "custom-draft", run_summary: Any = None, candidate_cache: Any = None) -> str:
@@ -2895,9 +2944,10 @@ def handle_vllm_workspace_action(action: str, profile: Any, profile_id: str, cfg
     if upper == "VLLM_CHECKS_MENU":
         print("\n  ── API / Hermes checks ──")
         print("  [1] API Connection Test")
-        print("  [2] Hermes Config Sync")
+        print("  [2] Hermes Config Sync for vLLM")
         print("  [3] Hermes Chat Test")
         print("  [4] Hermes Tool Test / Raw Markup Check")
+        print("  OpenClaw vLLM sync is not implemented yet.")
         print("  This menu only routes to existing checks; it does not launch a model.")
         sub = input("  선택 > ").strip()
         mapped = {"1": "W", "2": "HERMES_VLLM_SYNC", "3": "HERMES_VLLM_CHAT_SMOKE", "4": "HERMES_VLLM_TOOL_AGENT_SMOKE"}.get(sub, "")
@@ -2969,7 +3019,7 @@ def main() -> None:
         print_startup_warnings(startup_warnings + recent_vllm_run_startup_warnings(vllm_run_summary))
         if not models:
             print(f"\n  ⚠️  {MODELS_DIR} 에서 GGUF 파일을 찾을 수 없습니다.")
-            print("     그래도 [L] llama.cpp workspace, [I] 시스템 정보, [E] Hermes 등록, [C] OpenClaw 등록은 사용할 수 있습니다.")
+            print("     그래도 [L] llama.cpp workspace, [V] vLLM workspace, [U] Shared tools / integrations는 사용할 수 있습니다.")
 
         if running:
             print(f"  🔴 실행 중: {running}\n")
@@ -2982,8 +3032,7 @@ def main() -> None:
         print("\n  [L] llama.cpp workspace")
         print("  [V] vLLM workspace")
         print(f"  [S] llama.cpp 스크립트 관리{script_info}")
-        print("  [E] Hermes 등록/연동")
-        print("  [C] OpenClaw 등록")
+        print("  [U] Shared tools / integrations")
         print("  [H] 서버 상태 확인")
         print("  [I] 시스템 정보")
         print("  [T] no-thinking 채팅 테스트")
@@ -3127,20 +3176,13 @@ def main() -> None:
             manage_scripts(draft)
             continue
 
-        if upper == "E":
-            cfg = show_hermes_integration_menu(cfg)
+        if upper == "LLAMA_CPP_INTEGRATION":
+            show_llama_cpp_integration_menu(cfg, draft)
             pause()
             continue
 
-        if upper == "C":
-            cfg = register_config_path(
-                cfg,
-                "openclaw_config",
-                "OpenClaw",
-                OPENCLAW_CONFIG_CANDIDATES,
-                require_writable=False,
-                read_only=True,
-            )
+        if upper == "U":
+            cfg = show_shared_tools_menu(cfg)
             pause()
             continue
 

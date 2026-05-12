@@ -1,5 +1,50 @@
 # llama-suite Operations Log
 
+## 2026-05-12 KST - Engine-context integration routing
+
+### Context
+
+Hermes/OpenClaw registration and engine sync/test actions were exposed too
+directly from the main menu. That blurred two different responsibilities:
+global config registration versus engine-specific endpoint sync and smoke
+checks.
+
+### Change
+
+Moved global integration registration behind `Shared tools / integrations`.
+The shared menu now owns Hermes config/path registration, OpenClaw config/path
+registration, and registration status.
+
+Added llama.cpp-specific integration guidance inside the llama.cpp workspace,
+clearly tied to the selected GGUF model, llama.cpp host/port, and generated
+llama-server scripts.
+
+Kept vLLM API/Hermes checks inside the vLLM workspace and clarified that
+Hermes config sync there is vLLM-specific. OpenClaw vLLM sync remains
+read-only guidance because no safe vLLM-specific OpenClaw flow exists yet.
+
+### Safety
+
+Menu routing and source-of-truth separation only.
+
+- no model launch
+- no model download
+- no new unsafe config write
+- no llama.cpp runtime behavior change
+- no vLLM launch/status/API behavior change
+- vLLM Hermes sync/test continues to use latest vLLM run record data, not
+  llama.cpp draft/script data
+
+### Verification
+
+```sh
+python3 -m py_compile llama-launcher-complete.py modules/*.py
+python3 scripts/policy-check.py
+git diff --check
+python3 -m unittest discover -v
+bash scripts/smoke-check.sh
+```
+
 ## Operating Record Routine
 
 Use this routine after code generation, insertion, or modification when the change affects launcher behavior, model startup safety, or runtime configuration.
