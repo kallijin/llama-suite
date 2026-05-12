@@ -1577,7 +1577,7 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("port should be 1-65535", errors)
         self.assertIn("gpu_memory_utilization should be between 0 and 1", errors)
         self.assertIn("tensor_parallel_size should be >= 1", errors)
-        self.assertIn("max_model_len should be empty/auto or > 0", errors)
+        self.assertIn("max_model_len should be empty/auto/-1 or > 0", errors)
         self.assertIn("max_num_seqs should be empty or >= 1", errors)
         self.assertIn("max_num_batched_tokens should be empty or >= 1", errors)
 
@@ -1599,7 +1599,7 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("port should be 1-65535", errors)
         self.assertIn("gpu_memory_utilization should be between 0 and 1", errors)
         self.assertIn("tensor_parallel_size should be >= 1", errors)
-        self.assertIn("max_model_len should be empty/auto or > 0", errors)
+        self.assertIn("max_model_len should be empty/auto/-1 or > 0", errors)
         self.assertIn("max_num_seqs should be empty or >= 1", errors)
         self.assertIn("max_num_batched_tokens should be empty or >= 1", errors)
 
@@ -1663,7 +1663,8 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(by_name["model"].example, "Qwen/Qwen2.5-0.5B-Instruct")
         self.assertEqual(by_name["max_model_len"].group, "Memory")
         self.assertIn("context length", by_name["max_model_len"].help)
-        self.assertIn("Leave empty or use auto", by_name["max_model_len"].input_hint)
+        self.assertIn("Leave empty for Model Default", by_name["max_model_len"].input_hint)
+        self.assertIn("auto/-1 for Auto Fit", by_name["max_model_len"].input_hint)
         self.assertEqual(by_name["max_model_len"].example, "auto")
         self.assertIn("1-65535", by_name["port"].input_hint)
         self.assertIn("per GPU", by_name["gpu_memory_utilization"].help)
@@ -2060,27 +2061,44 @@ class BeginnerFlowTests(unittest.TestCase):
             ],
         )
 
-    def test_vllm_command_preview_omits_auto_max_model_len_but_includes_manual_value(self) -> None:
+    def test_vllm_command_preview_distinguishes_auto_empty_and_manual_model_len(self) -> None:
         from modules.vllm_profiles import VllmProfile, build_vllm_command, validate_vllm_profile
 
+        empty_command, empty_messages = build_vllm_command(
+            VllmProfile(model="local-model", max_model_len="")
+        )
         auto_command, auto_messages = build_vllm_command(
             VllmProfile(model="local-model", max_model_len="auto")
         )
+        minus_one_command, minus_one_messages = build_vllm_command(
+            VllmProfile(model="local-model", max_model_len="-1")
+        )
         manual_command, manual_messages = build_vllm_command(
-            VllmProfile(model="local-model", max_model_len=8192)
+            VllmProfile(model="local-model", max_model_len=80000)
         )
 
         self.assertEqual(validate_vllm_profile(VllmProfile(model="local-model", max_model_len="")), [])
         self.assertEqual(validate_vllm_profile(VllmProfile(model="local-model", max_model_len="auto")), [])
+        self.assertEqual(validate_vllm_profile(VllmProfile(model="local-model", max_model_len="-1")), [])
+        self.assertEqual(empty_messages, [])
+        self.assertIsNotNone(empty_command)
+        assert empty_command is not None
+        self.assertNotIn("--max-model-len", empty_command)
         self.assertEqual(auto_messages, [])
         self.assertIsNotNone(auto_command)
         assert auto_command is not None
-        self.assertNotIn("--max-model-len", auto_command)
+        self.assertIn("--max-model-len", auto_command)
+        self.assertIn("auto", auto_command)
+        self.assertEqual(minus_one_messages, [])
+        self.assertIsNotNone(minus_one_command)
+        assert minus_one_command is not None
+        self.assertIn("--max-model-len", minus_one_command)
+        self.assertIn("-1", minus_one_command)
         self.assertEqual(manual_messages, [])
         self.assertIsNotNone(manual_command)
         assert manual_command is not None
         self.assertIn("--max-model-len", manual_command)
-        self.assertIn("8192", manual_command)
+        self.assertIn("80000", manual_command)
 
     def test_vllm_command_preview_adds_optional_memory_tuning_fields_when_set(self) -> None:
         from modules.vllm_profiles import VllmProfile, build_vllm_command
@@ -3038,8 +3056,11 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("── Hermes Desktop Strong ──", output)
         self.assertIn("── Desktop Safe ──", output)
         self.assertIn("Profile values:", output)
-        self.assertIn("max_model_len: 96000", output)
+        self.assertIn("max_model_len: auto", output)
+        self.assertIn("max_model_len meaning: Auto Fit within gpu_memory_utilization budget", output)
         self.assertIn("max_model_len: 80000", output)
+        self.assertIn("max_model_len meaning: Pinned 80000", output)
+        self.assertIn("Model Default = leave max_model_len blank and trust model config.", output)
         self.assertIn("max_num_seqs: 3", output)
         self.assertIn("max_num_batched_tokens: 1024", output)
         self.assertIn("extra_args: --served-model-name gemma4 --enable-auto-tool-choice --tool-call-parser gemma4", output)
@@ -3068,7 +3089,7 @@ class BeginnerFlowTests(unittest.TestCase):
             updated, _profile_id = launcher.show_vllm_selected_profile_settings(profile, "gemma4")
 
         self.assertEqual(updated.gpu_memory_utilization, 0.88)
-        self.assertEqual(updated.max_model_len, 96000)
+        self.assertEqual(updated.max_model_len, "auto")
         self.assertEqual(updated.max_num_batched_tokens, 1024)
         self.assertEqual(updated.max_num_seqs, 3)
         self.assertEqual(updated.tensor_parallel_size, 2)

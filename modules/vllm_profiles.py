@@ -49,7 +49,7 @@ VLLM_DEFAULT_PROFILE_POLICIES = {
     "hermes-desktop-strong": {
         "label": "Hermes Desktop Strong",
         "gpu_memory_utilization": 0.88,
-        "max_model_len": 96000,
+        "max_model_len": "auto",
         "max_num_batched_tokens": 1024,
         "max_num_seqs": 3,
         "tensor_parallel_size": 2,
@@ -227,7 +227,7 @@ def editable_vllm_profile_field_specs() -> list[VllmProfileFieldSpec]:
         VllmProfileFieldSpec("host", "Network", "Host", "Address the server binds to", "127.0.0.1 is local-only. Use a Tailscale IP for private LAN-style access.", "127.0.0.1"),
         VllmProfileFieldSpec("port", "Network", "Port", "OpenAI-compatible API port", "Use 1-65535. 8000 is common; choose another free port if occupied.", "8000"),
         VllmProfileFieldSpec("dtype", "Memory", "DType", "vLLM dtype value", "auto is the safest default. vLLM usually deals in FP16/BF16, FP8, INT8, AWQ/GPTQ/Int4 rather than GGUF Q names.", "auto"),
-        VllmProfileFieldSpec("max_model_len", "Memory", "Max model length", "Optional maximum context length vLLM should allocate for", "Leave empty or use auto for server-style operation. Direct numeric values are advanced and can make startup fail.", "auto"),
+        VllmProfileFieldSpec("max_model_len", "Memory", "Max model length", "Optional maximum context length vLLM should allocate for", "Leave empty for Model Default, use auto/-1 for Auto Fit, or enter a number for Pinned context.", "auto"),
         VllmProfileFieldSpec("gpu_memory_utilization", "Memory", "GPU memory utilization", "Fraction of memory vLLM may reserve per GPU", "Applied per GPU, not to total combined VRAM. Desktop systems should start around 0.55-0.65 and raise after success.", "0.60"),
         VllmProfileFieldSpec("tensor_parallel_size", "Parallelism", "Tensor parallel size", "Number of GPUs used for tensor parallelism", "Use 1 for a single GPU workstation.", "1"),
         VllmProfileFieldSpec("kv_cache_dtype", "Memory", "KV cache dtype", "KV cache precision/memory setting", "auto unless you are intentionally tuning KV cache memory.", "auto"),
@@ -431,8 +431,10 @@ def validate_vllm_profile(profile: VllmProfile) -> list[str]:
         errors.append("tensor_parallel_size should be >= 1")
 
     max_model_len = _try_optional_model_len(profile.max_model_len)
-    if max_model_len is None or (max_model_len != "" and max_model_len < 1):
-        errors.append("max_model_len should be empty/auto or > 0")
+    if max_model_len is None:
+        errors.append("max_model_len should be empty/auto/-1 or > 0")
+    elif isinstance(max_model_len, int) and max_model_len != -1 and max_model_len < 1:
+        errors.append("max_model_len should be empty/auto/-1 or > 0")
 
     max_num_seqs = _try_optional_int(profile.max_num_seqs)
     if max_num_seqs is None or (max_num_seqs != "" and max_num_seqs < 1):
@@ -662,7 +664,7 @@ def large_model_guidance_lines() -> list[str]:
         "Create one filesystem-safe directory per model under the download root.",
         "vLLM model memory classes are usually FP16/BF16, FP8, INT8, AWQ/GPTQ/Int4; they are not the same as llama.cpp GGUF Q4/Q5/Q8 names.",
         "For local large vLLM profiles, prefer HF/safetensors quantized models such as AWQ/GPTQ/Int4.",
-        "For vLLM server-style operation, leave max_model_len empty/auto first and verify the returned /v1/models max_model_len after READY.",
+        "For vLLM server-style operation, use max_model_len=auto for Auto Fit or leave it empty for Model Default, then verify the returned /v1/models max_model_len after READY.",
         "Only set max_model_len manually when vLLM's automatic model/context choice fails or you are intentionally limiting context.",
         "gpu_memory_utilization is applied per GPU. With two 16G GPUs, 0.88 means about 14G requested on each GPU, not 28G pooled freely.",
         "For local large llama.cpp profiles, prefer GGUF Q4_K_M-class models.",
@@ -859,8 +861,10 @@ def _coerce_optional_int(value: Any) -> int | str:
 
 def _coerce_optional_model_len(value: Any) -> int | str:
     text = str(value).strip() if value is not None else ""
-    if not text or text.lower() == "auto":
+    if not text:
         return ""
+    if text.lower() == "auto":
+        return "auto"
     try:
         return int(value)
     except (TypeError, ValueError):
@@ -889,6 +893,8 @@ def _try_optional_int(value: Any) -> int | str | None:
 
 def _try_optional_model_len(value: Any) -> int | str | None:
     text = str(value).strip() if value is not None else ""
-    if not text or text.lower() == "auto":
+    if not text:
         return ""
+    if text.lower() == "auto":
+        return "auto"
     return _try_int(value)

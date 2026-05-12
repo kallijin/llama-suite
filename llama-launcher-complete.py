@@ -1790,7 +1790,7 @@ def show_vllm_selected_profile_settings(profile: Any, profile_id: str = "custom-
     print(f"  profile path: {default_vllm_profile_path(profile_id)}")
     for field_name in selected_vllm_profile_setting_fields():
         value = getattr(profile, field_name, "")
-        print(f"  {field_name}: {value if str(value) else 'auto' if field_name == 'max_model_len' else '-'}")
+        print(f"  {field_name}: {format_vllm_profile_setting_value(field_name, value)}")
     print("  extra_args tokens:")
     print_vllm_extra_arg_tokens(profile)
     print("\n  [1] model path 변경")
@@ -1944,13 +1944,18 @@ def remove_vllm_extra_arg_from_menu(profile: Any) -> Any:
 def show_vllm_default_profile_policy_menu(profile: Any, profile_id: str) -> Any:
     print("\n  ── vLLM default profile policy ──")
     print("  [1] Hermes Desktop Strong 기본값 적용")
-    print("      gpu_memory_utilization=0.88, max_model_len=96000, max_num_batched_tokens=1024")
+    print("      gpu_memory_utilization=0.88, max_model_len=auto, max_num_batched_tokens=1024")
     print("      max_num_seqs=3, tensor_parallel_size=2, kv_cache_dtype=fp8")
+    print("      max_model_len meaning: Auto Fit within gpu_memory_utilization budget")
     print("      visible thinking/reasoning output: off by default")
     print("      tool-call-parser: model family 기반 자동 선택")
     print("  [2] Desktop Safe 기본값 적용")
     print("      gpu_memory_utilization=0.85, max_model_len=80000, max_num_batched_tokens=1024")
     print("      max_num_seqs=3, tensor_parallel_size=2, kv_cache_dtype=fp8")
+    print("      max_model_len meaning: Pinned 80K")
+    print("  Auto Fit = vLLM chooses the largest context that fits inside the GPU memory budget.")
+    print("  Model Default = leave max_model_len blank and trust model config.")
+    print("  Pinned = explicit numeric context limit.")
     print("  [3] tool-call-parser 직접 선택")
     print("      gemma4 / qwen3_xml / hermes / llama3_json / none")
     print("  [4] Preview Strong / Safe Defaults")
@@ -2010,11 +2015,24 @@ def preview_vllm_default_profile_policies(profile: Any, profile_id: str) -> None
         print("  Profile values:")
         for field_name in selected_vllm_profile_setting_fields():
             value = getattr(preview, field_name, "")
-            print(f"  {field_name}: {value if str(value) else 'auto' if field_name == 'max_model_len' else '-'}")
+            print(f"  {field_name}: {format_vllm_profile_setting_value(field_name, value)}")
+        if str(getattr(preview, "max_model_len", "")).strip().lower() == "auto":
+            print("  max_model_len meaning: Auto Fit within gpu_memory_utilization budget")
+        elif str(getattr(preview, "max_model_len", "")).strip() == "":
+            print("  max_model_len meaning: Model Default from model config")
+        else:
+            print(f"  max_model_len meaning: Pinned {preview.max_model_len}")
         print("  Policy messages:")
         for message in messages:
             print(f"  - {message}")
         print_selected_profile_validation_and_preview(preview)
+
+
+def format_vllm_profile_setting_value(field_name: str, value: Any) -> str:
+    text = str(value).strip()
+    if field_name == "max_model_len":
+        return text if text else "(blank / Model Default)"
+    return text if text else "-"
 
 
 def print_selected_profile_validation_and_preview(profile: Any) -> None:
