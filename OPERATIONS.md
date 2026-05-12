@@ -27,6 +27,45 @@ This keeps three recoverable layers:
 - timestamped local backup files for pre-commit reconstruction
 - this operations log for why the change happened and what was observed at runtime
 
+## 2026-05-12 KST - Engine-separated menu design baseline
+
+### Context
+
+llama-suite is now operating both llama.cpp and vLLM paths. The current menu
+still exposes many useful actions, but the first-screen structure is too
+developer-centric for beginners. The next UI work should not be another
+feature patch until the engine ownership model is explicit.
+
+### Change
+
+Added `docs/MENU_DESIGN.md` as the menu architecture baseline before UI
+routing patches.
+
+The baseline states:
+
+- the main menu branches by engine first
+- llama.cpp and vLLM have independent workspaces
+- Shared tools owns system-wide status, registration, logs, backups, recovery,
+  and diagnostics
+- profile save/import/export actions must clearly say they do not launch models
+- internal IDs/dataclasses remain stable while UI labels remain render output
+
+### Safety
+
+Documentation only. No runtime behavior, launch logic, profile schema, model
+download logic, deletion behavior, Rust skin, or Bluejeans work changed.
+
+### Verification
+
+Planned verification for this documentation patch:
+
+```sh
+python3 -m py_compile llama-launcher-complete.py modules/*.py
+git diff --check
+python3 -m unittest discover -v
+bash scripts/smoke-check.sh
+```
+
 ## 2026-05-08 23:48 KST - Beginner-first working draft baseline
 
 ### Context
