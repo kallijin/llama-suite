@@ -1769,7 +1769,7 @@ def handle_vllm_port_conflict(profile: Any, profile_id: str) -> tuple[Any, str]:
     if choice == "3":
         return prompt_vllm_selected_profile_fields(profile, profile_id, ["host", "port"])
     if choice == "4":
-        print("  기존 프로세스 종료는 latest run status/log/stop에서 명시 확인 후 진행합니다.")
+        print("  기존 프로세스 종료는 Server Check / Log / Stop에서 명시 확인 후 진행합니다.")
         show_vllm_smoke_manage()
         return profile, profile_id
     print("  취소했습니다.")
@@ -2108,7 +2108,9 @@ def print_vllm_launch_result(result: Any) -> None:
 
 
 def show_vllm_smoke_manage() -> None:
-    print("\n  ── vLLM latest run status/log/stop ──")
+    print("\n  ── Server Check / Log / Stop ──")
+    print("  Controls only the last vLLM server started by llama-suite.")
+    print("  Uses the latest llama-suite vLLM run record.")
     latest_result = latest_vllm_run_record()
     latest_record = latest_result.record if latest_result.ok else None
     if latest_record:
@@ -2118,9 +2120,9 @@ def show_vllm_smoke_manage() -> None:
         for message in latest_result.messages:
             print(f"  - {message}")
         print("  latest.json이 없거나 유효하지 않으면 수동 입력으로 진행합니다.")
-    print("  [1] status")
-    print("  [2] log")
-    print("  [3] stop")
+    print("  [1] Check Status")
+    print("  [2] View Log")
+    print("  [3] Stop Server")
     choice = input("  선택 > ").strip()
 
     if choice == "1":
@@ -2319,8 +2321,8 @@ def choose_vllm_menu_action(profile: Any = None, profile_id: str = "custom-draft
     print(recent_vllm_run_summary_line(run_summary))
     print("\n  [1] Load Verified Gemma4 Profile")
     print("  [2] Profile Preview / Run Check")
-    print("  [3] Launch Selected Profile")
-    print("  [4] Last Run Status / Log / Stop")
+    print("  [3] Start AI Model")
+    print("  [4] Server Check / Log / Stop")
     print("  [5] API Connection Test")
     print("  [6] Hermes Config Sync")
     print("  [7] Hermes Chat Test")

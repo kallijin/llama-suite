@@ -329,8 +329,8 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("vLLM beta launch path", output)
         self.assertIn("[1] Load Verified Gemma4 Profile", output)
         self.assertIn("[2] Profile Preview / Run Check", output)
-        self.assertIn("[3] Launch Selected Profile", output)
-        self.assertIn("[4] Last Run Status / Log / Stop", output)
+        self.assertIn("[3] Start AI Model", output)
+        self.assertIn("[4] Server Check / Log / Stop", output)
         self.assertIn("[5] API Connection Test", output)
         self.assertIn("[6] Hermes Config Sync", output)
         self.assertIn("[7] Hermes Chat Test", output)
@@ -360,6 +360,27 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0)
         self.assertGreaterEqual(completed.stdout.count("── vLLM workspace ──"), 2)
         self.assertIn("Profile Preview / Run Check", completed.stdout)
+
+    def test_vllm_server_check_menu_explains_latest_suite_server_scope(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_runner import VllmRunRecordResult
+        from unittest.mock import patch
+
+        stdout = StringIO()
+        latest = VllmRunRecordResult(False, None, None, ["no latest run"])
+
+        with patch.object(launcher, "latest_vllm_run_record", return_value=latest), patch("builtins.input", side_effect=["R"]), contextlib.redirect_stdout(stdout):
+            launcher.show_vllm_smoke_manage()
+
+        output = stdout.getvalue()
+        self.assertIn("Server Check / Log / Stop", output)
+        self.assertIn("Controls only the last vLLM server started by llama-suite.", output)
+        self.assertIn("Uses the latest llama-suite vLLM run record.", output)
+        self.assertIn("[1] Check Status", output)
+        self.assertIn("[2] View Log", output)
+        self.assertIn("[3] Stop Server", output)
 
     def test_vllm_start_check_screen_uses_easy_english_title(self) -> None:
         launcher = load_launcher_module()
