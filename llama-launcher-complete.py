@@ -1953,7 +1953,7 @@ def show_vllm_default_profile_policy_menu(profile: Any, profile_id: str) -> Any:
     print("      max_num_seqs=3, tensor_parallel_size=2, kv_cache_dtype=fp8")
     print("  [3] tool-call-parser 직접 선택")
     print("      gemma4 / qwen3_xml / hermes / llama3_json / none")
-    print("  [4] 현재 profile에 기본값 적용 미리보기")
+    print("  [4] Preview Strong / Safe Defaults")
     print("  [R] return")
     choice = input("  선택 > ").strip().upper()
     if choice == "1":
@@ -2001,10 +2001,17 @@ def choose_vllm_tool_call_parser(profile: Any) -> Any:
 
 def preview_vllm_default_profile_policies(profile: Any, profile_id: str) -> None:
     inferred = infer_vllm_tool_call_parser(profile, profile_id=profile_id) or "none/manual"
+    print("  Preview only. Nothing is saved.")
+    print("  Shows how each default policy would change the current profile.")
     print(f"  inferred tool-call parser: {inferred}")
     for policy_id, policy in default_vllm_profile_policies().items():
         preview, messages = apply_vllm_default_profile_policy(profile, policy_id, profile_id=profile_id)
-        print(f"\n  Preview: {policy['label']}")
+        print(f"\n  ── {policy['label']} ──")
+        print("  Profile values:")
+        for field_name in selected_vllm_profile_setting_fields():
+            value = getattr(preview, field_name, "")
+            print(f"  {field_name}: {value if str(value) else 'auto' if field_name == 'max_model_len' else '-'}")
+        print("  Policy messages:")
         for message in messages:
             print(f"  - {message}")
         print_selected_profile_validation_and_preview(preview)

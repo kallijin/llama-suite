@@ -3013,6 +3013,39 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("[4] hermes", output)
         self.assertIn("vLLM default profile policy", output)
 
+    def test_vllm_default_policy_preview_shows_full_profile_values(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profiles import VllmProfile
+        from unittest.mock import patch
+
+        profile = VllmProfile(
+            model="/models/cyankiwi-gemma-4-26B-A4B-it-AWQ-4bit",
+            dtype="bfloat16",
+            extra_args="--served-model-name gemma4",
+        )
+        stdout = StringIO()
+
+        with patch("builtins.input", side_effect=["8", "4"]), contextlib.redirect_stdout(stdout):
+            returned_profile, _profile_id = launcher.show_vllm_selected_profile_settings(profile, "gemma4")
+
+        output = stdout.getvalue()
+        self.assertIs(returned_profile, profile)
+        self.assertIn("Preview Strong / Safe Defaults", output)
+        self.assertIn("Preview only. Nothing is saved.", output)
+        self.assertIn("Shows how each default policy would change the current profile.", output)
+        self.assertIn("── Hermes Desktop Strong ──", output)
+        self.assertIn("── Desktop Safe ──", output)
+        self.assertIn("Profile values:", output)
+        self.assertIn("max_model_len: 96000", output)
+        self.assertIn("max_model_len: 80000", output)
+        self.assertIn("max_num_seqs: 3", output)
+        self.assertIn("max_num_batched_tokens: 1024", output)
+        self.assertIn("extra_args: --served-model-name gemma4 --enable-auto-tool-choice --tool-call-parser gemma4", output)
+        self.assertIn("Validation messages:", output)
+        self.assertIn("Command preview / dry-run:", output)
+
     def test_vllm_selected_profile_settings_applies_hermes_desktop_strong_policy(self) -> None:
         launcher = load_launcher_module()
         from io import StringIO
