@@ -312,7 +312,7 @@ class BeginnerFlowTests(unittest.TestCase):
             load_action = launcher.choose_llama_cpp_menu_action({}, {}, None)
         with patch("builtins.input", side_effect=["4"]), contextlib.redirect_stdout(stdout):
             llama_action = launcher.choose_llama_cpp_menu_action()
-        with patch("builtins.input", side_effect=["9"]), contextlib.redirect_stdout(stdout):
+        with patch("builtins.input", side_effect=["10"]), contextlib.redirect_stdout(stdout):
             vllm_action = launcher.choose_vllm_menu_action()
 
         self.assertEqual(load_action, "LOAD")
@@ -328,15 +328,16 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("vLLM workspace", output)
         self.assertIn("vLLM beta launch path", output)
         self.assertIn("[1] Load Verified Gemma4 Profile", output)
-        self.assertIn("[2] Profile Preview / Run Check", output)
-        self.assertIn("[3] Start AI Model", output)
-        self.assertIn("[4] Server Check / Log / Stop", output)
-        self.assertIn("[5] API Connection Test", output)
-        self.assertIn("[6] Hermes Config Sync", output)
-        self.assertIn("[7] Hermes Chat Test", output)
-        self.assertIn("[8] Hermes Tool Test / Raw Markup Check", output)
-        self.assertIn("[9] vLLM Start Check", output)
-        self.assertIn("[10] Profile Settings", output)
+        self.assertIn("[2] Show vLLM Model Folders", output)
+        self.assertIn("[3] Profile Preview / Run Check", output)
+        self.assertIn("[4] Start AI Model", output)
+        self.assertIn("[5] Server Check / Log / Stop", output)
+        self.assertIn("[6] API Connection Test", output)
+        self.assertIn("[7] Hermes Config Sync", output)
+        self.assertIn("[8] Hermes Chat Test", output)
+        self.assertIn("[9] Hermes Tool Test / Raw Markup Check", output)
+        self.assertIn("[10] vLLM Start Check", output)
+        self.assertIn("[11] Profile Settings", output)
         self.assertIn("[A] Advanced Profile / JSON", output)
         self.assertNotIn("[9] vLLM doctor", output)
 
@@ -350,7 +351,7 @@ class BeginnerFlowTests(unittest.TestCase):
             completed = subprocess.run(
                 [sys.executable, "llama-launcher-complete.py"],
                 cwd=ROOT,
-                input="v\n2\n\nr\nq\n",
+                input="v\n3\n\nr\nq\n",
                 text=True,
                 capture_output=True,
                 check=False,

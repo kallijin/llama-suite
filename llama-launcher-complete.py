@@ -43,6 +43,7 @@ from modules.script_builder import command_preview, generate_script, parse_gener
 from modules.system_info import collect_system_info
 from modules.vllm_api_probe import run_vllm_api_smoke
 from modules.vllm_doctor import format_vllm_doctor_report, run_vllm_doctor
+from modules.vllm_model_scan import render_vllm_model_candidate_lines, scan_vllm_model_candidates
 from modules.vllm_profile_store import backup_vllm_profile_draft, default_vllm_profile_path, delete_vllm_profile_draft, format_vllm_profile_draft_json, import_vllm_model_profile_hint, list_vllm_profile_drafts, load_selected_vllm_profile_draft, load_vllm_model_profile_hint, load_vllm_profile_draft, load_vllm_profile_json_file, save_selected_vllm_profile_id, save_verified_gemma4_26b_awq_beta_profile, save_vllm_model_profile_hint, save_vllm_profile_draft, validate_vllm_profile_json_file, vllm_model_profile_hint_path
 from modules.vllm_profiles import add_vllm_extra_arg, apply_vllm_default_profile_policy, apply_vllm_tool_call_parser, build_vllm_command, builtin_vllm_profile_presets, common_vllm_extra_arg_options, default_vllm_profile, default_vllm_profile_policies, editable_vllm_profile_field_specs, editable_vllm_profile_fields, format_vllm_profile_report, future_launch_preset_id, host_guidance_lines, infer_vllm_tool_call_parser, large_model_guidance_lines, launch_confirmation_guidance_lines, remove_vllm_extra_arg_token, run_vllm_preflight, tokenize_vllm_extra_args, update_vllm_profile_field, validate_vllm_profile, vllm_port_conflict_guidance_lines, vllm_tool_call_parser_choices
 from modules.vllm_runner import check_vllm_run_status, latest_vllm_run_record, latest_vllm_run_summary, launch_vllm_profile_once, launch_vllm_smoke_once, read_vllm_run_log, read_vllm_run_record, stop_vllm_run
@@ -2398,6 +2399,15 @@ def print_vllm_api_smoke_result(result: Any) -> None:
         print(f"  [{status}] {check.name}{code}: {check.message}")
 
 
+def show_vllm_model_folders() -> None:
+    print("\n  ── vLLM Model Folders ──")
+    print(f"  scan root: {MODELS_DIR}")
+    print("  Read-only scan. This does not launch, download, import, or save a profile.")
+    cache = scan_vllm_model_candidates([MODELS_DIR])
+    for line in render_vllm_model_candidate_lines(cache):
+        print(f"  {line}" if line else "")
+
+
 def initial_vllm_profile_selection_with_messages() -> tuple[Any, str, list[str]]:
     result = load_selected_vllm_profile_draft()
     if result.ok and result.profile and result.profile_id:
@@ -2455,29 +2465,31 @@ def choose_vllm_menu_action(profile: Any = None, profile_id: str = "custom-draft
     print("\n  Recent vLLM run:")
     print(recent_vllm_run_summary_line(run_summary))
     print("\n  [1] Load Verified Gemma4 Profile")
-    print("  [2] Profile Preview / Run Check")
-    print("  [3] Start AI Model")
-    print("  [4] Server Check / Log / Stop")
-    print("  [5] API Connection Test")
-    print("  [6] Hermes Config Sync")
-    print("  [7] Hermes Chat Test")
-    print("  [8] Hermes Tool Test / Raw Markup Check")
-    print("  [9] vLLM Start Check")
-    print("  [10] Profile Settings")
+    print("  [2] Show vLLM Model Folders")
+    print("  [3] Profile Preview / Run Check")
+    print("  [4] Start AI Model")
+    print("  [5] Server Check / Log / Stop")
+    print("  [6] API Connection Test")
+    print("  [7] Hermes Config Sync")
+    print("  [8] Hermes Chat Test")
+    print("  [9] Hermes Tool Test / Raw Markup Check")
+    print("  [10] vLLM Start Check")
+    print("  [11] Profile Settings")
     print("  [A] Advanced Profile / JSON")
     print("  [R] Return")
     choice = input("  선택 > ").strip()
     return {
         "1": "VLLM_SELECT_GEMMA4_BETA",
-        "2": "VLLM_SELECTED_PREVIEW",
-        "3": "VLLM_SELECTED_LAUNCH",
-        "4": "Z",
-        "5": "W",
-        "6": "HERMES_VLLM_SYNC",
-        "7": "HERMES_VLLM_CHAT_SMOKE",
-        "8": "HERMES_VLLM_TOOL_AGENT_SMOKE",
-        "9": "VLLM_DOCTOR",
-        "10": "VLLM_SELECTED_SETTINGS",
+        "2": "VLLM_MODEL_FOLDERS",
+        "3": "VLLM_SELECTED_PREVIEW",
+        "4": "VLLM_SELECTED_LAUNCH",
+        "5": "Z",
+        "6": "W",
+        "7": "HERMES_VLLM_SYNC",
+        "8": "HERMES_VLLM_CHAT_SMOKE",
+        "9": "HERMES_VLLM_TOOL_AGENT_SMOKE",
+        "10": "VLLM_DOCTOR",
+        "11": "VLLM_SELECTED_SETTINGS",
         "A": "B",
         "a": "B",
     }.get(choice, "")
@@ -2489,6 +2501,7 @@ VLLM_WORKSPACE_ACTIONS = {
     "Y",
     "Z",
     "VLLM_SELECT_GEMMA4_BETA",
+    "VLLM_MODEL_FOLDERS",
     "VLLM_SELECTED_PREVIEW",
     "VLLM_SELECTED_LAUNCH",
     "VLLM_SELECTED_SETTINGS",
@@ -2518,6 +2531,11 @@ def handle_vllm_workspace_action(action: str, profile: Any, profile_id: str, cfg
         if result.ok and result.profile:
             profile = result.profile
             profile_id = result.profile_id
+        pause()
+        return profile, profile_id, cfg, True
+
+    if upper == "VLLM_MODEL_FOLDERS":
+        show_vllm_model_folders()
         pause()
         return profile, profile_id, cfg, True
 

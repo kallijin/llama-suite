@@ -12,11 +12,13 @@ DISCOVERY_CACHE_SCHEMA = "llama-suite.discovery-cache.v1"
 TOKENIZER_FILES = {
     "tokenizer.json",
     "tokenizer.model",
+    "tokenizer_config.json",
     "vocab.json",
     "spiece.model",
     "merges.txt",
 }
-WEIGHT_SUFFIXES = (".safetensors", ".bin")
+WEIGHT_SUFFIXES = (".safetensors", ".safetensors.index.json", ".bin")
+VLLM_MODEL_PROFILE_HINT_FILENAME = "llama-suite-vllm-profile.json"
 
 
 @dataclass(frozen=True)
@@ -58,6 +60,7 @@ class VllmModelCandidate:
     candidate_backend: str
     classification_guess: ClassificationGuess
     readiness: ModelReadiness
+    has_suite_profile: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -65,6 +68,7 @@ class VllmModelCandidate:
             "candidate_backend": self.candidate_backend,
             "classification_guess": self.classification_guess.to_dict(),
             "readiness": self.readiness.to_dict(),
+            "has_suite_profile": self.has_suite_profile,
         }
 
 
@@ -164,6 +168,9 @@ def inspect_vllm_model_directory(path: str | Path) -> VllmModelCandidate | None:
         evidence.append("safetensors_weights_found" if _has_safetensors_file(model_dir) else "pytorch_weights_found")
     else:
         missing.append("weights")
+    has_suite_profile = (model_dir / VLLM_MODEL_PROFILE_HINT_FILENAME).is_file()
+    if has_suite_profile:
+        evidence.append("llama_suite_vllm_profile_hint_found")
 
     name_text = model_dir.name.lower()
     config_text = json.dumps(config_data, sort_keys=True).lower() if config_data else ""
@@ -199,6 +206,7 @@ def inspect_vllm_model_directory(path: str | Path) -> VllmModelCandidate | None:
         candidate_backend="vllm",
         classification_guess=classification,
         readiness=readiness,
+        has_suite_profile=has_suite_profile,
     )
 
 
@@ -227,6 +235,7 @@ def inspect_gguf_model_file(path: str | Path) -> VllmModelCandidate:
             missing=[],
             blocking=False,
         ),
+        has_suite_profile=False,
     )
 
 
@@ -252,6 +261,69 @@ def render_readiness_text(readiness: ModelReadiness | dict[str, Any]) -> str:
     if state == "ready":
         return "READY"
     return state
+
+
+def render_readiness_human_lines(readiness: ModelReadiness | dict[str, Any]) -> list[str]:
+    if isinstance(readiness, ModelReadiness):
+        state = readiness.state
+        missing = list(readiness.missing)
+        blocking = readiness.blocking
+    else:
+        state = str(readiness.get("state") or "unknown")
+        missing = list(readiness.get("missing") or [])
+        blocking = bool(readiness.get("blocking"))
+
+    if state == "needs_files":
+        lines = ["상태: 파일 보완 필요"]
+        if missing:
+            lines.append("다음 파일이 필요합니다: " + ", ".join(missing))
+        lines.append("실행 가능 여부: 불가" if blocking else "실행 가능 여부: 가능")
+        return lines
+    if state == "needs_registration":
+        return ["상태: 등록 필요", "실행 가능 여부: 가능"]
+    if state == "ready":
+        return ["상태: 실행 준비 완료", "실행 가능 여부: 가능"]
+    return [f"상태: {state}", "실행 가능 여부: 불가" if blocking else "실행 가능 여부: 가능"]
+
+
+def render_vllm_model_candidate_lines(cache: VllmDiscoveryCache, *, limit: int = 20) -> list[str]:
+    lines = [f"vLLM model folders: {len(cache.candidates)} found"]
+    if cache.messages:
+        lines.append("scan messages:")
+        lines.extend(f"- {message}" for message in cache.messages)
+    if not cache.candidates:
+        lines.append("상태: 후보 없음")
+        return lines
+
+    for index, candidate in enumerate(cache.candidates[:limit], 1):
+        classification = candidate.classification_guess
+        family = classification.family if classification.family != "unknown" else "unknown family"
+        quant = classification.quant.upper()
+        size = f"{classification.size_b}B" if classification.size_b is not None else "unknown size"
+        lines.append("")
+        lines.append(f"[{index}] {candidate.source.original_name}")
+        lines.append(f"    추정: {family} / {size} / {quant}")
+        lines.append(f"    backend: {candidate.candidate_backend}")
+        lines.append(f"    files: {_file_status_text(candidate)}")
+        for readiness_line in render_readiness_human_lines(candidate.readiness):
+            lines.append(f"    {readiness_line}")
+        evidence = ", ".join(candidate.classification_guess.evidence[:5]) or "-"
+        lines.append(f"    근거: {evidence}")
+    if len(cache.candidates) > limit:
+        lines.append("")
+        lines.append(f"... {len(cache.candidates) - limit} more candidates not shown")
+    return lines
+
+
+def _file_status_text(candidate: VllmModelCandidate) -> str:
+    missing = set(candidate.readiness.missing)
+    config = "MISSING" if "config" in missing else "OK"
+    tokenizer = "MISSING" if "tokenizer" in missing else "OK"
+    weights = "MISSING" if "weights" in missing else "OK"
+    suite_profile = "OK" if candidate.has_suite_profile else "MISSING"
+    if candidate.source.kind == "gguf_file":
+        return "GGUF file OK / suite profile n/a"
+    return f"config {config} / tokenizer {tokenizer} / weights {weights} / suite profile {suite_profile}"
 
 
 def _read_config_json(path: Path) -> dict[str, Any]:

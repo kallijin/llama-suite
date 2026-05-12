@@ -12,6 +12,8 @@ from modules.model_registry import (
     upsert_registered_model,
 )
 from modules.vllm_model_scan import (
+    render_readiness_human_lines,
+    render_vllm_model_candidate_lines,
     render_unregistered_candidate_summary_line,
     scan_vllm_model_candidates,
 )
@@ -47,6 +49,42 @@ class VllmModelScanTests(unittest.TestCase):
         self.assertEqual(candidate.readiness.state, "needs_files")
         self.assertIn("tokenizer", candidate.readiness.missing)
         self.assertTrue(candidate.readiness.blocking)
+        self.assertEqual(
+            render_readiness_human_lines(candidate.readiness),
+            ["상태: 파일 보완 필요", "다음 파일이 필요합니다: tokenizer", "실행 가능 여부: 불가"],
+        )
+
+    def test_folder_name_guess_survives_missing_files_and_renders_human_status(self) -> None:
+        with TemporaryDirectory() as directory:
+            model_dir = Path(directory) / "alonsoko__gemma-4-31b-it-abliterated-heretic-ara-AWQ"
+            model_dir.mkdir()
+
+            cache = scan_vllm_model_candidates([directory])
+
+        candidate = self._only_candidate(cache.candidates)
+        self.assertEqual(candidate.classification_guess.quant, "awq")
+        self.assertEqual(candidate.classification_guess.family, "gemma")
+        self.assertEqual(candidate.classification_guess.size_b, 31)
+        self.assertEqual(candidate.readiness.state, "needs_files")
+        self.assertEqual(candidate.readiness.missing, ["config", "tokenizer", "weights"])
+        lines = "\n".join(render_vllm_model_candidate_lines(cache))
+        self.assertIn("추정: gemma / 31B / AWQ", lines)
+        self.assertIn("상태: 파일 보완 필요", lines)
+        self.assertIn("다음 파일이 필요합니다: config, tokenizer, weights", lines)
+        self.assertIn("실행 가능 여부: 불가", lines)
+
+    def test_suite_profile_hint_is_shown_separately_from_readiness(self) -> None:
+        with TemporaryDirectory() as directory:
+            model_dir = Path(directory) / "Qwen2.5-14B-Instruct-AWQ"
+            self._write_local_hf_model(model_dir)
+            (model_dir / "llama-suite-vllm-profile.json").write_text("{}")
+
+            cache = scan_vllm_model_candidates([directory])
+
+        candidate = self._only_candidate(cache.candidates)
+        self.assertTrue(candidate.has_suite_profile)
+        lines = "\n".join(render_vllm_model_candidate_lines(cache))
+        self.assertIn("suite profile OK", lines)
 
     def test_gguf_routes_to_llama_cpp_candidate(self) -> None:
         with TemporaryDirectory() as directory:
