@@ -45,6 +45,27 @@ VLLM_COMMON_EXTRA_ARG_OPTIONS = {
     "--kv-cache-dtype": True,
     "--max-num-seqs": True,
 }
+VLLM_DEFAULT_PROFILE_POLICIES = {
+    "hermes-desktop-strong": {
+        "label": "Hermes Desktop Strong",
+        "gpu_memory_utilization": 0.88,
+        "max_model_len": 96000,
+        "max_num_batched_tokens": 1024,
+        "max_num_seqs": 3,
+        "tensor_parallel_size": 2,
+        "kv_cache_dtype": "fp8",
+    },
+    "desktop-safe": {
+        "label": "Desktop Safe",
+        "gpu_memory_utilization": 0.85,
+        "max_model_len": 80000,
+        "max_num_batched_tokens": 1024,
+        "max_num_seqs": 3,
+        "tensor_parallel_size": 2,
+        "kv_cache_dtype": "fp8",
+    },
+}
+VLLM_TOOL_CALL_PARSER_CHOICES = ["gemma4", "qwen3_xml", "hermes", "llama3_json", "none"]
 
 
 @dataclass
@@ -191,6 +212,14 @@ def common_vllm_extra_arg_options() -> dict[str, bool]:
     return dict(VLLM_COMMON_EXTRA_ARG_OPTIONS)
 
 
+def default_vllm_profile_policies() -> dict[str, dict[str, Any]]:
+    return {key: dict(value) for key, value in VLLM_DEFAULT_PROFILE_POLICIES.items()}
+
+
+def vllm_tool_call_parser_choices() -> list[str]:
+    return list(VLLM_TOOL_CALL_PARSER_CHOICES)
+
+
 def editable_vllm_profile_field_specs() -> list[VllmProfileFieldSpec]:
     return [
         VllmProfileFieldSpec("wrapper_path", "Runtime", "Wrapper", "vLLM wrapper executable", "Path to an executable wrapper. Keep default unless you made another wrapper.", "~/bin/vllm-rocm"),
@@ -261,10 +290,108 @@ def remove_vllm_extra_arg_token(profile: VllmProfile, token_index: int) -> tuple
     return _profile_with_extra_arg_tokens(profile, tokens), [f"removed vLLM extra token: {removed}"]
 
 
+def infer_vllm_tool_call_parser(profile: VllmProfile, profile_id: str = "") -> str:
+    parts = [
+        str(profile_id or ""),
+        str(getattr(profile, "model", "") or ""),
+        _extra_arg_value(profile, "--served-model-name"),
+    ]
+    text = " ".join(part for part in parts if part).lower().replace("_", "-")
+    if "gemma4" in text or "gemma-4" in text:
+        return "gemma4"
+    if "qwen3-coder" in text:
+        return "qwen3_xml"
+    if "nous-hermes" in text or "hermes" in text:
+        return "hermes"
+    if "llama-3" in text or "llama3" in text:
+        return "llama3_json"
+    return ""
+
+
+def apply_vllm_tool_call_parser(profile: VllmProfile, parser: str) -> tuple[VllmProfile, list[str]]:
+    parser_text = str(parser or "").strip()
+    if parser_text == "none":
+        parser_text = ""
+    if parser_text and parser_text not in VLLM_TOOL_CALL_PARSER_CHOICES:
+        return profile, [f"unknown vLLM tool-call parser: {parser_text}"]
+
+    tokens, messages = tokenize_vllm_extra_args(profile)
+    if messages:
+        return profile, messages
+
+    tokens = _without_extra_arg_options(tokens, {"--tool-call-parser", "--enable-auto-tool-choice"})
+    if parser_text:
+        tokens.extend(["--enable-auto-tool-choice", "--tool-call-parser", parser_text])
+        message = f"applied vLLM tool-call parser: {parser_text}"
+    else:
+        message = "removed vLLM tool-call parser; parser remains manual/none"
+    return _profile_with_extra_arg_tokens(profile, tokens), [message]
+
+
+def apply_vllm_default_profile_policy(
+    profile: VllmProfile,
+    policy_id: str,
+    *,
+    profile_id: str = "",
+) -> tuple[VllmProfile, list[str]]:
+    policy = VLLM_DEFAULT_PROFILE_POLICIES.get(str(policy_id or "").strip())
+    if policy is None:
+        return profile, [f"unknown vLLM default profile policy: {policy_id or '-'}"]
+
+    data = profile.to_dict()
+    for field_name in (
+        "gpu_memory_utilization",
+        "max_model_len",
+        "max_num_batched_tokens",
+        "max_num_seqs",
+        "tensor_parallel_size",
+        "kv_cache_dtype",
+    ):
+        data[field_name] = policy[field_name]
+    updated = VllmProfile(**data)
+    messages = [f"applied vLLM default profile policy: {policy['label']}"]
+    messages.append("visible thinking/reasoning output policy: off by default; no model-specific reasoning option was inserted")
+
+    parser = infer_vllm_tool_call_parser(updated, profile_id=profile_id)
+    if parser:
+        updated, parser_messages = apply_vllm_tool_call_parser(updated, parser)
+        messages.extend(parser_messages)
+        messages.append("tool-call parser was inferred from model family; verify with tool-agent smoke before marking PASS")
+    else:
+        messages.append("tool-call parser remains manual/none; unknown models are not tool-agent verified")
+    return updated, messages
+
+
 def _profile_with_extra_arg_tokens(profile: VllmProfile, tokens: list[str]) -> VllmProfile:
     data = profile.to_dict()
     data["extra_args"] = shlex.join(tokens)
     return VllmProfile(**data)
+
+
+def _extra_arg_value(profile: VllmProfile, option: str) -> str:
+    tokens, messages = tokenize_vllm_extra_args(profile)
+    if messages:
+        return ""
+    for index, token in enumerate(tokens):
+        if token == option and index + 1 < len(tokens):
+            return tokens[index + 1]
+    return ""
+
+
+def _without_extra_arg_options(tokens: list[str], options: set[str]) -> list[str]:
+    common_options = common_vllm_extra_arg_options()
+    result: list[str] = []
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if token in options:
+            index += 1
+            if common_options.get(token, False) and index < len(tokens):
+                index += 1
+            continue
+        result.append(token)
+        index += 1
+    return result
 
 
 def vllm_profile_from_dict(data: dict[str, Any]) -> VllmProfile:

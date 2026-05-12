@@ -2870,6 +2870,83 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("[2] gemma4", output)
         self.assertIn("[3] --tool-call-parser", output)
         self.assertIn("[4] hermes", output)
+        self.assertIn("vLLM default profile policy", output)
+
+    def test_vllm_selected_profile_settings_applies_hermes_desktop_strong_policy(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profiles import VllmProfile
+        from unittest.mock import Mock, patch
+
+        profile = VllmProfile(
+            model="/models/cyankiwi-gemma-4-26B-A4B-it-AWQ-4bit",
+            extra_args="--served-model-name gemma4 --tool-call-parser hermes",
+        )
+        launch_mock = Mock()
+        stdout = StringIO()
+
+        with (
+            patch.object(launcher, "launch_vllm_profile_once", launch_mock),
+            patch("builtins.input", side_effect=["8", "1"]),
+            contextlib.redirect_stdout(stdout),
+        ):
+            updated, _profile_id = launcher.show_vllm_selected_profile_settings(profile, "gemma4")
+
+        self.assertEqual(updated.gpu_memory_utilization, 0.88)
+        self.assertEqual(updated.max_model_len, 96000)
+        self.assertEqual(updated.max_num_batched_tokens, 1024)
+        self.assertEqual(updated.max_num_seqs, 3)
+        self.assertEqual(updated.tensor_parallel_size, 2)
+        self.assertEqual(updated.kv_cache_dtype, "fp8")
+        self.assertIn("--enable-auto-tool-choice", updated.extra_args)
+        self.assertIn("--tool-call-parser gemma4", updated.extra_args)
+        self.assertNotIn("--tool-call-parser hermes", updated.extra_args)
+        self.assertEqual(updated.extra_args.count("--tool-call-parser"), 1)
+        launch_mock.assert_not_called()
+        self.assertIn("visible thinking/reasoning output policy: off by default", stdout.getvalue())
+
+    def test_vllm_default_profile_policy_applies_desktop_safe_values(self) -> None:
+        from modules.vllm_profiles import VllmProfile, apply_vllm_default_profile_policy
+
+        profile = VllmProfile(model="/models/unknown")
+        updated, messages = apply_vllm_default_profile_policy(profile, "desktop-safe", profile_id="unknown")
+
+        self.assertEqual(updated.gpu_memory_utilization, 0.85)
+        self.assertEqual(updated.max_model_len, 80000)
+        self.assertEqual(updated.max_num_batched_tokens, 1024)
+        self.assertEqual(updated.max_num_seqs, 3)
+        self.assertEqual(updated.tensor_parallel_size, 2)
+        self.assertEqual(updated.kv_cache_dtype, "fp8")
+        self.assertNotIn("--enable-auto-tool-choice", updated.extra_args)
+        self.assertNotIn("--tool-call-parser", updated.extra_args)
+        self.assertTrue(any("manual/none" in message for message in messages))
+
+    def test_vllm_tool_call_parser_auto_policy_detects_model_families(self) -> None:
+        from modules.vllm_profiles import VllmProfile, infer_vllm_tool_call_parser
+
+        self.assertEqual(infer_vllm_tool_call_parser(VllmProfile(model="/models/gemma-4-26b-awq")), "gemma4")
+        self.assertEqual(infer_vllm_tool_call_parser(VllmProfile(model="/models/Qwen3-Coder-30B-A3B-Instruct")), "qwen3_xml")
+        self.assertEqual(infer_vllm_tool_call_parser(VllmProfile(model="/models/Nous-Hermes-3")), "hermes")
+        self.assertEqual(infer_vllm_tool_call_parser(VllmProfile(model="/models/Llama-3.1-8B-Instruct")), "llama3_json")
+        self.assertEqual(infer_vllm_tool_call_parser(VllmProfile(model="/models/unknown-local-model")), "")
+
+    def test_vllm_tool_call_parser_selection_removes_duplicates_and_can_clear(self) -> None:
+        from modules.vllm_profiles import VllmProfile, apply_vllm_tool_call_parser
+
+        profile = VllmProfile(
+            model="/models/gemma4",
+            extra_args="--served-model-name gemma --enable-auto-tool-choice --tool-call-parser hermes --tool-call-parser gemma4",
+        )
+        updated, _messages = apply_vllm_tool_call_parser(profile, "gemma4")
+
+        self.assertIn("--enable-auto-tool-choice", updated.extra_args)
+        self.assertIn("--tool-call-parser gemma4", updated.extra_args)
+        self.assertEqual(updated.extra_args.count("--tool-call-parser"), 1)
+
+        cleared, _messages = apply_vllm_tool_call_parser(updated, "none")
+        self.assertNotIn("--enable-auto-tool-choice", cleared.extra_args)
+        self.assertNotIn("--tool-call-parser", cleared.extra_args)
 
     def test_vllm_selected_profile_settings_can_add_common_option(self) -> None:
         launcher = load_launcher_module()

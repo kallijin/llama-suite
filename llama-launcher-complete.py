@@ -44,7 +44,7 @@ from modules.system_info import collect_system_info
 from modules.vllm_api_probe import run_vllm_api_smoke
 from modules.vllm_doctor import format_vllm_doctor_report, run_vllm_doctor
 from modules.vllm_profile_store import backup_vllm_profile_draft, default_vllm_profile_path, delete_vllm_profile_draft, format_vllm_profile_draft_json, list_vllm_profile_drafts, load_selected_vllm_profile_draft, load_vllm_profile_draft, load_vllm_profile_json_file, save_selected_vllm_profile_id, save_verified_gemma4_26b_awq_beta_profile, save_vllm_profile_draft, validate_vllm_profile_json_file
-from modules.vllm_profiles import add_vllm_extra_arg, build_vllm_command, builtin_vllm_profile_presets, common_vllm_extra_arg_options, default_vllm_profile, editable_vllm_profile_field_specs, editable_vllm_profile_fields, format_vllm_profile_report, future_launch_preset_id, host_guidance_lines, large_model_guidance_lines, launch_confirmation_guidance_lines, remove_vllm_extra_arg_token, run_vllm_preflight, tokenize_vllm_extra_args, update_vllm_profile_field, validate_vllm_profile, vllm_port_conflict_guidance_lines
+from modules.vllm_profiles import add_vllm_extra_arg, apply_vllm_default_profile_policy, apply_vllm_tool_call_parser, build_vllm_command, builtin_vllm_profile_presets, common_vllm_extra_arg_options, default_vllm_profile, default_vllm_profile_policies, editable_vllm_profile_field_specs, editable_vllm_profile_fields, format_vllm_profile_report, future_launch_preset_id, host_guidance_lines, infer_vllm_tool_call_parser, large_model_guidance_lines, launch_confirmation_guidance_lines, remove_vllm_extra_arg_token, run_vllm_preflight, tokenize_vllm_extra_args, update_vllm_profile_field, validate_vllm_profile, vllm_port_conflict_guidance_lines, vllm_tool_call_parser_choices
 from modules.vllm_runner import check_vllm_run_status, latest_vllm_run_record, latest_vllm_run_summary, launch_vllm_profile_once, launch_vllm_smoke_once, read_vllm_run_log, read_vllm_run_record, stop_vllm_run
 from modules.vllm_script_builder import build_vllm_script_preview, save_vllm_script
 
@@ -1799,6 +1799,7 @@ def show_vllm_selected_profile_settings(profile: Any, profile_id: str = "custom-
     print("  [5] common vLLM option 추가")
     print("  [6] option token 제거")
     print("  [7] 저장")
+    print("  [8] vLLM default profile policy")
     print("  [P] preflight")
     print("  [L] launch")
     print("  [R] return")
@@ -1826,6 +1827,9 @@ def show_vllm_selected_profile_settings(profile: Any, profile_id: str = "custom-
     if choice == "7":
         saved_profile = save_vllm_selected_profile_settings(profile, profile_id)
         return saved_profile, profile_id
+    if choice == "8":
+        updated = show_vllm_default_profile_policy_menu(profile, profile_id)
+        return updated, profile_id
     if upper == "P":
         show_vllm_selected_profile_preview(profile, profile_id)
         return profile, profile_id
@@ -1934,6 +1938,75 @@ def remove_vllm_extra_arg_from_menu(profile: Any) -> Any:
     print_vllm_extra_arg_tokens(updated)
     print_selected_profile_validation_and_preview(updated)
     return updated
+
+
+def show_vllm_default_profile_policy_menu(profile: Any, profile_id: str) -> Any:
+    print("\n  ── vLLM default profile policy ──")
+    print("  [1] Hermes Desktop Strong 기본값 적용")
+    print("      gpu_memory_utilization=0.88, max_model_len=96000, max_num_batched_tokens=1024")
+    print("      max_num_seqs=3, tensor_parallel_size=2, kv_cache_dtype=fp8")
+    print("      visible thinking/reasoning output: off by default")
+    print("      tool-call-parser: model family 기반 자동 선택")
+    print("  [2] Desktop Safe 기본값 적용")
+    print("      gpu_memory_utilization=0.85, max_model_len=80000, max_num_batched_tokens=1024")
+    print("      max_num_seqs=3, tensor_parallel_size=2, kv_cache_dtype=fp8")
+    print("  [3] tool-call-parser 직접 선택")
+    print("      gemma4 / qwen3_xml / hermes / llama3_json / none")
+    print("  [4] 현재 profile에 기본값 적용 미리보기")
+    print("  [R] return")
+    choice = input("  선택 > ").strip().upper()
+    if choice == "1":
+        return apply_and_print_vllm_default_profile_policy(profile, profile_id, "hermes-desktop-strong")
+    if choice == "2":
+        return apply_and_print_vllm_default_profile_policy(profile, profile_id, "desktop-safe")
+    if choice == "3":
+        return choose_vllm_tool_call_parser(profile)
+    if choice == "4":
+        preview_vllm_default_profile_policies(profile, profile_id)
+        return profile
+    return profile
+
+
+def apply_and_print_vllm_default_profile_policy(profile: Any, profile_id: str, policy_id: str) -> Any:
+    updated, messages = apply_vllm_default_profile_policy(profile, policy_id, profile_id=profile_id)
+    for message in messages:
+        print(f"  - {message}")
+    print_selected_profile_validation_and_preview(updated)
+    return updated
+
+
+def choose_vllm_tool_call_parser(profile: Any) -> Any:
+    choices = vllm_tool_call_parser_choices()
+    print("\n  tool-call-parser:")
+    for index, parser in enumerate(choices, 1):
+        label = "none/manual" if parser == "none" else parser
+        print(f"  [{index}] {label}")
+    raw = input("  parser number > ").strip()
+    try:
+        selected_index = int(raw)
+    except ValueError:
+        print("  취소했습니다.")
+        return profile
+    if not 1 <= selected_index <= len(choices):
+        print("  취소했습니다.")
+        return profile
+    updated, messages = apply_vllm_tool_call_parser(profile, choices[selected_index - 1])
+    for message in messages:
+        print(f"  - {message}")
+    print_vllm_extra_arg_tokens(updated)
+    print_selected_profile_validation_and_preview(updated)
+    return updated
+
+
+def preview_vllm_default_profile_policies(profile: Any, profile_id: str) -> None:
+    inferred = infer_vllm_tool_call_parser(profile, profile_id=profile_id) or "none/manual"
+    print(f"  inferred tool-call parser: {inferred}")
+    for policy_id, policy in default_vllm_profile_policies().items():
+        preview, messages = apply_vllm_default_profile_policy(profile, policy_id, profile_id=profile_id)
+        print(f"\n  Preview: {policy['label']}")
+        for message in messages:
+            print(f"  - {message}")
+        print_selected_profile_validation_and_preview(preview)
 
 
 def print_selected_profile_validation_and_preview(profile: Any) -> None:
