@@ -1375,7 +1375,7 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("no vLLM run records found", "\n".join(result.messages))
 
     def test_hermes_vllm_sync_plan_updates_registered_config_from_ready_latest_run(self) -> None:
-        from modules.hermes_integration import build_hermes_vllm_sync_plan
+        from modules.hermes_integration import build_hermes_vllm_sync_plan, format_hermes_vllm_sync_plan
         from modules.vllm_runner import VllmRunRecord, VllmRunRecordResult
 
         class Status:
@@ -1413,6 +1413,91 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("model: served-qwen", plan.updated_text)
         self.assertIn("context_length: 64000", plan.updated_text)
         self.assertIn("context_length: 64000", "\n".join(plan.messages))
+
+        preview = "\n".join(format_hermes_vllm_sync_plan(plan))
+        self.assertIn("Hermes vLLM sync preview:", preview)
+        self.assertIn("- base_url: http://127.0.0.1:8000/v1", preview)
+        self.assertIn("- model: served-qwen", preview)
+        self.assertIn("- context_length: 64000", preview)
+        self.assertIn("- source run_id: vllm-qwen2.5-14b-awq-test", preview)
+        self.assertIn("Planned changes:", preview)
+        self.assertIn("model.base_url: http://127.0.0.1:8000/v1", preview)
+        self.assertIn("model.model: served-qwen", preview)
+        self.assertIn("preview only", preview)
+        self.assertIn("config was not modified", preview)
+        self.assertNotIn("planned config:", preview)
+
+    def test_hermes_vllm_sync_preview_is_compact_and_redacts_full_config(self) -> None:
+        from modules.hermes_integration import build_hermes_vllm_sync_plan, format_hermes_vllm_sync_plan
+        from modules.vllm_runner import VllmRunRecord, VllmRunRecordResult
+
+        class Status:
+            alive = True
+            port_listening = True
+            messages = ["ready"]
+
+        with TemporaryDirectory() as directory:
+            config_path = Path(directory) / "config.yaml"
+            config_path.write_text(
+                "\n".join(
+                    [
+                        "model: old-model",
+                        "api_key: sk-secret123456",
+                        "authorization: Bearer private-token",
+                        "tts:",
+                        "  enabled: true",
+                        "dashboard:",
+                        "  enabled: true",
+                        "discord:",
+                        "  token: ghp_secretvalue",
+                        "telegram:",
+                        "  token: github_pat_secretvalue",
+                        "slack:",
+                        "  webhook: https://example.invalid",
+                    ]
+                )
+                + "\n"
+            )
+            record = VllmRunRecord(
+                backend="vllm",
+                preset_id="gemma4",
+                run_id="vllm-gemma4-run",
+                pid=123,
+                command=["vllm", "serve", "/models/gemma4", "--served-model-name", "gemma4-31b-heretic-ara-awq"],
+                env_preview={},
+                log_path=str(Path(directory) / "run.log"),
+                host="127.0.0.1",
+                port=8000,
+                started_at="2026-05-12T03:00:00+09:00",
+                status_hint="started",
+            )
+
+            plan = build_hermes_vllm_sync_plan(
+                str(config_path),
+                latest_record=VllmRunRecordResult(True, record, "/tmp/latest.json", []),
+                status_check=lambda **kwargs: Status(),
+            )
+
+        compact = "\n".join(format_hermes_vllm_sync_plan(plan))
+        self.assertIn("gemma4-31b-heretic-ara-awq", compact)
+        self.assertNotIn("tts:", compact)
+        self.assertNotIn("dashboard:", compact)
+        self.assertNotIn("discord:", compact)
+        self.assertNotIn("telegram:", compact)
+        self.assertNotIn("slack:", compact)
+        self.assertNotIn("sk-secret123456", compact)
+        self.assertNotIn("private-token", compact)
+
+        full = "\n".join(format_hermes_vllm_sync_plan(plan, include_full_config=True))
+        self.assertIn("Full redacted planned config:", full)
+        self.assertIn("tts:", full)
+        self.assertIn("api_key: <redacted>", full)
+        self.assertIn("authorization: <redacted>", full)
+        self.assertIn("token: <redacted>", full)
+        self.assertNotIn("sk-secret123456", full)
+        self.assertNotIn("private-token", full)
+        self.assertNotIn("ghp_secretvalue", full)
+        self.assertNotIn("github_pat_secretvalue", full)
 
     def test_hermes_vllm_sync_plan_refuses_non_ready_latest_run(self) -> None:
         from modules.hermes_integration import build_hermes_vllm_sync_plan

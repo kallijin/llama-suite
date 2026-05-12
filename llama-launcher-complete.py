@@ -966,16 +966,18 @@ def show_hermes_vllm_sync_menu(cfg: dict[str, Any]) -> dict[str, Any]:
     print("  latest vLLM run이 READY일 때만 Hermes endpoint 동기화를 준비합니다.")
     print("  [1] preview")
     print("  [2] write")
+    print("  [A] Show full redacted planned config")
     choice = input("  선택 > ").strip()
-    if choice not in {"1", "2"}:
+    if choice not in {"1", "2", "A", "a"}:
         print("  취소했습니다.")
         return cfg
 
     config_path = registered_paths(cfg).get("hermes_config")
     plan = build_hermes_vllm_sync_plan(config_path)
-    for line in format_hermes_vllm_sync_plan(plan):
+    show_full_config = choice.upper() == "A"
+    for line in format_hermes_vllm_sync_plan(plan, include_full_config=show_full_config):
         print(f"  {line}" if line else "")
-    if choice == "1":
+    if choice in {"1", "A", "a"}:
         print("  preview only. config was not modified.")
         return cfg
 

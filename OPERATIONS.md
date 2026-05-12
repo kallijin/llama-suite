@@ -1,5 +1,39 @@
 # llama-suite Operations Log
 
+## 2026-05-12 KST - Compact Hermes vLLM sync preview
+
+### Context
+
+Hermes vLLM sync preview was using the correct latest vLLM run record data, but
+the default preview printed the entire planned Hermes config. That was noisy for
+beginners and could expose sensitive fields in future configs.
+
+### Change
+
+Changed the default Hermes vLLM sync preview to show only target values,
+planned changed fields, and safety notes. Added an advanced-only full planned
+config view that redacts key/token/password/secret/authorization-style fields.
+
+### Safety
+
+Preview formatting and redaction only.
+
+- no write behavior change
+- no model launch
+- no model download
+- no llama.cpp behavior change
+- full planned config remains available only through an advanced redacted view
+
+### Verification
+
+```sh
+python3 -m py_compile llama-launcher-complete.py modules/*.py
+python3 scripts/policy-check.py
+git diff --check
+python3 -m unittest discover -v
+bash scripts/smoke-check.sh
+```
+
 ## 2026-05-12 KST - Engine-context integration routing
 
 ### Context

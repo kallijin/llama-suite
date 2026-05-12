@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -162,22 +163,59 @@ def update_hermes_config_text(original: str, *, base_url: str, model_id: str, co
     return "\n".join(updated_lines) + "\n"
 
 
-def format_hermes_vllm_sync_plan(plan: HermesVllmSyncPlan) -> list[str]:
+def format_hermes_vllm_sync_plan(plan: HermesVllmSyncPlan, *, include_full_config: bool = False) -> list[str]:
     lines = ["Hermes vLLM sync preview:"]
-    for message in plan.messages:
-        lines.append(f"- {message}")
     if plan.ok:
         lines.extend(
             [
-                f"config_path: {plan.config_path}",
-                f"base_url: {plan.base_url}",
-                f"model: {plan.model_id}",
-                f"run_id: {plan.run_id}",
-                "planned config:",
+                f"- config_path: {plan.config_path}",
+                f"- base_url: {plan.base_url}",
+                f"- model: {plan.model_id}",
+                f"- context_length: {HERMES_MIN_CONTEXT_LENGTH}",
+                f"- source run_id: {plan.run_id}",
+                "",
+                "Planned changes:",
+                "- root/base endpoint: " + str(plan.base_url),
+                "- model.provider: custom",
+                "- model.base_url: " + str(plan.base_url),
+                "- model.model: " + str(plan.model_id),
+                "- model.default: " + str(plan.model_id),
+                f"- model.context_length: {HERMES_MIN_CONTEXT_LENGTH}",
+                f"- auxiliary.compression.context_length: {HERMES_MIN_CONTEXT_LENGTH}",
+                "- custom_providers.llama-suite vLLM.base_url: " + str(plan.base_url),
+                "- custom_providers.llama-suite vLLM.model: " + str(plan.model_id),
+                "",
+                "Safety:",
+                "- preview only",
+                "- config was not modified",
+                "- write requires confirmation",
             ]
         )
-        lines.extend(plan.updated_text.splitlines() or [""])
+        if include_full_config:
+            lines.extend(["", "Full redacted planned config:"])
+            lines.extend(redact_sensitive_config_text(plan.updated_text).splitlines() or [""])
+    else:
+        for message in plan.messages:
+            lines.append(f"- {message}")
     return lines
+
+
+def redact_sensitive_config_text(text: str) -> str:
+    redacted_lines: list[str] = []
+    key_pattern = re.compile(r"^(\s*[-\w.]*\s*)?(api[_-]?key|token|password|secret|authorization|credential)(\s*[:=]\s*)(.+)$", re.IGNORECASE)
+    bearer_pattern = re.compile(r"Bearer\s+[A-Za-z0-9._~+/=-]+", re.IGNORECASE)
+    openai_pattern = re.compile(r"sk-[A-Za-z0-9_-]{8,}")
+    github_pattern = re.compile(r"(ghp_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+)")
+    for line in str(text or "").splitlines():
+        match = key_pattern.match(line)
+        if match:
+            redacted_lines.append(f"{match.group(1) or ''}{match.group(2)}{match.group(3)}<redacted>")
+            continue
+        line = bearer_pattern.sub("Bearer <redacted>", line)
+        line = openai_pattern.sub("sk-<redacted>", line)
+        line = github_pattern.sub("<redacted-github-token>", line)
+        redacted_lines.append(line)
+    return "\n".join(redacted_lines)
 
 
 def _update_yamlish_lines(lines: list[str], *, base_url: str, model_id: str) -> tuple[list[str], bool, bool, bool]:
