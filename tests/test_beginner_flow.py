@@ -554,6 +554,146 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("Command preview / dry-run:", output)
         self.assertIn("vllm-rocm serve", output)
 
+    def test_vllm_model_detail_launch_requires_launch_confirmation_when_stopped(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profile_store import format_vllm_profile_draft_json
+        from modules.vllm_profiles import VllmProfile
+        from modules.vllm_runner import VllmLatestRunSummary, VllmLaunchResult
+        from unittest.mock import Mock, patch
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            ready = root / "Gemma-4-26B-AWQ"
+            ready.mkdir()
+            (ready / "config.json").write_text(json.dumps({"model_type": "gemma", "quantization_config": {"quant_method": "awq"}}))
+            (ready / "tokenizer.json").write_text("{}")
+            (ready / "model.safetensors").write_text("fake")
+            (ready / "llama-suite-vllm-profile.json").write_text(format_vllm_profile_draft_json(VllmProfile(model=str(ready)), profile_id="gemma"))
+            old_models_dir = launcher.MODELS_DIR
+            launcher.MODELS_DIR = str(root)
+            launch_result = VllmLaunchResult(True, 1234, "run", "/tmp/vllm.log", "127.0.0.1", 8000, "gemma", ["vllm"], ["started"])
+            launch_mock = Mock(return_value=launch_result)
+            stop_mock = Mock()
+            stdout = StringIO()
+            try:
+                with (
+                    patch.object(launcher, "latest_vllm_run_summary", Mock(return_value=VllmLatestRunSummary(True, "old", "old", "http://127.0.0.1:8000/v1", "STOPPED", []))),
+                    patch.object(launcher, "stop_vllm_run", stop_mock),
+                    patch.object(launcher, "launch_vllm_profile_once", launch_mock),
+                    patch("builtins.input", side_effect=["L", "launch", ""]),
+                    contextlib.redirect_stdout(stdout),
+                ):
+                    launcher.handle_vllm_workspace_action("VLLM_MODEL_DETAIL:1", VllmProfile(model="/old/model"), "current", {})
+            finally:
+                launcher.MODELS_DIR = old_models_dir
+
+        stop_mock.assert_not_called()
+        launch_mock.assert_called_once()
+        _, kwargs = launch_mock.call_args
+        self.assertTrue(kwargs["confirmed"])
+        self.assertEqual(kwargs["preset_id"], "gemma")
+        output = stdout.getvalue()
+        self.assertIn("[L] Launch this model", output)
+        self.assertIn("계속하려면 launch", output)
+        self.assertIn("vLLM launch result: started", output)
+
+    def test_vllm_model_detail_wrong_confirmation_does_not_stop_or_launch(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profile_store import format_vllm_profile_draft_json
+        from modules.vllm_profiles import VllmProfile
+        from modules.vllm_runner import VllmLatestRunSummary
+        from unittest.mock import Mock, patch
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            ready = root / "Gemma-4-26B-AWQ"
+            ready.mkdir()
+            (ready / "config.json").write_text(json.dumps({"model_type": "gemma", "quantization_config": {"quant_method": "awq"}}))
+            (ready / "tokenizer.json").write_text("{}")
+            (ready / "model.safetensors").write_text("fake")
+            (ready / "llama-suite-vllm-profile.json").write_text(format_vllm_profile_draft_json(VllmProfile(model=str(ready)), profile_id="gemma"))
+            old_models_dir = launcher.MODELS_DIR
+            launcher.MODELS_DIR = str(root)
+            stop_mock = Mock()
+            launch_mock = Mock()
+            stdout = StringIO()
+            try:
+                with (
+                    patch.object(launcher, "latest_vllm_run_summary", Mock(return_value=VllmLatestRunSummary(True, "old", "old", "http://127.0.0.1:8000/v1", "READY", []))),
+                    patch.object(launcher, "stop_vllm_run", stop_mock),
+                    patch.object(launcher, "launch_vllm_profile_once", launch_mock),
+                    patch("builtins.input", side_effect=["L", "launch", ""]),
+                    contextlib.redirect_stdout(stdout),
+                ):
+                    launcher.handle_vllm_workspace_action("VLLM_MODEL_DETAIL:1", VllmProfile(model="/old/model"), "current", {})
+            finally:
+                launcher.MODELS_DIR = old_models_dir
+
+        stop_mock.assert_not_called()
+        launch_mock.assert_not_called()
+        self.assertIn("switch cancelled", stdout.getvalue())
+
+    def test_vllm_model_detail_switch_requires_switch_and_stops_before_launch(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profile_store import format_vllm_profile_draft_json
+        from modules.vllm_profiles import VllmProfile
+        from modules.vllm_runner import VllmLatestRunSummary, VllmLaunchResult, VllmRunRecord, VllmRunRecordResult, VllmSmokeStopResult
+        from unittest.mock import ANY, Mock, call, patch
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            ready = root / "Gemma-4-26B-AWQ"
+            ready.mkdir()
+            (ready / "config.json").write_text(json.dumps({"model_type": "gemma", "quantization_config": {"quant_method": "awq"}}))
+            (ready / "tokenizer.json").write_text("{}")
+            (ready / "model.safetensors").write_text("fake")
+            (ready / "llama-suite-vllm-profile.json").write_text(format_vllm_profile_draft_json(VllmProfile(model=str(ready)), profile_id="gemma"))
+            record = VllmRunRecord(
+                backend="vllm",
+                preset_id="old",
+                run_id="old-run",
+                pid=4321,
+                command=["vllm"],
+                env_preview={},
+                log_path="/tmp/old.log",
+                host="127.0.0.1",
+                port=8000,
+                started_at="2026-05-12T20:00:00+09:00",
+                status_hint="started",
+            )
+            old_models_dir = launcher.MODELS_DIR
+            launcher.MODELS_DIR = str(root)
+            manager = Mock()
+            stop_mock = Mock(return_value=VllmSmokeStopResult(True, 4321, "old-run", "old", ["stopped"]))
+            launch_mock = Mock(return_value=VllmLaunchResult(True, 9876, "new-run", "/tmp/new.log", "127.0.0.1", 8000, "gemma", ["vllm"], ["started"]))
+            manager.attach_mock(stop_mock, "stop")
+            manager.attach_mock(launch_mock, "launch")
+            stdout = StringIO()
+            try:
+                with (
+                    patch.object(launcher, "latest_vllm_run_summary", Mock(return_value=VllmLatestRunSummary(True, "old", "old", "http://127.0.0.1:8000/v1", "READY", []))),
+                    patch.object(launcher, "latest_vllm_run_record", Mock(return_value=VllmRunRecordResult(True, record, "/tmp/latest.json", []))),
+                    patch.object(launcher, "stop_vllm_run", stop_mock),
+                    patch.object(launcher, "launch_vllm_profile_once", launch_mock),
+                    patch("builtins.input", side_effect=["L", "switch", ""]),
+                    contextlib.redirect_stdout(stdout),
+                ):
+                    launcher.handle_vllm_workspace_action("VLLM_MODEL_DETAIL:1", VllmProfile(model="/old/model"), "current", {})
+            finally:
+                launcher.MODELS_DIR = old_models_dir
+
+        self.assertEqual(manager.mock_calls[:2], [call.stop(pid=4321, run_id="old-run", preset_id="old", confirmed=True), call.launch(ANY, confirmed=True, preset_id="gemma", profile_path=ANY)])
+        output = stdout.getvalue()
+        self.assertIn("This will stop the current vLLM server and launch the selected model.", output)
+        self.assertIn("vLLM latest run stop", output)
+        self.assertIn("vLLM launch result: started", output)
+
     def test_vllm_model_detail_missing_profile_builds_in_memory_candidate_without_saving(self) -> None:
         launcher = load_launcher_module()
         from io import StringIO
@@ -654,6 +794,7 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("WARN", output)
         self.assertIn("profile MISSING", output)
         self.assertIn("profile setup needed", output)
+        self.assertNotIn("[L] Launch this model", output)
 
     def test_vllm_workspace_incomplete_detail_shows_missing_files_and_no_launch_action(self) -> None:
         launcher = load_launcher_module()

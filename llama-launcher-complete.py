@@ -2452,6 +2452,7 @@ def show_vllm_model_readiness_detail(index_text: str, profile: Any | None = None
     status, reason, can_launch = vllm_candidate_status(candidate)
     missing = list(getattr(candidate.readiness, "missing", []))
     hint_profile = None
+    hint_profile_id = None
     print("\n  ── vLLM model readiness ──")
     print("\n  Model:")
     print(f"  - name: {candidate.source.original_name}")
@@ -2481,6 +2482,7 @@ def show_vllm_model_readiness_detail(index_text: str, profile: Any | None = None
         print(f"  - hint path: {result.profile_path or vllm_model_profile_hint_path(candidate.source.path)}")
         if result.ok and result.profile is not None:
             hint_profile = result.profile
+            hint_profile_id = result.profile_id or candidate.source.original_name
             print(f"  - profile id: {result.profile_id or '-'}")
             print_vllm_profile_launch_parameter_summary(result.profile)
             command, command_messages = build_vllm_command(result.profile)
@@ -2502,6 +2504,7 @@ def show_vllm_model_readiness_detail(index_text: str, profile: Any | None = None
         print("  [1] Import suite profile")
         print("  [2] Save current profile to model folder")
         print("  [P] Preview launch command")
+        print("  [L] Launch this model")
         print("  [R] Back")
     else:
         print("  [1] Use selected profile draft for this folder")
@@ -2528,6 +2531,12 @@ def show_vllm_model_readiness_detail(index_text: str, profile: Any | None = None
             else:
                 print("  preview unavailable: suite profile could not be loaded")
             return profile, profile_id
+        if choice == "L":
+            if hint_profile is None:
+                print("  launch unavailable: suite profile could not be loaded")
+                return profile, profile_id
+            launched = launch_vllm_model_detail_profile(hint_profile, hint_profile_id or profile_id)
+            return (hint_profile, hint_profile_id or profile_id) if launched else (profile, profile_id)
     else:
         if choice == "1":
             print("\n  ── Candidate profile preview ──")
@@ -2550,6 +2559,50 @@ def show_vllm_model_readiness_detail(index_text: str, profile: Any | None = None
             return profile, profile_id
     print("  취소했습니다.")
     return profile, profile_id
+
+
+def launch_vllm_model_detail_profile(profile: Any, profile_id: str) -> bool:
+    print("\n  ── vLLM model launch / switch ──")
+    print("  Model number selection did not launch anything. This explicit [L] action can launch.")
+    print_vllm_command_preview_for_profile(profile)
+    summary = latest_vllm_run_summary()
+    running = summary.status in {"READY", "STARTING"}
+    if running:
+        print("  This will stop the current vLLM server and launch the selected model.")
+        print("  계속하려면 switch 를 정확히 입력하세요.")
+        confirm = input("  confirmation > ").strip().lower()
+        if confirm != "switch":
+            print("  switch cancelled: exact confirmation is required")
+            return False
+        latest = latest_vllm_run_record()
+        if not latest.ok or latest.record is None:
+            print("  switch blocked: latest run record is not available")
+            for message in latest.messages:
+                print(f"  - {message}")
+            return False
+        stop_result = stop_vllm_run(
+            pid=latest.record.pid,
+            run_id=latest.record.run_id,
+            preset_id=latest.record.preset_id,
+            confirmed=True,
+        )
+        print_vllm_stop_result(stop_result)
+        if not stop_result.ok:
+            print("  launch skipped because stop did not complete cleanly")
+            return False
+        result = launch_vllm_profile_once(profile, confirmed=True, preset_id=profile_id, profile_path=default_vllm_profile_path(profile_id))
+        print_vllm_launch_result(result)
+        return bool(result.ok)
+
+    print("  No running vLLM server was detected by latest run summary.")
+    print("  계속하려면 launch 를 정확히 입력하세요.")
+    confirm = input("  confirmation > ").strip().lower()
+    if confirm != "launch":
+        print("  launch cancelled: exact confirmation is required")
+        return False
+    result = launch_vllm_profile_once(profile, confirmed=True, preset_id=profile_id, profile_path=default_vllm_profile_path(profile_id))
+    print_vllm_launch_result(result)
+    return bool(result.ok)
 
 
 def vllm_candidate_profile_from_selected(profile: Any | None, candidate: Any) -> Any:

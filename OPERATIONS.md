@@ -213,6 +213,52 @@ OK
 SMOKE CHECK OK
 ```
 
+## 2026-05-12 KST - vLLM explicit model launch and switch flow
+
+### Context
+
+The readiness detail screen could inspect and prepare a model, but launching
+from that model still needed a clear explicit action. The important safety
+boundary is that selecting a model number must remain inspect-only.
+
+### Change
+
+Added an explicit `[L] Launch this model` action for ready vLLM folders that
+have a suite profile. If no current vLLM server is detected, the action requires
+the exact confirmation word `launch`. If a current vLLM server is detected, the
+action becomes a switch flow, explains that the current server will be stopped,
+requires the exact confirmation word `switch`, stops the previous process via
+the existing lifecycle helper, then launches the selected profile via the
+existing runner.
+
+### Safety
+
+- model number selection never launches
+- wrong confirmation does not stop or launch
+- switch stops first and only launches if stop reports success
+- no model download
+- no edit to `config.json`, tokenizer files, or weights
+- no llama.cpp behavior change
+
+### Verification
+
+```sh
+python3 -m py_compile llama-launcher-complete.py modules/*.py
+python3 scripts/policy-check.py
+git diff --check
+python3 -m unittest discover -v
+bash scripts/smoke-check.sh
+```
+
+Result:
+
+```text
+POLICY CHECK OK
+Ran 217 tests
+OK
+SMOKE CHECK OK
+```
+
 ## 2026-05-08 23:48 KST - Beginner-first working draft baseline
 
 ### Context
