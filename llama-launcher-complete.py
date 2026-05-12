@@ -43,7 +43,7 @@ from modules.script_builder import command_preview, generate_script, parse_gener
 from modules.system_info import collect_system_info
 from modules.vllm_api_probe import run_vllm_api_smoke
 from modules.vllm_doctor import format_vllm_doctor_report, run_vllm_doctor
-from modules.vllm_profile_store import backup_vllm_profile_draft, default_vllm_profile_path, delete_vllm_profile_draft, format_vllm_profile_draft_json, import_vllm_model_profile_hint, list_vllm_profile_drafts, load_selected_vllm_profile_draft, load_vllm_model_profile_hint, load_vllm_profile_draft, load_vllm_profile_json_file, save_selected_vllm_profile_id, save_verified_gemma4_26b_awq_beta_profile, save_vllm_profile_draft, validate_vllm_profile_json_file, vllm_model_profile_hint_path
+from modules.vllm_profile_store import backup_vllm_profile_draft, default_vllm_profile_path, delete_vllm_profile_draft, format_vllm_profile_draft_json, import_vllm_model_profile_hint, list_vllm_profile_drafts, load_selected_vllm_profile_draft, load_vllm_model_profile_hint, load_vllm_profile_draft, load_vllm_profile_json_file, save_selected_vllm_profile_id, save_verified_gemma4_26b_awq_beta_profile, save_vllm_model_profile_hint, save_vllm_profile_draft, validate_vllm_profile_json_file, vllm_model_profile_hint_path
 from modules.vllm_profiles import add_vllm_extra_arg, apply_vllm_default_profile_policy, apply_vllm_tool_call_parser, build_vllm_command, builtin_vllm_profile_presets, common_vllm_extra_arg_options, default_vllm_profile, default_vllm_profile_policies, editable_vllm_profile_field_specs, editable_vllm_profile_fields, format_vllm_profile_report, future_launch_preset_id, host_guidance_lines, infer_vllm_tool_call_parser, large_model_guidance_lines, launch_confirmation_guidance_lines, remove_vllm_extra_arg_token, run_vllm_preflight, tokenize_vllm_extra_args, update_vllm_profile_field, validate_vllm_profile, vllm_port_conflict_guidance_lines, vllm_tool_call_parser_choices
 from modules.vllm_runner import check_vllm_run_status, latest_vllm_run_record, latest_vllm_run_summary, launch_vllm_profile_once, launch_vllm_smoke_once, read_vllm_run_log, read_vllm_run_record, stop_vllm_run
 from modules.vllm_script_builder import build_vllm_script_preview, save_vllm_script
@@ -1802,6 +1802,7 @@ def show_vllm_selected_profile_settings(profile: Any, profile_id: str = "custom-
     print("  [7] 저장")
     print("  [8] vLLM default profile policy")
     print("  [9] Import profile from model directory")
+    print("  [H] Save profile hint to model directory")
     print("  [P] preflight")
     print("  [L] launch")
     print("  [R] return")
@@ -1834,6 +1835,9 @@ def show_vllm_selected_profile_settings(profile: Any, profile_id: str = "custom-
         return updated, profile_id
     if choice == "9":
         return import_vllm_profile_hint_from_model_directory(profile, profile_id)
+    if upper == "H":
+        save_vllm_profile_hint_to_model_directory(profile, profile_id)
+        return profile, profile_id
     if upper == "P":
         show_vllm_selected_profile_preview(profile, profile_id)
         return profile, profile_id
@@ -1878,6 +1882,37 @@ def import_vllm_profile_hint_from_model_directory(profile: Any, profile_id: str)
     print_selected_vllm_profile_summary(imported.profile, imported.profile_id)
     print("  launch는 하지 않았습니다.")
     return imported.profile, imported.profile_id
+
+
+def save_vllm_profile_hint_to_model_directory(profile: Any, profile_id: str) -> None:
+    model_path = str(getattr(profile, "model", "") or "").strip()
+    target_path = vllm_model_profile_hint_path(model_path) if model_path else "-"
+    print("\n  ── Save vLLM profile hint to model directory ──")
+    print(f"  selected profile id: {profile_id}")
+    print(f"  model directory: {model_path or '-'}")
+    print(f"  target hint path: {target_path}")
+    print("  This writes llama-suite-vllm-profile.json only. It does not launch a model.")
+    print_selected_profile_validation_and_preview(profile)
+    command, command_messages = build_vllm_command(profile)
+    if command is None:
+        print("  save blocked: command preview failed.")
+        for message in command_messages:
+            print(f"  - {message}")
+        return
+
+    print("  If the target already exists, a timestamped .bak backup will be created before replacement.")
+    print("  계속하려면 save 를 정확히 입력하세요.")
+    confirm = input("  confirmation > ").strip().lower()
+    result = save_vllm_model_profile_hint(profile, profile_id=profile_id, confirmed=(confirm == "save"))
+    for message in result.messages:
+        print(f"  - {message}")
+    if result.ok:
+        print(f"  saved path: {result.profile_path}")
+        if result.backup_path:
+            print(f"  backup path: {result.backup_path}")
+        print("  launch는 하지 않았습니다.")
+    else:
+        print("  저장하지 않았습니다.")
 
 
 def selected_vllm_profile_setting_fields() -> list[str]:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -68,6 +69,16 @@ class VllmProfileSelectionResult:
 class VllmProfileBackupResult:
     ok: bool
     profile_path: str
+    backup_path: str | None
+    messages: list[str]
+
+
+@dataclass(frozen=True)
+class VllmModelProfileHintSaveResult:
+    ok: bool
+    profile: VllmProfile | None
+    profile_id: str | None
+    profile_path: str | None
     backup_path: str | None
     messages: list[str]
 
@@ -316,6 +327,77 @@ def import_vllm_model_profile_hint(
     return VllmProfileSelectionResult(ok, loaded.profile, imported_profile_id, saved.profile_path, selected.state_path, messages)
 
 
+def save_vllm_model_profile_hint(
+    profile: VllmProfile,
+    *,
+    profile_id: str = "custom-draft",
+    confirmed: bool = False,
+    timestamp: str | None = None,
+) -> VllmModelProfileHintSaveResult:
+    model_text = str(getattr(profile, "model", "") or "").strip()
+    messages: list[str] = []
+    if not model_text:
+        return VllmModelProfileHintSaveResult(False, profile, profile_id, None, None, ["model should not be empty"])
+    if _looks_like_hf_model_id(model_text):
+        return VllmModelProfileHintSaveResult(
+            False,
+            profile,
+            profile_id,
+            None,
+            None,
+            ["cannot save local profile hint for a Hugging Face model ID; choose a local model directory first"],
+        )
+
+    model_path = Path(model_text).expanduser()
+    hint_path = model_path / VLLM_MODEL_PROFILE_HINT_FILENAME
+    if model_path.suffix.lower() == ".gguf":
+        return VllmModelProfileHintSaveResult(
+            False,
+            profile,
+            profile_id,
+            str(hint_path),
+            None,
+            ["cannot save vLLM profile hint into a GGUF file path; GGUF belongs to the llama.cpp workflow by default"],
+        )
+    if not model_path.is_dir():
+        return VllmModelProfileHintSaveResult(False, profile, profile_id, str(hint_path), None, [f"model path is not a local directory: {model_path}"])
+
+    validation_messages = validate_vllm_profile(profile)
+    if validation_messages:
+        messages.extend(validation_messages)
+        return VllmModelProfileHintSaveResult(False, profile, profile_id, str(hint_path), None, messages)
+
+    command, command_messages = build_vllm_command(profile)
+    if command is None:
+        messages.extend(command_messages)
+        return VllmModelProfileHintSaveResult(False, profile, profile_id, str(hint_path), None, messages)
+
+    if not confirmed:
+        return VllmModelProfileHintSaveResult(
+            False,
+            profile,
+            profile_id,
+            str(hint_path),
+            None,
+            ["vLLM model profile hint save cancelled: exact confirmation is required"],
+        )
+
+    stamp = timestamp or datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup_path: Path | None = None
+    try:
+        if hint_path.exists():
+            backup_path = hint_path.with_name(hint_path.name + f".{stamp}.bak")
+            shutil.copy2(hint_path, backup_path)
+            messages.append(f"existing vLLM model profile hint backup created: {backup_path}")
+        _atomic_write_text(hint_path, format_vllm_profile_draft_json(profile, profile_id=profile_id))
+    except Exception as exc:
+        return VllmModelProfileHintSaveResult(False, profile, profile_id, str(hint_path), str(backup_path) if backup_path else None, [f"vLLM model profile hint save failed: {exc}"])
+
+    messages.append(f"vLLM model profile hint saved: {hint_path}")
+    messages.append("launch was not started")
+    return VllmModelProfileHintSaveResult(True, profile, profile_id, str(hint_path), str(backup_path) if backup_path else None, messages)
+
+
 def delete_vllm_profile_draft(
     *,
     profile_id: str = "custom-draft",
@@ -391,3 +473,13 @@ def _profile_id_for_model_hint(model_path: str | Path, loaded_profile_id: str | 
     if loaded_id and loaded_id != hint_default_id:
         return _safe_name(loaded_id)
     return _safe_name(Path(model_path).expanduser().name)
+
+
+def _looks_like_hf_model_id(value: str) -> bool:
+    text = str(value or "").strip()
+    if not text or text.startswith(("/", "~", ".")):
+        return False
+    if "\\" in text:
+        return False
+    parts = text.split("/")
+    return len(parts) == 2 and all(parts) and not any(part in (".", "..") for part in parts)

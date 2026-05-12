@@ -1916,6 +1916,73 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertFalse(unconfirmed.ok)
         self.assertIn("explicit confirmation is required", "\n".join(unconfirmed.messages))
 
+    def test_vllm_model_directory_profile_hint_save_writes_schema_and_profile_id(self) -> None:
+        from modules.vllm_profile_store import save_vllm_model_profile_hint
+        from modules.vllm_profiles import VllmProfile
+
+        with TemporaryDirectory() as directory:
+            model_dir = Path(directory) / "Local-AWQ"
+            model_dir.mkdir()
+            profile = VllmProfile(model=str(model_dir), max_model_len="auto", extra_args="--served-model-name local-awq")
+            result = save_vllm_model_profile_hint(profile, profile_id="local-awq", confirmed=True, timestamp="20260512-010203")
+            hint_path = model_dir / "llama-suite-vllm-profile.json"
+            payload = json.loads(hint_path.read_text())
+
+        self.assertTrue(result.ok, result.messages)
+        self.assertEqual(result.profile_path, str(hint_path))
+        self.assertEqual(payload["schema"], "llama-suite.vllm-profile.v1")
+        self.assertEqual(payload["profile_id"], "local-awq")
+        self.assertEqual(payload["profile"]["model"], str(model_dir))
+
+    def test_vllm_model_directory_profile_hint_save_requires_confirmation_and_model(self) -> None:
+        from modules.vllm_profile_store import save_vllm_model_profile_hint
+        from modules.vllm_profiles import VllmProfile
+
+        with TemporaryDirectory() as directory:
+            model_dir = Path(directory) / "Local-AWQ"
+            model_dir.mkdir()
+            unconfirmed = save_vllm_model_profile_hint(VllmProfile(model=str(model_dir)), profile_id="local-awq", confirmed=False)
+            empty = save_vllm_model_profile_hint(VllmProfile(model=""), profile_id="empty", confirmed=True)
+
+        self.assertFalse(unconfirmed.ok)
+        self.assertIn("exact confirmation is required", "\n".join(unconfirmed.messages))
+        self.assertFalse(empty.ok)
+        self.assertIn("model should not be empty", "\n".join(empty.messages))
+
+    def test_vllm_model_directory_profile_hint_save_rejects_hf_id_and_gguf_path(self) -> None:
+        from modules.vllm_profile_store import save_vllm_model_profile_hint
+        from modules.vllm_profiles import VllmProfile
+
+        with TemporaryDirectory() as directory:
+            gguf_path = Path(directory) / "model.gguf"
+            gguf_path.write_text("gguf")
+            hf_id = save_vllm_model_profile_hint(VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct"), profile_id="qwen", confirmed=True)
+            gguf = save_vllm_model_profile_hint(VllmProfile(model=str(gguf_path)), profile_id="gguf", confirmed=True)
+
+        self.assertFalse(hf_id.ok)
+        self.assertIn("Hugging Face model ID", "\n".join(hf_id.messages))
+        self.assertFalse(gguf.ok)
+        self.assertIn("GGUF", "\n".join(gguf.messages))
+
+    def test_vllm_model_directory_profile_hint_save_backs_up_existing_hint(self) -> None:
+        from modules.vllm_profile_store import save_vllm_model_profile_hint
+        from modules.vllm_profiles import VllmProfile
+
+        with TemporaryDirectory() as directory:
+            model_dir = Path(directory) / "Local-AWQ"
+            model_dir.mkdir()
+            hint_path = model_dir / "llama-suite-vllm-profile.json"
+            hint_path.write_text("old hint\n")
+            profile = VllmProfile(model=str(model_dir), extra_args="--served-model-name local-awq")
+            result = save_vllm_model_profile_hint(profile, profile_id="local-awq", confirmed=True, timestamp="20260512-010203")
+            backup_path = model_dir / "llama-suite-vllm-profile.json.20260512-010203.bak"
+            backup_text = backup_path.read_text()
+
+        self.assertTrue(result.ok, result.messages)
+        self.assertEqual(result.backup_path, str(backup_path))
+        self.assertEqual(backup_text, "old hint\n")
+        self.assertTrue(any("backup" in message for message in result.messages))
+
     def test_vllm_local_large_template_draft_save_load_validate_and_command_preview(self) -> None:
         from modules.vllm_profile_store import load_vllm_profile_draft, save_vllm_profile_draft
         from modules.vllm_profiles import build_vllm_command, local_large_q4_vllm_profile, validate_vllm_profile
@@ -3108,6 +3175,7 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("[4] hermes", output)
         self.assertIn("vLLM default profile policy", output)
         self.assertIn("Import profile from model directory", output)
+        self.assertIn("Save profile hint to model directory", output)
 
     def test_vllm_selected_profile_settings_imports_model_directory_profile_hint(self) -> None:
         launcher = load_launcher_module()
@@ -3171,6 +3239,41 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("설정파일 없음", output)
         self.assertIn("Profile Settings", output)
         self.assertIn("llama-suite-vllm-profile.json", output)
+
+    def test_vllm_selected_profile_settings_saves_model_directory_profile_hint_without_launch(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profiles import VllmProfile
+        from unittest.mock import Mock, patch
+
+        with TemporaryDirectory() as directory:
+            model_dir = Path(directory) / "Local-AWQ"
+            model_dir.mkdir()
+            profile = VllmProfile(model=str(model_dir), extra_args="--served-model-name local-awq")
+            launch_mock = Mock()
+            stdout = StringIO()
+
+            with (
+                patch.object(launcher, "launch_vllm_profile_once", launch_mock),
+                patch("builtins.input", side_effect=["H", "save"]),
+                contextlib.redirect_stdout(stdout),
+            ):
+                returned, returned_id = launcher.show_vllm_selected_profile_settings(profile, "local-awq")
+
+            hint_path = model_dir / "llama-suite-vllm-profile.json"
+            payload = json.loads(hint_path.read_text())
+
+        self.assertIs(returned, profile)
+        self.assertEqual(returned_id, "local-awq")
+        self.assertEqual(payload["schema"], "llama-suite.vllm-profile.v1")
+        self.assertEqual(payload["profile_id"], "local-awq")
+        launch_mock.assert_not_called()
+        output = stdout.getvalue()
+        self.assertIn("Save vLLM profile hint to model directory", output)
+        self.assertIn("target hint path:", output)
+        self.assertIn("Command preview / dry-run:", output)
+        self.assertIn("launch는 하지 않았습니다", output)
 
     def test_vllm_default_policy_preview_shows_full_profile_values(self) -> None:
         launcher = load_launcher_module()

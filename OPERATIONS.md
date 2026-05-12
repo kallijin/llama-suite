@@ -66,6 +66,58 @@ python3 -m unittest discover -v
 bash scripts/smoke-check.sh
 ```
 
+## 2026-05-12 KST - vLLM model-directory profile hint export
+
+### Context
+
+The previous import flow let llama-suite read `llama-suite-vllm-profile.json`
+from a local model directory, but the selected vLLM profile editor did not have
+the reverse operation. That left the model-directory profile hint round trip
+incomplete.
+
+### Change
+
+Added a selected-profile action that saves the current vLLM profile into the
+selected local model directory as:
+
+```text
+llama-suite-vllm-profile.json
+```
+
+The helper keeps the existing `llama-suite.vllm-profile.v1` schema and uses the
+same validation and command preview path as the import flow.
+
+### Safety
+
+This is a save/export operation only.
+
+- no launch
+- no model download
+- no edit to `config.json`, tokenizer files, or model weights
+- Hugging Face model IDs are rejected for this local-directory action
+- single-file GGUF paths are rejected for this vLLM action
+- exact `save` confirmation is required
+- an existing hint file is backed up before replacement
+
+### Verification
+
+```sh
+python3 -m py_compile llama-launcher-complete.py modules/*.py
+python3 scripts/policy-check.py
+git diff --check
+python3 -m unittest discover -v
+bash scripts/smoke-check.sh
+```
+
+Result:
+
+```text
+POLICY CHECK OK
+Ran 202 tests
+OK
+SMOKE CHECK OK
+```
+
 ## 2026-05-08 23:48 KST - Beginner-first working draft baseline
 
 ### Context
