@@ -1839,6 +1839,83 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(loaded.profile.to_dict(), profile.to_dict())
         self.assertEqual(json.loads(second_preview), json.loads(first_preview))
 
+    def test_vllm_model_directory_profile_hint_is_detected_without_confusing_config_json(self) -> None:
+        from modules.vllm_profile_store import format_vllm_profile_draft_json, load_vllm_model_profile_hint
+        from modules.vllm_profiles import VllmProfile
+
+        with TemporaryDirectory() as directory:
+            model_dir = Path(directory) / "Local-AWQ"
+            model_dir.mkdir()
+            (model_dir / "config.json").write_text("{}\n")
+            missing = load_vllm_model_profile_hint(model_dir)
+            (model_dir / "llama-suite-vllm-profile.json").write_text(
+                format_vllm_profile_draft_json(VllmProfile(model=str(model_dir)), profile_id="local-awq")
+            )
+            found = load_vllm_model_profile_hint(model_dir)
+
+        self.assertFalse(missing.ok)
+        self.assertIn("llama-suite-vllm-profile.json not found", "\n".join(missing.messages))
+        self.assertTrue(found.ok, found.messages)
+        self.assertEqual(found.profile_id, "local-awq")
+        self.assertIsNotNone(found.profile)
+        assert found.profile is not None
+        self.assertEqual(found.profile.model, str(model_dir))
+
+    def test_vllm_model_directory_profile_hint_import_validates_previews_and_selects(self) -> None:
+        from modules.vllm_profile_store import (
+            format_vllm_profile_draft_json,
+            import_vllm_model_profile_hint,
+            load_selected_vllm_profile_draft,
+            save_vllm_profile_draft,
+        )
+        from modules.vllm_profiles import VllmProfile
+
+        with TemporaryDirectory() as directory:
+            store_root = Path(directory) / "profiles"
+            model_dir = Path(directory) / "Local-AWQ"
+            model_dir.mkdir()
+            save_vllm_profile_draft(VllmProfile(model="old-model"), profile_id="current", store_root=store_root)
+            (model_dir / "llama-suite-vllm-profile.json").write_text(
+                format_vllm_profile_draft_json(
+                    VllmProfile(model=str(model_dir), max_model_len="auto", extra_args="--served-model-name local-awq"),
+                    profile_id="local-awq",
+                )
+            )
+            result = import_vllm_model_profile_hint(model_dir, selected_profile_id="current", store_root=store_root, confirmed=True)
+            loaded = load_selected_vllm_profile_draft(store_root=store_root)
+
+        self.assertTrue(result.ok, result.messages)
+        self.assertEqual(result.profile_id, "local-awq")
+        self.assertTrue(any("backup" in message for message in result.messages))
+        self.assertTrue(loaded.ok, loaded.messages)
+        self.assertEqual(loaded.profile_id, "local-awq")
+        self.assertIsNotNone(loaded.profile)
+        assert loaded.profile is not None
+        self.assertEqual(loaded.profile.max_model_len, "auto")
+
+    def test_vllm_model_directory_profile_hint_import_rejects_invalid_or_unconfirmed(self) -> None:
+        from modules.vllm_profile_store import format_vllm_profile_draft_json, import_vllm_model_profile_hint, save_vllm_profile_draft
+        from modules.vllm_profiles import VllmProfile
+
+        with TemporaryDirectory() as directory:
+            store_root = Path(directory) / "profiles"
+            model_dir = Path(directory) / "Broken-AWQ"
+            model_dir.mkdir()
+            save_vllm_profile_draft(VllmProfile(model="old-model"), profile_id="current", store_root=store_root)
+            (model_dir / "llama-suite-vllm-profile.json").write_text(
+                format_vllm_profile_draft_json(VllmProfile(model=""), profile_id="broken-awq")
+            )
+            invalid = import_vllm_model_profile_hint(model_dir, selected_profile_id="current", store_root=store_root, confirmed=True)
+            (model_dir / "llama-suite-vllm-profile.json").write_text(
+                format_vllm_profile_draft_json(VllmProfile(model=str(model_dir)), profile_id="valid-awq")
+            )
+            unconfirmed = import_vllm_model_profile_hint(model_dir, selected_profile_id="current", store_root=store_root, confirmed=False)
+
+        self.assertFalse(invalid.ok)
+        self.assertIn("model should not be empty", "\n".join(invalid.messages))
+        self.assertFalse(unconfirmed.ok)
+        self.assertIn("explicit confirmation is required", "\n".join(unconfirmed.messages))
+
     def test_vllm_local_large_template_draft_save_load_validate_and_command_preview(self) -> None:
         from modules.vllm_profile_store import load_vllm_profile_draft, save_vllm_profile_draft
         from modules.vllm_profiles import build_vllm_command, local_large_q4_vllm_profile, validate_vllm_profile
@@ -3030,6 +3107,70 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("[3] --tool-call-parser", output)
         self.assertIn("[4] hermes", output)
         self.assertIn("vLLM default profile policy", output)
+        self.assertIn("Import profile from model directory", output)
+
+    def test_vllm_selected_profile_settings_imports_model_directory_profile_hint(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profile_store import VllmProfileSelectionResult, VllmProfileStoreResult
+        from modules.vllm_profiles import VllmProfile
+        from unittest.mock import Mock, patch
+
+        current = VllmProfile(model="/models/local-awq")
+        imported = VllmProfile(model="/models/local-awq", max_model_len="auto")
+        load_result = VllmProfileStoreResult(True, imported, "/models/local-awq/llama-suite-vllm-profile.json", ["loaded"], "local-awq")
+        import_result = VllmProfileSelectionResult(True, imported, "local-awq", "/tmp/local-awq.json", "/tmp/latest.json", ["backup created", "saved", "selected"])
+        launch_mock = Mock()
+        stdout = StringIO()
+
+        with (
+            patch.object(launcher, "load_vllm_model_profile_hint", Mock(return_value=load_result)),
+            patch.object(launcher, "import_vllm_model_profile_hint", Mock(return_value=import_result)) as import_mock,
+            patch.object(launcher, "launch_vllm_profile_once", launch_mock),
+            patch("builtins.input", side_effect=["9", "import"]),
+            contextlib.redirect_stdout(stdout),
+        ):
+            profile, profile_id = launcher.show_vllm_selected_profile_settings(current, "current")
+
+        import_mock.assert_called_once_with("/models/local-awq", selected_profile_id="current", confirmed=True)
+        launch_mock.assert_not_called()
+        self.assertIs(profile, imported)
+        self.assertEqual(profile_id, "local-awq")
+        output = stdout.getvalue()
+        self.assertIn("llama-suite profile found", output)
+        self.assertIn("Command preview / dry-run:", output)
+        self.assertIn("backup", output)
+        self.assertIn("launch는 하지 않았습니다", output)
+
+    def test_vllm_selected_profile_settings_reports_missing_model_directory_profile_hint(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profile_store import VllmProfileStoreResult
+        from modules.vllm_profiles import VllmProfile
+        from unittest.mock import Mock, patch
+
+        profile = VllmProfile(model="/models/local-awq")
+        missing = VllmProfileStoreResult(False, None, "/models/local-awq/llama-suite-vllm-profile.json", ["llama-suite-vllm-profile.json not found in model directory"])
+        import_mock = Mock()
+        stdout = StringIO()
+
+        with (
+            patch.object(launcher, "load_vllm_model_profile_hint", Mock(return_value=missing)),
+            patch.object(launcher, "import_vllm_model_profile_hint", import_mock),
+            patch("builtins.input", side_effect=["9"]),
+            contextlib.redirect_stdout(stdout),
+        ):
+            returned, returned_id = launcher.show_vllm_selected_profile_settings(profile, "current")
+
+        self.assertIs(returned, profile)
+        self.assertEqual(returned_id, "current")
+        import_mock.assert_not_called()
+        output = stdout.getvalue()
+        self.assertIn("설정파일 없음", output)
+        self.assertIn("Profile Settings", output)
+        self.assertIn("llama-suite-vllm-profile.json", output)
 
     def test_vllm_default_policy_preview_shows_full_profile_values(self) -> None:
         launcher = load_launcher_module()

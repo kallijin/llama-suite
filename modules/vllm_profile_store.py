@@ -9,6 +9,7 @@ from typing import Any
 from modules.vllm_profiles import (
     VERIFIED_GEMMA4_26B_AWQ_SERVED_MODEL,
     VllmProfile,
+    build_vllm_command,
     validate_vllm_profile,
     verified_gemma4_26b_awq_vllm_profile,
 )
@@ -17,6 +18,7 @@ from modules.vllm_profiles import (
 DEFAULT_VLLM_PROFILE_STORE_ROOT = "~/.local/state/llama-suite/profiles/vllm"
 VLLM_PROFILE_SCHEMA = "llama-suite.vllm-profile.v1"
 VLLM_SELECTED_PROFILE_SCHEMA = "llama-suite.vllm-selected-profile.v1"
+VLLM_MODEL_PROFILE_HINT_FILENAME = "llama-suite-vllm-profile.json"
 
 
 @dataclass(frozen=True)
@@ -257,6 +259,63 @@ def validate_vllm_profile_json_file(profile_path: str | Path) -> VllmProfileStor
     return VllmProfileStoreResult(True, result.profile, result.profile_path, messages, result.profile_id)
 
 
+def vllm_model_profile_hint_path(model_path: str | Path) -> str:
+    return str(Path(model_path).expanduser() / VLLM_MODEL_PROFILE_HINT_FILENAME)
+
+
+def load_vllm_model_profile_hint(model_path: str | Path) -> VllmProfileStoreResult:
+    model_dir = Path(model_path).expanduser()
+    hint_path = model_dir / VLLM_MODEL_PROFILE_HINT_FILENAME
+    if not model_dir.is_dir():
+        return VllmProfileStoreResult(False, None, str(hint_path), [f"vLLM model path is not a directory: {model_dir}"])
+    if not hint_path.is_file():
+        return VllmProfileStoreResult(False, None, str(hint_path), [f"{VLLM_MODEL_PROFILE_HINT_FILENAME} not found in model directory"])
+    return _read_vllm_profile_payload(hint_path)
+
+
+def import_vllm_model_profile_hint(
+    model_path: str | Path,
+    *,
+    selected_profile_id: str = "custom-draft",
+    store_root: str | Path | None = None,
+    confirmed: bool = False,
+) -> VllmProfileSelectionResult:
+    loaded = load_vllm_model_profile_hint(model_path)
+    messages = list(loaded.messages)
+    if not loaded.ok or loaded.profile is None:
+        return VllmProfileSelectionResult(False, loaded.profile, selected_profile_id, loaded.profile_path, None, messages)
+
+    validation_messages = validate_vllm_profile(loaded.profile)
+    if validation_messages:
+        messages.extend(validation_messages)
+        return VllmProfileSelectionResult(False, loaded.profile, loaded.profile_id or selected_profile_id, loaded.profile_path, None, messages)
+
+    command, command_messages = build_vllm_command(loaded.profile)
+    if command is None:
+        messages.extend(command_messages)
+        return VllmProfileSelectionResult(False, loaded.profile, loaded.profile_id or selected_profile_id, loaded.profile_path, None, messages)
+
+    if not confirmed:
+        messages.append("vLLM model profile hint import cancelled: explicit confirmation is required")
+        return VllmProfileSelectionResult(False, loaded.profile, loaded.profile_id or selected_profile_id, loaded.profile_path, None, messages)
+
+    imported_profile_id = _profile_id_for_model_hint(model_path, loaded.profile_id, loaded.profile_path)
+    backup = backup_vllm_profile_draft(profile_id=selected_profile_id, store_root=store_root)
+    messages.extend(backup.messages)
+    if not backup.ok:
+        return VllmProfileSelectionResult(False, loaded.profile, imported_profile_id, loaded.profile_path, None, messages)
+
+    saved = save_vllm_profile_draft(loaded.profile, profile_id=imported_profile_id, store_root=store_root)
+    messages.extend(saved.messages)
+    if not saved.ok:
+        return VllmProfileSelectionResult(False, loaded.profile, imported_profile_id, saved.profile_path, None, messages)
+
+    selected = save_selected_vllm_profile_id(imported_profile_id, store_root=store_root)
+    messages.extend(selected.messages)
+    ok = bool(saved.ok and selected.ok)
+    return VllmProfileSelectionResult(ok, loaded.profile, imported_profile_id, saved.profile_path, selected.state_path, messages)
+
+
 def delete_vllm_profile_draft(
     *,
     profile_id: str = "custom-draft",
@@ -324,3 +383,11 @@ def _safe_name(value: str) -> str:
 
 def _profile_id_from_path(path: Path) -> str:
     return path.stem or "custom-draft"
+
+
+def _profile_id_for_model_hint(model_path: str | Path, loaded_profile_id: str | None, loaded_profile_path: str | None) -> str:
+    hint_default_id = _profile_id_from_path(Path(loaded_profile_path or VLLM_MODEL_PROFILE_HINT_FILENAME))
+    loaded_id = str(loaded_profile_id or "").strip()
+    if loaded_id and loaded_id != hint_default_id:
+        return _safe_name(loaded_id)
+    return _safe_name(Path(model_path).expanduser().name)
