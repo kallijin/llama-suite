@@ -170,8 +170,9 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("실행 예정 요약", text)
         self.assertIn("실행 중: Running-Model", text)
         self.assertIn("실행될 모델: Dummy-7B", text)
-        self.assertIn("ctx=80000", text)
-        self.assertIn("kv-k=q8_0", text)
+        self.assertIn("Context: 80000", text)
+        self.assertIn("KV Cache: k=q8_0", text)
+        self.assertIn("Reasoning: off, budget=0, enable_thinking=False", text)
         self.assertIn("사용자 추가 파라미터: user_experimental", text)
         self.assertIn("현재 설정 저장 상태: 저장 안 됨", text)
 
@@ -243,27 +244,32 @@ class BeginnerFlowTests(unittest.TestCase):
 
         self.assertEqual(completed.returncode, 0)
         self.assertIn("llama-suite local AI engine control", completed.stdout)
-        self.assertIn("llama.cpp / vLLM 로컬 AI 엔진 관제판", completed.stdout)
+        self.assertIn("AI MODEL-SUITE v0.2", completed.stdout)
+        self.assertIn("Local AI Engine Control Panel", completed.stdout)
+        self.assertIn("현재 선택된 모델", completed.stdout)
         self.assertIn("GGUF 파일을 찾을 수 없습니다", completed.stdout)
-        self.assertIn("[L] llama.cpp workspace", completed.stdout)
+        self.assertIn("[L] llama.cpp GGUF 모델 선택 / 실행", completed.stdout)
+        self.assertIn("[V] vLLM Profile 관리 / 실행", completed.stdout)
         self.assertIn("[U] Shared tools / integrations", completed.stdout)
         self.assertNotIn("[E] Hermes 등록", completed.stdout)
         self.assertNotIn("[C] OpenClaw 등록", completed.stdout)
-        self.assertIn("Hermes 설정 변경: 비활성화", completed.stdout)
         self.assertIn("실행 예정 요약", completed.stdout)
         self.assertIn("Recent vLLM run:", completed.stdout)
-        self.assertIn("Selected vLLM profile: custom-draft / (empty model) / http://127.0.0.1:8000/v1", completed.stdout)
+        self.assertIn("Selected vLLM profile:", completed.stdout)
+        self.assertIn("Profile : custom-draft", completed.stdout)
+        self.assertIn("Model   : (empty model)", completed.stdout)
+        self.assertIn("Endpoint: http://127.0.0.1:8000/v1", completed.stdout)
         self.assertIn("Selected vLLM profile path:", completed.stdout)
         self.assertIn("custom-draft.json", completed.stdout)
-        self.assertIn("Backend workflow bridge:", completed.stdout)
-        self.assertIn("llama.cpp actions: [L] GGUF model selection / params / preview / run / scripts", completed.stdout)
-        self.assertIn("vLLM actions: [V] profile / materials / command preview / preflight / launch / scripts / status / API smoke", completed.stdout)
-        self.assertIn("Selected vLLM profile actions are under [V]", completed.stdout)
         self.assertIn("llama.cpp GGUF models: 0 found", completed.stdout)
         self.assertIn("full list: [L] llama.cpp workspace", completed.stdout)
-        self.assertIn("[L] llama.cpp workspace", completed.stdout)
-        self.assertIn("[V] vLLM workspace", completed.stdout)
-        self.assertIn("[S] llama.cpp 스크립트 관리", completed.stdout)
+        self.assertIn("[H] 서버 상태 확인", completed.stdout)
+        self.assertIn("[T] no-thinking 테스트 채팅", completed.stdout)
+        self.assertIn("[A] llama.cpp 설정 변경", completed.stdout)
+        self.assertIn("[W] llama.cpp 현재 설정 저장", completed.stdout)
+        self.assertNotIn("[S] llama.cpp 스크립트 관리", completed.stdout)
+        self.assertNotIn("저장된 스크립트 관리", completed.stdout)
+        self.assertNotIn("[R] 모델 목록 새로고침", completed.stdout)
         self.assertNotIn("[K] llama.cpp 파라미터", completed.stdout)
         self.assertNotIn("[P] llama.cpp 최종 미리보기", completed.stdout)
         self.assertNotIn("[O] llama.cpp 1회 실행", completed.stdout)
@@ -273,7 +279,6 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertNotIn("[Y] vLLM smoke launch", completed.stdout)
         self.assertNotIn("[Z] vLLM latest run status/log/stop", completed.stdout)
         self.assertNotIn("[V] vLLM doctor", completed.stdout)
-        self.assertNotIn("\n  [W] 현재 설정 저장", completed.stdout)
         self.assertNotIn("[X] 새 스크립트 생성 후 실행", completed.stdout)
 
     def test_main_screen_labels_model_list_as_llama_cpp_gguf(self) -> None:
@@ -300,8 +305,8 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("full list: [L] llama.cpp workspace", completed.stdout)
         self.assertNotIn("llama.cpp GGUF model list (1 found)", completed.stdout)
         self.assertNotIn("[ 1] models", completed.stdout)
-        self.assertIn("[S] llama.cpp 스크립트 관리", completed.stdout)
-        self.assertIn("Selected vLLM profile actions are under [V]", completed.stdout)
+        self.assertNotIn("[S] llama.cpp 스크립트 관리", completed.stdout)
+        self.assertNotIn("[R] 모델 목록 새로고침", completed.stdout)
 
     def test_main_backend_submenus_dispatch_to_existing_actions(self) -> None:
         launcher = load_launcher_module()
@@ -314,6 +319,8 @@ class BeginnerFlowTests(unittest.TestCase):
             load_action = launcher.choose_llama_cpp_menu_action({}, {}, None)
         with patch("builtins.input", side_effect=["4"]), contextlib.redirect_stdout(stdout):
             llama_action = launcher.choose_llama_cpp_menu_action()
+        with patch("builtins.input", side_effect=["8"]), contextlib.redirect_stdout(stdout):
+            script_action = launcher.choose_llama_cpp_menu_action()
         from modules.vllm_model_scan import scan_vllm_model_candidates
 
         with TemporaryDirectory() as directory:
@@ -323,6 +330,7 @@ class BeginnerFlowTests(unittest.TestCase):
 
         self.assertEqual(load_action, "LOAD")
         self.assertEqual(llama_action, "K")
+        self.assertEqual(script_action, "LLAMA_CPP_SCRIPTS")
         self.assertEqual(vllm_action, "VLLM_DOCTOR")
         output = stdout.getvalue()
         self.assertIn("llama.cpp workspace", output)
@@ -332,11 +340,13 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("[4] llama.cpp 파라미터", output)
         self.assertIn("[8] llama.cpp 스크립트 관리", output)
         self.assertIn("[9] llama.cpp Hermes/OpenClaw integration", output)
+        self.assertIn("[10] llama.cpp GGUF 모델 목록 새로고침", output)
         self.assertIn("vLLM engine", output)
         self.assertIn("This workspace operates local HF/AWQ-style vLLM model folders.", output)
         self.assertIn("vLLM model candidates", output)
         self.assertIn("Choose a model number to inspect", output)
         self.assertNotIn("Show vLLM Model Folders", output)
+        self.assertIn("[F] Refresh / rescan vLLM model candidates", output)
         self.assertIn("[P] Selected profile preview", output)
         self.assertIn("[S] Server Check / Log / Stop", output)
         self.assertIn("[C] API / Hermes checks", output)
@@ -345,6 +355,67 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("[E] Profile Settings", output)
         self.assertIn("[A] Advanced Profile / JSON", output)
         self.assertNotIn("vLLM doctor", output)
+
+    def test_top_level_s_no_longer_opens_llama_cpp_script_management(self) -> None:
+        with TemporaryDirectory() as home:
+            model_dir = Path(home) / "models"
+            model_dir.mkdir()
+            env = dict(os.environ)
+            env["HOME"] = home
+            env["LLAMA_MODELS_DIR"] = str(model_dir)
+            completed = subprocess.run(
+                [sys.executable, "llama-launcher-complete.py"],
+                cwd=ROOT,
+                input="s\nq\n",
+                text=True,
+                capture_output=True,
+                check=False,
+                env=env,
+            )
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertNotIn("스크립트 관리", completed.stdout)
+        self.assertIn("일치하는 모델이 없습니다", completed.stdout)
+
+    def test_top_level_server_status_no_running_server_does_not_launch(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from unittest.mock import Mock, patch
+
+        stdout = StringIO()
+        summary = type("Summary", (), {"ok": False, "status": "UNKNOWN", "messages": ["no record"]})()
+
+        with (
+            patch.object(launcher, "show_status", Mock()) as mocked_llama_status,
+            patch.object(launcher, "check_vllm_run_status", Mock()) as mocked_vllm_status,
+            contextlib.redirect_stdout(stdout),
+        ):
+            launcher.show_top_level_server_status(self.sample_cfg("/bin/echo"), [], summary)
+
+        mocked_llama_status.assert_not_called()
+        mocked_vllm_status.assert_not_called()
+        self.assertIn("실행 중인 서버가 없습니다. llama.cpp 또는 vLLM workspace에서 먼저 실행하세요.", stdout.getvalue())
+
+    def test_top_level_no_thinking_no_running_server_does_not_launch(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from unittest.mock import Mock, patch
+
+        stdout = StringIO()
+        summary = type("Summary", (), {"ok": False, "status": "UNKNOWN", "messages": ["no record"]})()
+
+        with (
+            patch.object(launcher, "quick_no_think_test", Mock()) as mocked_llama_test,
+            patch.object(launcher, "show_vllm_api_smoke", Mock()) as mocked_vllm_test,
+            contextlib.redirect_stdout(stdout),
+        ):
+            launcher.run_top_level_no_thinking_test(self.sample_cfg("/bin/echo"), [], summary)
+
+        mocked_llama_test.assert_not_called()
+        mocked_vllm_test.assert_not_called()
+        self.assertIn("실행 중인 서버가 없습니다. llama.cpp 또는 vLLM workspace에서 먼저 실행하세요.", stdout.getvalue())
 
     def test_shared_tools_menu_owns_global_integration_registration(self) -> None:
         launcher = load_launcher_module()
@@ -1084,7 +1155,15 @@ class BeginnerFlowTests(unittest.TestCase):
 
         self.assertEqual(
             line,
-            "  Recent vLLM run: smoke-qwen-0.5b / Qwen/Qwen2.5-0.5B-Instruct / http://127.0.0.1:8000/v1 / READY",
+            "\n".join(
+                [
+                    "  Recent vLLM run:",
+                    "    Profile : smoke-qwen-0.5b",
+                    "    Model   : Qwen/Qwen2.5-0.5B-Instruct",
+                    "    Endpoint: http://127.0.0.1:8000/v1",
+                    "    Status  : READY",
+                ]
+            ),
         )
 
     def test_latest_vllm_run_summary_prefers_profile_snapshot_model(self) -> None:
@@ -1134,9 +1213,17 @@ class BeginnerFlowTests(unittest.TestCase):
 
         self.assertEqual(
             line,
-            "  Selected vLLM profile: tailscale-qwen / Qwen/Qwen2.5-0.5B-Instruct / http://100.64.1.2:8010/v1",
+            "\n".join(
+                [
+                    "  Selected vLLM profile:",
+                    "    Profile : tailscale-qwen",
+                    "    Model   : Qwen/Qwen2.5-0.5B-Instruct",
+                    "    Endpoint: http://100.64.1.2:8010/v1",
+                ]
+            ),
         )
         self.assertIn("tailscale-qwen.json", launcher.selected_vllm_profile_path_line("tailscale-qwen"))
+        self.assertIn("\n    ", launcher.selected_vllm_profile_path_line("tailscale-qwen"))
 
     def test_selected_vllm_profile_summary_uses_served_model_name(self) -> None:
         launcher = load_launcher_module()
@@ -1391,7 +1478,7 @@ class BeginnerFlowTests(unittest.TestCase):
                 preset_id="qwen2.5-14b-awq",
                 run_id="vllm-qwen2.5-14b-awq-test",
                 pid=123,
-                command=["/home/kalijin/bin/vllm-rocm", "serve", "/models/qwen", "--served-model-name", "served-qwen"],
+                command=["/home/kalijin/bin/vllm-rocm", "serve", "/models/qwen", "--served-model-name", "served-qwen", "--api-key", "test-vllm-key"],
                 env_preview={},
                 log_path=str(Path(directory) / "run.log"),
                 host="127.0.0.1",
@@ -1409,8 +1496,10 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertTrue(plan.ok, plan.messages)
         self.assertEqual(plan.base_url, "http://127.0.0.1:8000/v1")
         self.assertEqual(plan.model_id, "served-qwen")
+        self.assertEqual(plan.api_key, "test-vllm-key")
         self.assertIn("endpoint: http://127.0.0.1:8000/v1", plan.updated_text)
         self.assertIn("model: served-qwen", plan.updated_text)
+        self.assertIn("api_key: test-vllm-key", plan.updated_text)
         self.assertIn("context_length: 64000", plan.updated_text)
         self.assertIn("context_length: 64000", "\n".join(plan.messages))
 
@@ -1418,14 +1507,38 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("Hermes vLLM sync preview:", preview)
         self.assertIn("- base_url: http://127.0.0.1:8000/v1", preview)
         self.assertIn("- model: served-qwen", preview)
+        self.assertIn("- api_key: configured", preview)
         self.assertIn("- context_length: 64000", preview)
         self.assertIn("- source run_id: vllm-qwen2.5-14b-awq-test", preview)
         self.assertIn("Planned changes:", preview)
         self.assertIn("model.base_url: http://127.0.0.1:8000/v1", preview)
+        self.assertIn("model.api_key: configured", preview)
         self.assertIn("model.model: served-qwen", preview)
+        self.assertNotIn("test-vllm-key", preview)
         self.assertIn("preview only", preview)
         self.assertIn("config was not modified", preview)
         self.assertNotIn("planned config:", preview)
+
+    def test_hermes_vllm_sync_reads_api_key_from_profile_extra_args(self) -> None:
+        from modules.hermes_integration import api_key_from_vllm_record
+        from modules.vllm_runner import VllmRunRecord
+
+        record = VllmRunRecord(
+            backend="vllm",
+            preset_id="qwen3-coder",
+            run_id="vllm-qwen3-coder-test",
+            pid=123,
+            command=["vllm", "serve", "/models/qwen"],
+            env_preview={},
+            log_path="/tmp/run.log",
+            host="127.0.0.1",
+            port=8000,
+            started_at="2026-05-13T03:00:00+09:00",
+            status_hint="started",
+            profile_snapshot={"extra_args": '--served-model-name qwen3 --api-key "quoted key"'},
+        )
+
+        self.assertEqual(api_key_from_vllm_record(record), "quoted key")
 
     def test_hermes_vllm_sync_preview_is_compact_and_redacts_full_config(self) -> None:
         from modules.hermes_integration import build_hermes_vllm_sync_plan, format_hermes_vllm_sync_plan
@@ -1545,6 +1658,7 @@ class BeginnerFlowTests(unittest.TestCase):
                 config_path=str(config_path),
                 base_url="http://127.0.0.1:8000/v1",
                 model_id="served-qwen",
+                api_key="local",
                 run_id="run-1",
                 original_text="model: old\n",
                 updated_text="base_url: http://127.0.0.1:8000/v1\nmodel: served-qwen\n",
@@ -1568,15 +1682,18 @@ class BeginnerFlowTests(unittest.TestCase):
             '{"temperature": 0.2}\n',
             base_url="http://127.0.0.1:8000/v1",
             model_id="served-qwen",
+            api_key="manual-key",
             config_path="config.json",
         )
         data = json.loads(updated)
         self.assertEqual(data["base_url"], "http://127.0.0.1:8000/v1")
         self.assertEqual(data["model"], "served-qwen")
+        self.assertEqual(data["api_key"], "manual-key")
         self.assertEqual(data["context_length"], 64000)
         self.assertEqual(data["auxiliary"]["compression"]["context_length"], 64000)
         self.assertEqual(data["custom_providers"][0]["name"], "llama-suite vLLM")
         self.assertEqual(data["custom_providers"][0]["base_url"], "http://127.0.0.1:8000/v1")
+        self.assertEqual(data["custom_providers"][0]["api_key"], "manual-key")
         self.assertEqual(data["custom_providers"][0]["model"], "served-qwen")
         self.assertEqual(data["custom_providers"][0]["models"]["served-qwen"]["context_length"], 64000)
         self.assertEqual(data["temperature"], 0.2)
@@ -2162,7 +2279,7 @@ class BeginnerFlowTests(unittest.TestCase):
         verified = by_id["verified-gemma4-26b-awq-auto"].profile
         verified_command, verified_messages = build_vllm_command(verified)
         self.assertEqual(verified.model, VERIFIED_GEMMA4_26B_AWQ_MODEL_PATH)
-        self.assertEqual(verified.dtype, "bfloat16")
+        self.assertEqual(verified.dtype, "auto")
         self.assertEqual(verified.max_model_len, "")
         self.assertEqual(verified.gpu_memory_utilization, 0.88)
         self.assertEqual(verified.tensor_parallel_size, 2)
@@ -3761,7 +3878,7 @@ class BeginnerFlowTests(unittest.TestCase):
 
         self.assertEqual(profile_id, "draft-from-verified-gemma4-26b-awq-auto")
         self.assertEqual(profile.model, VERIFIED_GEMMA4_26B_AWQ_MODEL_PATH)
-        self.assertEqual(profile.dtype, "bfloat16")
+        self.assertEqual(profile.dtype, "auto")
         self.assertEqual(profile.tensor_parallel_size, 2)
         self.assertEqual(profile.max_model_len, "")
         self.assertIn("--tool-call-parser gemma4", profile.extra_args)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -19,6 +20,7 @@ class HermesVllmSyncPlan:
     config_path: str | None
     base_url: str | None
     model_id: str | None
+    api_key: str | None
     run_id: str | None
     original_text: str
     updated_text: str
@@ -61,13 +63,15 @@ def build_hermes_vllm_sync_plan(
     record = latest.record
     base_url = f"http://{record.host}:{record.port}/v1"
     model_id = served_model_id_from_vllm_record(record)
-    updated = update_hermes_config_text(original, base_url=base_url, model_id=model_id, config_path=str(path))
+    api_key = api_key_from_vllm_record(record)
+    updated = update_hermes_config_text(original, base_url=base_url, model_id=model_id, api_key=api_key, config_path=str(path))
 
     return HermesVllmSyncPlan(
         ok=True,
         config_path=str(path),
         base_url=base_url,
         model_id=model_id,
+        api_key=api_key,
         run_id=record.run_id,
         original_text=original,
         updated_text=updated,
@@ -75,6 +79,7 @@ def build_hermes_vllm_sync_plan(
             "Hermes vLLM sync plan built",
             f"base_url: {base_url}",
             f"model: {model_id}",
+            f"api_key: {'configured' if api_key else 'not configured'}",
             f"context_length: {HERMES_MIN_CONTEXT_LENGTH}",
             f"source run_id: {record.run_id}",
         ],
@@ -119,7 +124,29 @@ def served_model_id_from_vllm_record(record: VllmRunRecord) -> str:
     return str(record.preset_id)
 
 
-def update_hermes_config_text(original: str, *, base_url: str, model_id: str, config_path: str = "") -> str:
+def api_key_from_vllm_record(record: VllmRunRecord) -> str:
+    command = list(record.command)
+    for index, part in enumerate(command):
+        text = str(part)
+        if text == "--api-key" and index + 1 < len(command):
+            return str(command[index + 1])
+        if text.startswith("--api-key="):
+            return text.split("=", 1)[1]
+    snapshot = record.profile_snapshot if isinstance(record.profile_snapshot, dict) else {}
+    extra_args = str(snapshot.get("extra_args") or "")
+    try:
+        parts = shlex.split(extra_args)
+    except ValueError:
+        parts = extra_args.split()
+    for index, part in enumerate(parts):
+        if part == "--api-key" and index + 1 < len(parts):
+            return str(parts[index + 1])
+        if part.startswith("--api-key="):
+            return part.split("=", 1)[1]
+    return "local"
+
+
+def update_hermes_config_text(original: str, *, base_url: str, model_id: str, api_key: str = "local", config_path: str = "") -> str:
     if Path(config_path).suffix.lower() == ".json":
         try:
             data = json.loads(original or "{}")
@@ -129,12 +156,13 @@ def update_hermes_config_text(original: str, *, base_url: str, model_id: str, co
             data = {}
         data["base_url"] = base_url
         data["model"] = model_id
+        data["api_key"] = api_key
         data["context_length"] = HERMES_MIN_CONTEXT_LENGTH
         custom_providers = data.setdefault("custom_providers", [])
         if not isinstance(custom_providers, list):
             custom_providers = []
             data["custom_providers"] = custom_providers
-        _upsert_custom_provider_data(custom_providers, base_url=base_url, model_id=model_id)
+        _upsert_custom_provider_data(custom_providers, base_url=base_url, model_id=model_id, api_key=api_key)
         auxiliary = data.setdefault("auxiliary", {})
         if not isinstance(auxiliary, dict):
             auxiliary = {}
@@ -147,8 +175,8 @@ def update_hermes_config_text(original: str, *, base_url: str, model_id: str, co
         return json.dumps(data, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
 
     lines = original.splitlines()
-    updated_lines, seen_base, seen_model, seen_context = _update_yamlish_lines(lines, base_url=base_url, model_id=model_id)
-    if not seen_base or not seen_model or not seen_context:
+    updated_lines, seen_base, seen_model, seen_api_key, seen_context = _update_yamlish_lines(lines, base_url=base_url, model_id=model_id, api_key=api_key)
+    if not seen_base or not seen_model or not seen_api_key or not seen_context:
         if updated_lines and updated_lines[-1].strip():
             updated_lines.append("")
         updated_lines.append("# llama-suite vLLM endpoint")
@@ -156,10 +184,12 @@ def update_hermes_config_text(original: str, *, base_url: str, model_id: str, co
             updated_lines.append(f"base_url: {base_url}")
         if not seen_model:
             updated_lines.append(f"model: {model_id}")
+        if not seen_api_key:
+            updated_lines.append(f"api_key: {api_key}")
         if not seen_context:
             updated_lines.append(f"context_length: {HERMES_MIN_CONTEXT_LENGTH}")
     updated_lines = _ensure_yamlish_auxiliary_compression_context(updated_lines)
-    updated_lines = _ensure_yamlish_custom_provider(updated_lines, base_url=base_url, model_id=model_id)
+    updated_lines = _ensure_yamlish_custom_provider(updated_lines, base_url=base_url, model_id=model_id, api_key=api_key)
     return "\n".join(updated_lines) + "\n"
 
 
@@ -171,6 +201,7 @@ def format_hermes_vllm_sync_plan(plan: HermesVllmSyncPlan, *, include_full_confi
                 f"- config_path: {plan.config_path}",
                 f"- base_url: {plan.base_url}",
                 f"- model: {plan.model_id}",
+                f"- api_key: {'configured' if plan.api_key else 'not configured'}",
                 f"- context_length: {HERMES_MIN_CONTEXT_LENGTH}",
                 f"- source run_id: {plan.run_id}",
                 "",
@@ -178,11 +209,13 @@ def format_hermes_vllm_sync_plan(plan: HermesVllmSyncPlan, *, include_full_confi
                 "- root/base endpoint: " + str(plan.base_url),
                 "- model.provider: custom",
                 "- model.base_url: " + str(plan.base_url),
+                "- model.api_key: configured",
                 "- model.model: " + str(plan.model_id),
                 "- model.default: " + str(plan.model_id),
                 f"- model.context_length: {HERMES_MIN_CONTEXT_LENGTH}",
                 f"- auxiliary.compression.context_length: {HERMES_MIN_CONTEXT_LENGTH}",
                 "- custom_providers.llama-suite vLLM.base_url: " + str(plan.base_url),
+                "- custom_providers.llama-suite vLLM.api_key: configured",
                 "- custom_providers.llama-suite vLLM.model: " + str(plan.model_id),
                 "",
                 "Safety:",
@@ -218,10 +251,11 @@ def redact_sensitive_config_text(text: str) -> str:
     return "\n".join(redacted_lines)
 
 
-def _update_yamlish_lines(lines: list[str], *, base_url: str, model_id: str) -> tuple[list[str], bool, bool, bool]:
+def _update_yamlish_lines(lines: list[str], *, base_url: str, model_id: str, api_key: str) -> tuple[list[str], bool, bool, bool, bool]:
     updated: list[str] = []
     seen_base = False
     seen_model = False
+    seen_api_key = False
     seen_context = False
     in_root_model_block = False
     root_model_indent = ""
@@ -234,6 +268,9 @@ def _update_yamlish_lines(lines: list[str], *, base_url: str, model_id: str) -> 
             updated.append(line)
         elif in_root_model_block and not indent and stripped:
             in_root_model_block = False
+            if not seen_api_key:
+                updated.append(f"{root_model_indent}api_key: {api_key}")
+                seen_api_key = True
             if not seen_context:
                 updated.append(f"{root_model_indent}context_length: {HERMES_MIN_CONTEXT_LENGTH}")
                 seen_context = True
@@ -246,6 +283,9 @@ def _update_yamlish_lines(lines: list[str], *, base_url: str, model_id: str) -> 
             key = stripped.split(":", 1)[0]
             updated.append(f"{indent}{key}: {model_id}")
             seen_model = True
+        elif in_root_model_block and indent and stripped.startswith("api_key:"):
+            updated.append(f"{indent}api_key: {api_key}")
+            seen_api_key = True
         elif in_root_model_block and indent and stripped.startswith("context_length:"):
             key = stripped.split(":", 1)[0]
             updated.append(f"{indent}{key}: {HERMES_MIN_CONTEXT_LENGTH}")
@@ -257,15 +297,22 @@ def _update_yamlish_lines(lines: list[str], *, base_url: str, model_id: str) -> 
         elif not in_root_model_block and not indent and stripped.startswith("model:") and stripped.split(":", 1)[1].strip():
             updated.append(f"{indent}model: {model_id}")
             seen_model = True
+        elif not in_root_model_block and not indent and stripped.startswith("api_key:"):
+            updated.append(f"{indent}api_key: {api_key}")
+            seen_api_key = True
         elif not in_root_model_block and not indent and stripped.startswith("context_length:"):
             updated.append(f"context_length: {HERMES_MIN_CONTEXT_LENGTH}")
             seen_context = True
         else:
             updated.append(line)
-    if in_root_model_block and not seen_context:
-        updated.append(f"{root_model_indent}context_length: {HERMES_MIN_CONTEXT_LENGTH}")
-        seen_context = True
-    return updated, seen_base, seen_model, seen_context
+    if in_root_model_block:
+        if not seen_api_key:
+            updated.append(f"{root_model_indent}api_key: {api_key}")
+            seen_api_key = True
+        if not seen_context:
+            updated.append(f"{root_model_indent}context_length: {HERMES_MIN_CONTEXT_LENGTH}")
+            seen_context = True
+    return updated, seen_base, seen_model, seen_api_key, seen_context
 
 
 def _ensure_yamlish_auxiliary_compression_context(lines: list[str]) -> list[str]:
@@ -332,7 +379,7 @@ def _ensure_yamlish_auxiliary_compression_context(lines: list[str]) -> list[str]
     return updated
 
 
-def _upsert_custom_provider_data(custom_providers: list[Any], *, base_url: str, model_id: str) -> None:
+def _upsert_custom_provider_data(custom_providers: list[Any], *, base_url: str, model_id: str, api_key: str) -> None:
     provider = None
     for candidate in custom_providers:
         if isinstance(candidate, dict) and candidate.get("name") == "llama-suite vLLM":
@@ -342,7 +389,7 @@ def _upsert_custom_provider_data(custom_providers: list[Any], *, base_url: str, 
         provider = {"name": "llama-suite vLLM"}
         custom_providers.append(provider)
     provider["base_url"] = base_url
-    provider["api_key"] = "local"
+    provider["api_key"] = api_key
     provider["model"] = model_id
     models = provider.setdefault("models", {})
     if not isinstance(models, dict):
@@ -355,10 +402,10 @@ def _upsert_custom_provider_data(custom_providers: list[Any], *, base_url: str, 
     entry["context_length"] = HERMES_MIN_CONTEXT_LENGTH
 
 
-def _ensure_yamlish_custom_provider(lines: list[str], *, base_url: str, model_id: str) -> list[str]:
+def _ensure_yamlish_custom_provider(lines: list[str], *, base_url: str, model_id: str, api_key: str) -> list[str]:
     custom_index = _top_level_key_index(lines, "custom_providers:")
     if custom_index is None:
-        provider_block = _custom_provider_block(base_url=base_url, model_id=model_id, list_indent="  ")
+        provider_block = _custom_provider_block(base_url=base_url, model_id=model_id, api_key=api_key, list_indent="  ")
         updated = list(lines)
         if updated and updated[-1].strip():
             updated.append("")
@@ -368,7 +415,7 @@ def _ensure_yamlish_custom_provider(lines: list[str], *, base_url: str, model_id
 
     block_end = _top_level_block_end(lines, custom_index)
     list_indent = _custom_provider_list_indent(lines, custom_index + 1, block_end)
-    provider_block = _custom_provider_block(base_url=base_url, model_id=model_id, list_indent=list_indent)
+    provider_block = _custom_provider_block(base_url=base_url, model_id=model_id, api_key=api_key, list_indent=list_indent)
     provider_start = _llama_suite_vllm_provider_start(lines, custom_index + 1, block_end)
     if provider_start is None:
         updated = list(lines)
@@ -379,14 +426,14 @@ def _ensure_yamlish_custom_provider(lines: list[str], *, base_url: str, model_id
     return list(lines[:provider_start]) + provider_block + list(lines[provider_end:])
 
 
-def _custom_provider_block(*, base_url: str, model_id: str, list_indent: str) -> list[str]:
+def _custom_provider_block(*, base_url: str, model_id: str, api_key: str, list_indent: str) -> list[str]:
     field_indent = f"{list_indent}  "
     nested_indent = f"{list_indent}    "
     value_indent = f"{list_indent}      "
     return [
         f"{list_indent}- name: llama-suite vLLM",
         f"{field_indent}base_url: {base_url}",
-        f"{field_indent}api_key: local",
+        f"{field_indent}api_key: {api_key}",
         f"{field_indent}model: {model_id}",
         f"{field_indent}models:",
         f"{nested_indent}{model_id}:",
@@ -438,7 +485,7 @@ def _custom_provider_item_end(lines: list[str], start: int, block_end: int) -> i
 
 
 def _empty_plan(messages: list[str], *, config_path: str | None = None) -> HermesVllmSyncPlan:
-    return HermesVllmSyncPlan(False, config_path, None, None, None, "", "", messages)
+    return HermesVllmSyncPlan(False, config_path, None, None, None, None, "", "", messages)
 
 
 def _expand_config_path(config_path: Any) -> Path | None:

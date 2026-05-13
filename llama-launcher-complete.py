@@ -127,9 +127,10 @@ def status_badge(text: str, *, enabled: bool | None = None) -> str:
 
 # ─── 작은 유틸 ─────────────────────────────────────────
 def print_header() -> None:
-    print("\n" + color("=" * 64, "title"))
-    print(color("  🦙  llama-suite local AI engine control", "title"))
-    print(color("=" * 64, "title"))
+    print("\n" + color("=" * 78, "title"))
+    print(color("                      🤖 AI MODEL-SUITE v0.2", "title"))
+    print(color("                 Local AI Engine Control Panel", "title"))
+    print(color("=" * 78, "title"))
 
 
 def pause() -> None:
@@ -647,7 +648,9 @@ def planned_run_summary_lines(draft: dict[str, Any], running_model: str | None =
         f"  실행 중: {running}",
         f"  실행될 모델: {model}",
         f"  endpoint: {endpoint}",
-        f"  주요 파라미터: ctx={draft.get('ctx_size')}, kv-k={extra_arg_value(draft, '--cache-type-k')}, kv-v={extra_arg_value(draft, '--cache-type-v')}, flash-attn={extra_arg_value(draft, '--flash-attn')}",
+        f"  Context: {draft.get('ctx_size')}",
+        f"  KV Cache: k={extra_arg_value(draft, '--cache-type-k')}, v={extra_arg_value(draft, '--cache-type-v')}, flash-attn={extra_arg_value(draft, '--flash-attn')}",
+        f"  Reasoning: {draft.get('reasoning')}, budget={draft.get('reasoning_budget')}, enable_thinking={draft.get('enable_thinking')}",
         f"  사용자 추가 파라미터: {custom_state}",
         f"  현재 설정 저장 상태: {saved_state}",
     ]
@@ -663,7 +666,15 @@ def recent_vllm_run_summary_line(summary: Any = None) -> str:
     value = summary or latest_vllm_run_summary()
     if not value.ok:
         return "  Recent vLLM run: no run record"
-    return f"  Recent vLLM run: {value.preset_id or '-'} / {value.model or '-'} / {value.endpoint or '-'} / {value.status}"
+    return "\n".join(
+        [
+            "  Recent vLLM run:",
+            f"    Profile : {value.preset_id or '-'}",
+            f"    Model   : {value.model or '-'}",
+            f"    Endpoint: {value.endpoint or '-'}",
+            f"    Status  : {value.status}",
+        ]
+    )
 
 
 def recent_vllm_run_startup_warnings(summary: Any) -> list[str]:
@@ -687,11 +698,23 @@ def selected_vllm_profile_summary_line(profile: Any, profile_id: str = "custom-d
     model = getattr(profile, "model", "") or "(empty model)"
     host = getattr(profile, "host", "") or "-"
     port = getattr(profile, "port", "") or "-"
-    return f"  Selected vLLM profile: {served_name} / {model} / http://{host}:{port}/v1"
+    return "\n".join(
+        [
+            "  Selected vLLM profile:",
+            f"    Profile : {served_name}",
+            f"    Model   : {model}",
+            f"    Endpoint: http://{host}:{port}/v1",
+        ]
+    )
 
 
 def selected_vllm_profile_path_line(profile_id: str = "custom-draft") -> str:
-    return f"  Selected vLLM profile path: {default_vllm_profile_path(profile_id)}"
+    return "\n".join(
+        [
+            "  Selected vLLM profile path:",
+            f"    {default_vllm_profile_path(profile_id)}",
+        ]
+    )
 
 
 def print_selected_vllm_profile_summary(profile: Any, profile_id: str = "custom-draft") -> None:
@@ -723,6 +746,30 @@ def print_llama_cpp_model_summary(models: dict[str, str], draft: dict[str, Any])
     print(f"  llama.cpp GGUF models: {len(models)} found")
     print(f"    selected: {selected}")
     print("    full list: [L] llama.cpp workspace")
+
+
+def top_level_selected_model_lines(draft: dict[str, Any], running_model: str | None, vllm_summary: Any) -> list[str]:
+    if getattr(vllm_summary, "ok", False) and getattr(vllm_summary, "status", "") in {"READY", "STARTING"}:
+        return [
+            color("  현재 선택된 모델", "section"),
+            f"    Model     : vLLM / {vllm_summary.model or '-'}",
+            f"    Endpoint  : {vllm_summary.endpoint or '-'}",
+            "    Context   : vLLM profile / run record",
+            f"    Status    : {vllm_summary.status}",
+        ]
+    return [
+        color("  현재 선택된 모델", "section"),
+        f"    Model     : llama.cpp / {draft.get('model_name') or '선택 없음'}",
+        f"    Endpoint  : http://{draft.get('host')}:{draft.get('port')}/v1",
+        f"    Context   : {draft.get('ctx_size')}",
+        f"    Status    : {'RUNNING' if running_model else 'STOPPED'}",
+    ]
+
+
+def print_top_level_selected_model(draft: dict[str, Any], running_model: str | None, vllm_summary: Any) -> None:
+    print()
+    for line in top_level_selected_model_lines(draft, running_model, vllm_summary):
+        print(line)
 
 
 def print_llama_cpp_model_list(models: dict[str, str], draft: dict[str, Any], running: str | None = None) -> None:
@@ -1140,7 +1187,7 @@ def choose_script_generation_action(draft: dict[str, Any]) -> str | None:
     print()
     print("  현재 설정을 바탕으로 새로운 실행 스크립트가 생성됩니다.")
     print("  기존 스크립트는 삭제되거나 덮어쓰이지 않습니다.")
-    print("  기존 스크립트를 정리하려면 [S] 스크립트 관리 메뉴에서 수동으로 삭제하세요.")
+    print("  기존 스크립트를 정리하려면 [L] llama.cpp workspace → [8] 스크립트 관리 메뉴에서 수동으로 삭제하세요.")
     print()
     print(final_preview_text(draft))
     print()
@@ -2705,6 +2752,7 @@ def choose_llama_cpp_menu_action(
     print("  [7] llama.cpp 새 스크립트 생성")
     print("  [8] llama.cpp 스크립트 관리")
     print("  [9] llama.cpp Hermes/OpenClaw integration")
+    print("  [10] llama.cpp GGUF 모델 목록 새로고침")
     choice = input("  선택 > ").strip()
     return {
         "1": "LOAD",
@@ -2714,8 +2762,9 @@ def choose_llama_cpp_menu_action(
         "5": "P",
         "6": "O",
         "7": "G",
-        "8": "S",
+        "8": "LLAMA_CPP_SCRIPTS",
         "9": "LLAMA_CPP_INTEGRATION",
+        "10": "LLAMA_CPP_REFRESH",
     }.get(choice, "")
 
 
@@ -2728,7 +2777,7 @@ def show_llama_cpp_integration_menu(cfg: dict[str, Any], draft: dict[str, Any]) 
     print("\n  llama.cpp working draft:")
     print(f"  - model: {draft.get('model_name') or '(none)'}")
     print(f"  - endpoint: http://{draft.get('host')}:{draft.get('port')}/v1")
-    print("  - scripts: [S] llama.cpp 스크립트 관리")
+    print("  - scripts: [L] llama.cpp workspace → [8] llama.cpp 스크립트 관리")
     print("  No vLLM profile or latest vLLM run record is used here.")
 
 
@@ -2741,12 +2790,13 @@ def choose_vllm_menu_action(profile: Any = None, profile_id: str = "custom-draft
         print("\n  Current vLLM status")
         print(selected_vllm_profile_summary_line(profile, profile_id))
         print(selected_vllm_profile_path_line(profile_id))
-    print("\n  Recent vLLM run:")
+    print()
     print(recent_vllm_run_summary_line(run_summary))
 
     print_vllm_workspace_model_candidates(cache)
 
     print("\n  Choose a model number to inspect.")
+    print("  [F] Refresh / rescan vLLM model candidates")
     print("  [P] Selected profile preview")
     print("  [S] Server Check / Log / Stop")
     print("  [C] API / Hermes checks")
@@ -2759,6 +2809,8 @@ def choose_vllm_menu_action(profile: Any = None, profile_id: str = "custom-draft
     if choice.isdigit() and 1 <= int(choice) <= len(selectable_candidates):
         return f"{VLLM_MODEL_DETAIL_ACTION_PREFIX}{choice}"
     return {
+        "F": "VLLM_REFRESH",
+        "f": "VLLM_REFRESH",
         "P": "VLLM_SELECTED_PREVIEW",
         "p": "VLLM_SELECTED_PREVIEW",
         "S": "Z",
@@ -2876,6 +2928,7 @@ VLLM_WORKSPACE_ACTIONS = {
     "HERMES_VLLM_CHAT_SMOKE",
     "HERMES_VLLM_TOOL_AGENT_SMOKE",
     "VLLM_DOCTOR",
+    "VLLM_REFRESH",
 }
 
 
@@ -2994,7 +3047,72 @@ def handle_vllm_workspace_action(action: str, profile: Any, profile_id: str, cfg
         pause()
         return profile, profile_id, cfg, True
 
+    if upper == "VLLM_REFRESH":
+        print("  vLLM model candidates are rescanned whenever this workspace opens.")
+        print("  Return to the workspace list to see refreshed HF/AWQ folder readiness.")
+        pause()
+        return profile, profile_id, cfg, True
+
     return profile, profile_id, cfg, False
+
+
+def vllm_summary_is_running(summary: Any) -> bool:
+    return bool(getattr(summary, "ok", False) and getattr(summary, "status", "") in {"READY", "STARTING"})
+
+
+def choose_running_engine_action(label: str, llama_running: bool, vllm_running: bool) -> str:
+    if llama_running and vllm_running:
+        print(f"\n  {label}: 실행 중인 backend가 둘 다 있습니다.")
+        print("  [1] llama.cpp")
+        print("  [2] vLLM")
+        choice = input("  선택 > ").strip()
+        return {"1": "llama.cpp", "2": "vllm"}.get(choice, "")
+    if llama_running:
+        return "llama.cpp"
+    if vllm_running:
+        return "vllm"
+    return ""
+
+
+def show_top_level_server_status(draft: dict[str, Any], running_servers: list[str], vllm_summary: Any = None) -> None:
+    summary = vllm_summary or latest_vllm_run_summary()
+    engine = choose_running_engine_action("서버 상태 확인", bool(running_servers), vllm_summary_is_running(summary))
+    if engine == "llama.cpp":
+        show_status(draft, running_servers)
+        return
+    if engine == "vllm":
+        print("\n  ── vLLM 서버 상태 ──")
+        print(recent_vllm_run_summary_line(summary))
+        latest = latest_vllm_run_record()
+        if latest.ok and latest.record:
+            status = check_vllm_run_status(
+                pid=latest.record.pid,
+                run_id=latest.record.run_id,
+                log_path=latest.record.log_path,
+                host=latest.record.host,
+                port=latest.record.port,
+            )
+            for message in status.messages:
+                print(f"  - {message}")
+        else:
+            for message in latest.messages:
+                print(f"  - {message}")
+        return
+    print("  실행 중인 서버가 없습니다. llama.cpp 또는 vLLM workspace에서 먼저 실행하세요.")
+
+
+def run_top_level_no_thinking_test(draft: dict[str, Any], running_servers: list[str], vllm_summary: Any = None) -> None:
+    summary = vllm_summary or latest_vllm_run_summary()
+    engine = choose_running_engine_action("no-thinking 테스트", bool(running_servers), vllm_summary_is_running(summary))
+    if engine == "llama.cpp":
+        quick_no_think_test(draft)
+        return
+    if engine == "vllm":
+        print("\n  ── vLLM no-thinking/API test ──")
+        print("  vLLM top-level test routes to the existing API smoke. Hermes is not launched here.")
+        show_vllm_api_smoke()
+        return
+    print("  실행 중인 서버가 없습니다. llama.cpp 또는 vLLM workspace에서 먼저 실행하세요.")
 
 
 # ─── 메인 루프 ─────────────────────────────────────────
@@ -3007,16 +3125,14 @@ def main() -> None:
 
     while True:
         print_header()
-        print("  llama.cpp / vLLM 로컬 AI 엔진 관제판")
+        print("  llama-suite local AI engine control")
         print(f"  모델 디렉터리: {MODELS_DIR}")
-        print_working_draft_status(draft)
-        print_integration_status(cfg)
         running = get_running_model()
-        print_planned_run_summary(draft, running)
         vllm_run_summary = latest_vllm_run_summary()
+        print_top_level_selected_model(draft, running, vllm_run_summary)
+        print_planned_run_summary(draft, running)
         print_recent_vllm_run_summary(vllm_run_summary)
         print_selected_vllm_profile_summary(vllm_profile_draft, vllm_profile_draft_id)
-        print_backend_workflow_bridge_hints()
         print_llama_cpp_model_summary(models, draft)
         print_startup_warnings(startup_warnings + recent_vllm_run_startup_warnings(vllm_run_summary))
         if not models:
@@ -3028,18 +3144,17 @@ def main() -> None:
 
         numbered = list(enumerate(models.items(), 1))
 
-        existing_scripts = list_scripts()
-        script_info = f" ({len(existing_scripts)}개)" if existing_scripts else ""
-
-        print("\n  [L] llama.cpp workspace")
-        print("  [V] vLLM workspace")
-        print(f"  [S] llama.cpp 스크립트 관리{script_info}")
-        print("  [U] Shared tools / integrations")
+        print("\n  ──────────────────────────── 빠른 행동 ────────────────────────────")
+        print("  [L] llama.cpp GGUF 모델 선택 / 실행")
+        print("  [V] vLLM Profile 관리 / 실행")
         print("  [H] 서버 상태 확인")
+        print("  [T] no-thinking 테스트 채팅")
+        print()
+        print("  [A] llama.cpp 설정 변경")
+        print("  [W] llama.cpp 현재 설정 저장")
+        print("  [U] Shared tools / integrations")
         print("  [I] 시스템 정보")
-        print("  [T] no-thinking 채팅 테스트")
-        print("  [R] 모델 목록 새로고침")
-        print("  [Q] 취소\n")
+        print("  [Q] 종료\n")
 
         try:
             choice = input("  선택 > ").strip()
@@ -3118,7 +3233,7 @@ def main() -> None:
 
         if upper == "M":
             if not numbered:
-                print("  ⚠️  선택할 모델이 없습니다. 모델 디렉터리를 확인한 뒤 [R] 모델 목록 새로고침을 선택하세요.")
+                print("  ⚠️  선택할 모델이 없습니다. [L] llama.cpp workspace → [10] GGUF 모델 목록 새로고침을 선택하세요.")
                 pause()
                 continue
             choice = input("  모델 번호 또는 검색어 > ").strip()
@@ -3126,6 +3241,12 @@ def main() -> None:
 
         if upper == "A":
             cfg, draft = settings_menu(cfg, draft)
+            continue
+
+        if upper == "W":
+            ok, message, cfg = save_working_draft(cfg, draft)
+            print("  " + ("✅ " if ok else "⚠️  ") + message)
+            pause()
             continue
 
         if upper == "K":
@@ -3174,12 +3295,20 @@ def main() -> None:
             pause()
             continue
 
-        if upper == "S":
+        if upper == "LLAMA_CPP_SCRIPTS":
             manage_scripts(draft)
             continue
 
         if upper == "LLAMA_CPP_INTEGRATION":
             show_llama_cpp_integration_menu(cfg, draft)
+            pause()
+            continue
+
+        if upper == "LLAMA_CPP_REFRESH":
+            models = get_model_list(MODELS_DIR)
+            if draft.get("model_name") in models:
+                draft["model_path"] = models[draft["model_name"]]
+            print("  ✅ llama.cpp GGUF 모델 목록 새로고침!")
             pause()
             continue
 
@@ -3189,7 +3318,7 @@ def main() -> None:
             continue
 
         if upper == "H":
-            show_status(draft, get_running_servers())
+            show_top_level_server_status(draft, get_running_servers(), vllm_run_summary)
             pause()
             continue
 
@@ -3199,15 +3328,7 @@ def main() -> None:
             continue
 
         if upper == "T":
-            quick_no_think_test(draft)
-            pause()
-            continue
-
-        if upper == "R":
-            models = get_model_list(MODELS_DIR)
-            if draft.get("model_name") in models:
-                draft["model_path"] = models[draft["model_name"]]
-            print("  ✅ 목록 새로고침!")
+            run_top_level_no_thinking_test(draft, get_running_servers(), vllm_run_summary)
             pause()
             continue
 
@@ -3269,7 +3390,7 @@ def main() -> None:
         if existing_script:
             status = "modern" if script_is_modern(existing_script) else "old"
             print(f"  📝 기존 스크립트: {existing_name} ({status})")
-            print("  기존 스크립트를 수정하려면 [S] 스크립트 관리 → [3] 현재 설정으로 불러오기를 사용하세요.")
+            print("  기존 스크립트를 수정하려면 [L] llama.cpp workspace → [8] 스크립트 관리 → [3] 현재 설정으로 불러오기를 사용하세요.")
         print("  실행하려면 메인 화면에서 [O] 1회 실행 또는 [G] 새 스크립트 생성 → [2] 생성 후 실행을 선택하세요.")
         pause()
 

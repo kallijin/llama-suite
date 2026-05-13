@@ -162,7 +162,7 @@ def local_large_q4_vllm_profile() -> VllmProfile:
 def verified_gemma4_26b_awq_vllm_profile() -> VllmProfile:
     return VllmProfile(
         model=VERIFIED_GEMMA4_26B_AWQ_MODEL_PATH,
-        dtype="bfloat16",
+        dtype="auto",
         gpu_memory_utilization=0.88,
         tensor_parallel_size=2,
         kv_cache_dtype="fp8",

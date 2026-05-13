@@ -1,5 +1,79 @@
 # llama-suite Operations Log
 
+## 2026-05-13 KST - Main menu engine routing cleanup
+
+### Context
+
+The main menu still exposed engine-specific script management and model refresh
+actions directly. That made the first screen feel like a mixed list of
+llama.cpp internals and vLLM controls instead of a top-level local AI engine
+control panel.
+
+### Change
+
+Simplified the main menu into a small control panel with engine workspace
+entries, server status, no-thinking/API test routing, llama.cpp settings/save,
+shared tools, and system info.
+
+Moved llama.cpp script management and GGUF model refresh into the llama.cpp
+workspace. vLLM model candidate refresh remains owned by the vLLM workspace,
+which rescans candidates when opened and now exposes explicit refresh guidance.
+
+Top-level server status and no-thinking test now route by the running backend.
+If no llama.cpp or vLLM server is running, they show guidance instead of
+probing or launching anything.
+
+### Safety
+
+Menu routing and wording only.
+
+- no model launch behavior change
+- no stop behavior change
+- no model download
+- no Hermes/OpenClaw config write behavior change
+- no vLLM profile schema change
+- no Rust skin or Bluejeans work
+
+### Verification
+
+```sh
+python3 -m py_compile llama-launcher-complete.py modules/*.py
+python3 scripts/policy-check.py
+git diff --check
+python3 -m unittest discover -v
+bash scripts/smoke-check.sh
+```
+
+Result:
+
+```text
+POLICY CHECK OK
+Ran 223 tests
+OK
+SMOKE CHECK OK
+```
+
+### Follow-up
+
+GitHub/source inspection found two remaining llama.cpp submenu leftovers:
+one integration hint still pointed at top-level `[S]`, and direct top-level
+`S` input still reached script management through the old internal action token.
+The submenu now returns a llama.cpp-specific script action, and the hint points
+to `[L] llama.cpp workspace → [8] llama.cpp 스크립트 관리`.
+
+The top-level vLLM summaries were also changed from long slash-separated lines
+to compact multi-line blocks so long local model paths do not dominate the main
+menu.
+
+vLLM launcher defaults now keep dtype on `auto` for the verified Gemma4 AWQ
+preset too. Runtime logs should be used to record the dtype vLLM actually
+selects for each model, as with Qwen3-Coder AWQ resolving `auto` to BF16.
+
+Release 1.0 note: vLLM API keys must become a user-configured menu flow before
+the first complete release. Do not hard-code beta/test keys in repo source.
+The launcher should let users set, rotate, clear, and sync the vLLM API key to
+Hermes/OpenClaw integrations explicitly.
+
 ## 2026-05-12 KST - Compact Hermes vLLM sync preview
 
 ### Context
