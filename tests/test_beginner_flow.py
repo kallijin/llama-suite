@@ -344,7 +344,8 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("vLLM engine", output)
         self.assertIn("This workspace operates local HF/AWQ-style vLLM model folders.", output)
         self.assertIn("vLLM model candidates", output)
-        self.assertIn("Choose a model number to inspect", output)
+        self.assertIn("숫자 선택 = 상세 확인 / 실행 준비", output)
+        self.assertIn("바로 launch하지 않습니다", output)
         self.assertNotIn("Show vLLM Model Folders", output)
         self.assertIn("[F] Refresh / rescan vLLM model candidates", output)
         self.assertIn("[P] Selected profile preview", output)
@@ -525,7 +526,8 @@ class BeginnerFlowTests(unittest.TestCase):
         output = stdout.getvalue()
         self.assertEqual(action, "")
         self.assertIn("Qwen2.5-14B-Instruct-AWQ", output)
-        self.assertIn("Choose a model number to inspect", output)
+        self.assertIn("vLLM model candidates (숫자 선택 = 상세 확인 / 실행 준비)", output)
+        self.assertIn("바로 launch하지 않습니다", output)
         self.assertIn("구성 확인 별도 목록", output)
         self.assertIn("HF 필수 files 부족 / vLLM 구성 확인 불가: 1", output)
         self.assertIn("GGUF routed to llama.cpp: 1", output)
@@ -908,6 +910,49 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("Candidate profile preview", output)
         self.assertIn(str(ready), output)
         self.assertIn("In-memory only. Nothing is saved", output)
+
+    def test_vllm_model_detail_profile_settings_returns_to_detail_with_updated_values(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profiles import VllmProfile
+        from unittest.mock import Mock, patch
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            ready = root / "Qwen2.5-14B-Instruct-AWQ"
+            ready.mkdir()
+            (ready / "config.json").write_text(json.dumps({"model_type": "qwen2", "quantization_config": {"quant_method": "awq"}}))
+            (ready / "tokenizer.json").write_text("{}")
+            (ready / "model.safetensors").write_text("fake")
+            old_models_dir = launcher.MODELS_DIR
+            launcher.MODELS_DIR = str(root)
+            stdout = StringIO()
+            try:
+                with (
+                    patch.object(launcher, "launch_vllm_profile_once", Mock()),
+                    patch("builtins.input", side_effect=["E", "2", "0.0.0.0", "9000", "R", ""]),
+                    contextlib.redirect_stdout(stdout),
+                ):
+                    profile, profile_id, _cfg, handled = launcher.handle_vllm_workspace_action(
+                        "VLLM_MODEL_DETAIL:1",
+                        VllmProfile(model="/old/model", extra_args="--served-model-name old"),
+                        "current",
+                        {},
+                    )
+            finally:
+                launcher.MODELS_DIR = old_models_dir
+
+        self.assertTrue(handled)
+        self.assertEqual(profile.model, str(ready))
+        self.assertEqual(profile.host, "0.0.0.0")
+        self.assertEqual(profile.port, "9000")
+        self.assertEqual(profile_id, "current")
+        output = stdout.getvalue()
+        self.assertIn("Profile Settings for this model", output)
+        self.assertIn("Profile Settings에서 돌아왔습니다. 이전 model readiness 화면으로 복귀합니다.", output)
+        self.assertIn("Working profile from current detail settings:", output)
+        self.assertIn("http://0.0.0.0:9000/v1", output)
 
     def test_vllm_workspace_ready_awq_with_suite_profile_shows_ready_status(self) -> None:
         launcher = load_launcher_module()

@@ -63,6 +63,7 @@ Every advanced settings screen should provide:
 - API smoke runs;
 - vLLM workspace menus use the same visual policy: colored menu keys on TTY, stable plain `[K]` keys in logs/tests, and visible group dividers for model scan, profile, checks, files, and navigation;
 - vLLM submenus that present selectable actions expose an explicit `[R] return` or `[R] Back` path;
+- model detail screens can jump into `Profile Settings for this model`; returning from settings reopens the same model detail screen and displays the updated in-memory profile values;
 - quit is explicit in standalone mode.
 
 Verified commands:
@@ -481,6 +482,7 @@ Required change:
   - advanced manual server record/path;
   - API/Hermes checks.
 - Every submenu that presents selectable actions must include an explicit `[R] return` or `[R] Back` action. Unknown input as implicit cancel is not enough for beginner users.
+- Model readiness detail screens should allow direct profile edits for that model. After `[E] Profile Settings for this model`, returning with `[R]` must restore the previous model detail screen, not the vLLM workspace root, and the detail screen must show the edited in-memory profile values.
 
 Success criteria:
 
@@ -488,6 +490,7 @@ Success criteria:
 - A real terminal shows clearer key emphasis.
 - Beginners can distinguish model scan, profile, server/check, file, and navigation action groups without reading every line.
 - Beginners can always see how to go back from a submenu before choosing an action.
+- Beginners can edit a model-specific profile and immediately verify the updated endpoint/parameters on the same model detail screen.
 - No launch, save, scan, or skin JSON behavior changes.
 
 Suggested verification:
