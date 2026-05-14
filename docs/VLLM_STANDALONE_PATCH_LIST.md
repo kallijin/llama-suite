@@ -55,10 +55,14 @@ Every advanced settings screen should provide:
 
 - standalone wrapper starts;
 - model candidates render;
+- folders that are not currently usable as vLLM local HF/safetensors candidates are kept out of the main model list and exposed through `Unchecked file list`;
+- if a folder gains the required `config/tokenizer/weights` files, the next scan moves it into the main vLLM candidate list automatically;
 - selected profile preview works;
 - server status/log/stop menu opens;
 - doctor/start check works;
 - API smoke runs;
+- vLLM workspace menus use the same visual policy: colored menu keys on TTY, stable plain `[K]` keys in logs/tests, and visible group dividers for model scan, profile, checks, files, and navigation;
+- vLLM submenus that present selectable actions expose an explicit `[R] return` or `[R] Back` path;
 - quit is explicit in standalone mode.
 
 Verified commands:
@@ -446,6 +450,52 @@ Suggested verification:
 ./vllm-suite --skin menu | python3 -m json.tool
 ./vllm-suite --skin actions | python3 -m json.tool
 ./vllm-suite --skin status | python3 -m json.tool
+bash scripts/smoke-check.sh
+```
+
+## Patch 10 - Unified vLLM Menu Color And Group Policy
+
+Status: completed in this patch set.
+
+Problem:
+
+- The vLLM candidate list is easy to scan because status badges and model entries have a consistent visual shape.
+- The surrounding menus were still flat lists of `[key] label` rows.
+- Without visible group dividers, beginner users have to infer which actions belong to model scan, selected profile, server checks, profile files, or navigation.
+
+Required change:
+
+- Add one shared menu rendering policy for the vLLM standalone menu hierarchy:
+  - color the actual menu key on interactive terminals;
+  - keep brackets dimmer than the key so the key is the visual target;
+  - keep plain `[K]` output when color is disabled, when stdout is not a TTY, under `NO_COLOR`, or under `TERM=dumb`;
+  - add visible group dividers before related action clusters.
+- Apply the policy to the vLLM engine menu and its submenus:
+  - selected profile workspace;
+  - profile JSON/preset;
+  - selected profile settings;
+  - default profile policy;
+  - tool-call parser selection;
+  - model readiness detail actions;
+  - server check/log/stop;
+  - advanced manual server record/path;
+  - API/Hermes checks.
+- Every submenu that presents selectable actions must include an explicit `[R] return` or `[R] Back` action. Unknown input as implicit cancel is not enough for beginner users.
+
+Success criteria:
+
+- A piped `./vllm-suite` transcript remains grep/test friendly.
+- A real terminal shows clearer key emphasis.
+- Beginners can distinguish model scan, profile, server/check, file, and navigation action groups without reading every line.
+- Beginners can always see how to go back from a submenu before choosing an action.
+- No launch, save, scan, or skin JSON behavior changes.
+
+Suggested verification:
+
+```sh
+printf 'Q\n' | ./vllm-suite
+python3 -m unittest tests.test_beginner_flow.BeginnerFlowTests.test_vllm_workspace_menu_groups_make_actions_scannable -v
+python3 -m unittest tests.test_beginner_flow.BeginnerFlowTests.test_terminal_status_color_helpers_keep_visible_words_and_honor_no_color -v
 bash scripts/smoke-check.sh
 ```
 

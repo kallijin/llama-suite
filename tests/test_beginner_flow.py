@@ -526,13 +526,48 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(action, "")
         self.assertIn("Qwen2.5-14B-Instruct-AWQ", output)
         self.assertIn("Choose a model number to inspect", output)
-        self.assertIn("GGUF routed to llama.cpp: 1 hidden", output)
-        self.assertIn("Use llama.cpp workspace for GGUF", output)
-        self.assertIn("vLLM 일반 후보 아님 / HF 필수 files 부족", output)
-        self.assertIn("config / tokenizer / weights 같은 HF 필수 files가 필요합니다.", output)
-        self.assertIn("GGUF는 llama.cpp workspace가 기본 경로입니다.", output)
+        self.assertIn("구성 확인 별도 목록", output)
+        self.assertIn("HF 필수 files 부족 / vLLM 구성 확인 불가: 1", output)
+        self.assertIn("GGUF routed to llama.cpp: 1", output)
+        self.assertIn("[U] 구성을 확인할 수 없는 파일목록", output)
+        self.assertNotIn("vLLM 일반 후보 아님 / HF 필수 files 부족", output)
+        self.assertNotIn("Needs-Files-AWQ", output)
+        self.assertNotIn("GGUF는 llama.cpp workspace가 기본 경로입니다.", output)
         self.assertNotIn("[2] Show vLLM Model Folders", output)
         self.assertNotIn("[2] EXAONE-4.5-33B-IQ4_XS.gguf", output)
+
+    def test_vllm_unchecked_files_menu_owns_incomplete_and_routed_items(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from unittest.mock import patch
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            ready = root / "Qwen2.5-14B-Instruct-AWQ"
+            ready.mkdir()
+            (ready / "config.json").write_text(json.dumps({"model_type": "qwen2", "quantization_config": {"quant_method": "awq"}}))
+            (ready / "tokenizer.json").write_text("{}")
+            (ready / "model.safetensors").write_text("fake")
+            incomplete = root / "Needs-Files-AWQ"
+            incomplete.mkdir()
+            (root / "EXAONE-4.5-33B-IQ4_XS.gguf").write_text("fake")
+            old_models_dir = launcher.MODELS_DIR
+            launcher.MODELS_DIR = str(root)
+            stdout = StringIO()
+            try:
+                with patch("builtins.input", side_effect=[""]):
+                    with contextlib.redirect_stdout(stdout):
+                        launcher.handle_vllm_workspace_action("VLLM_UNCHECKED_FILES", None, "custom-draft", {})
+            finally:
+                launcher.MODELS_DIR = old_models_dir
+
+        output = stdout.getvalue()
+        self.assertIn("구성을 확인할 수 없는 파일목록", output)
+        self.assertIn("Needs-Files-AWQ", output)
+        self.assertIn("EXAONE-4.5-33B-IQ4_XS.gguf", output)
+        self.assertIn("필요한 files가 채워지면 다음 스캔 때 메인 vLLM model candidates로 이동", output)
+        self.assertNotIn("Qwen2.5-14B-Instruct-AWQ", output)
 
     def test_vllm_workspace_model_number_opens_detail_without_launch(self) -> None:
         launcher = load_launcher_module()
@@ -966,9 +1001,40 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("FAIL", launcher.status_badge("FAIL", enabled=True))
         self.assertIn("\033[", launcher.status_badge("OK", enabled=True))
         self.assertEqual(launcher.status_badge("OK", enabled=False), "OK")
+        self.assertIn("[F]", launcher.menu_item("F", "Refresh", enabled=False))
+        self.assertIn("\033[", launcher.menu_item("F", "Refresh", enabled=True))
+        self.assertIn("F", launcher.menu_key("F", enabled=True))
         self.assertFalse(launcher.terminal_color_enabled(is_tty=True, environ={"NO_COLOR": "1", "TERM": "xterm"}))
         self.assertFalse(launcher.terminal_color_enabled(is_tty=True, environ={"TERM": "dumb"}))
         self.assertFalse(launcher.terminal_color_enabled(is_tty=False, environ={"TERM": "xterm"}))
+
+    def test_vllm_workspace_menu_groups_make_actions_scannable(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_model_scan import scan_vllm_model_candidates
+        from unittest.mock import patch
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            ready = root / "Qwen2.5-14B-Instruct-AWQ"
+            ready.mkdir()
+            (ready / "config.json").write_text(json.dumps({"model_type": "qwen2", "quantization_config": {"quant_method": "awq"}}))
+            (ready / "tokenizer.json").write_text("{}")
+            (ready / "model.safetensors").write_text("fake")
+            cache = scan_vllm_model_candidates([root])
+            stdout = StringIO()
+
+            with patch("builtins.input", side_effect=["R"]), contextlib.redirect_stdout(stdout):
+                launcher.choose_vllm_menu_action(candidate_cache=cache)
+
+        output = stdout.getvalue()
+        self.assertIn("── Model scan ──", output)
+        self.assertIn("── Selected profile ──", output)
+        self.assertIn("── Server / checks ──", output)
+        self.assertIn("── Navigation ──", output)
+        self.assertIn("[F] Refresh / rescan vLLM model candidates", output)
+        self.assertIn("[1] Qwen2.5-14B-Instruct-AWQ", output)
 
     def test_vllm_server_check_menu_explains_latest_suite_server_scope(self) -> None:
         launcher = load_launcher_module()
@@ -991,6 +1057,50 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("[2] View Log", output)
         self.assertIn("[3] Stop Server", output)
         self.assertIn("[A] Advanced manual record/path", output)
+        self.assertIn("[R] return", output)
+
+    def test_vllm_submenus_expose_explicit_return_keys(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_runner import VllmRunRecordResult
+        from modules.vllm_profiles import VllmProfile
+        from unittest.mock import patch
+
+        profile = VllmProfile(model="Qwen/Qwen2.5-0.5B-Instruct", extra_args="--served-model-name qwen --enforce-eager")
+        latest = VllmRunRecordResult(False, None, None, ["no latest run"])
+
+        cases = [
+            lambda: launcher.show_vllm_profile_json_menu(profile, "qwen"),
+            lambda: launcher.edit_vllm_custom_profile(profile),
+            lambda: launcher.add_common_vllm_extra_arg_from_menu(profile),
+            lambda: launcher.remove_vllm_extra_arg_from_menu(profile),
+            lambda: launcher.show_vllm_default_profile_policy_menu(profile, "qwen"),
+            lambda: launcher.choose_vllm_tool_call_parser(profile),
+            lambda: launcher.show_hermes_vllm_sync_menu({}),
+        ]
+
+        for call in cases:
+            stdout = StringIO()
+            with patch("builtins.input", side_effect=["R"]), contextlib.redirect_stdout(stdout):
+                call()
+            self.assertIn("[R] return", stdout.getvalue())
+
+        stdout = StringIO()
+        with patch.object(launcher, "latest_vllm_run_record", return_value=latest), patch("builtins.input", side_effect=["R"]), contextlib.redirect_stdout(stdout):
+            launcher.show_vllm_smoke_manage()
+        self.assertIn("[R] return", stdout.getvalue())
+
+        stdout = StringIO()
+        with patch("builtins.input", side_effect=["R"]), contextlib.redirect_stdout(stdout):
+            launcher.show_vllm_smoke_manage_advanced()
+        self.assertIn("[R] return", stdout.getvalue())
+
+        stdout = StringIO()
+        with patch("builtins.input", side_effect=["R", ""]), contextlib.redirect_stdout(stdout):
+            _profile, _profile_id, _cfg, handled = launcher.handle_vllm_workspace_action("VLLM_CHECKS_MENU", profile, "qwen", {})
+        self.assertTrue(handled)
+        self.assertIn("[R] return", stdout.getvalue())
 
     def test_vllm_server_check_runs_model_response_check_when_port_ready(self) -> None:
         launcher = load_launcher_module()
@@ -2520,6 +2630,9 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("per GPU", by_name["gpu_memory_utilization"].help)
         self.assertIn("not to total combined VRAM", by_name["gpu_memory_utilization"].input_hint)
         self.assertEqual(by_name["gpu_memory_utilization"].example, "0.60")
+        self.assertEqual(by_name["tensor_parallel_size"].label, "GPU card count (tensor_parallel_size)")
+        self.assertIn("Number of GPU cards", by_name["tensor_parallel_size"].help)
+        self.assertIn("split across two GPUs", by_name["tensor_parallel_size"].input_hint)
         self.assertIn("AWQ/GPTQ/Int4", by_name["dtype"].input_hint)
         self.assertEqual(by_name["extra_args"].group, "Advanced")
         self.assertNotIn("ctx_size", fields)
@@ -3704,6 +3817,7 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("[2] selected profile preview / dry-run / preflight", output)
         self.assertIn("[10] save selected profile script", output)
         self.assertIn("[11] launch selected vLLM profile", output)
+        self.assertIn("[R] return", output)
 
     def test_vllm_profile_menu_save_uses_default_profile_id_and_no_duplicate_load_menu(self) -> None:
         launcher = load_launcher_module()

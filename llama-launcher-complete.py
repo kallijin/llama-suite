@@ -85,6 +85,8 @@ COLORS = {
     "title": "\033[1;36m",
     "section": "\033[1;34m",
     "selected": "\033[1;37m",
+    "menu_key": "\033[1;36m",
+    "menu_bracket": "\033[2m",
     "ok": "\033[1;32m",
     "warn": "\033[1;33m",
     "error": "\033[1;31m",
@@ -94,6 +96,7 @@ COLORS = {
     "reset": "\033[0m",
 }
 VLLM_MODEL_DETAIL_ACTION_PREFIX = "VLLM_MODEL_DETAIL:"
+VLLM_UNCHECKED_FILES_ACTION = "VLLM_UNCHECKED_FILES"
 
 
 def terminal_color_enabled(*, is_tty: bool | None = None, environ: dict[str, str] | None = None) -> bool:
@@ -123,6 +126,23 @@ def status_badge(text: str, *, enabled: bool | None = None) -> str:
     else:
         role = "muted"
     return color(word, role, enabled=enabled)
+
+
+def menu_key(key: str, *, enabled: bool | None = None) -> str:
+    return f"{color('[', 'menu_bracket', enabled=enabled)}{color(str(key), 'menu_key', enabled=enabled)}{color(']', 'menu_bracket', enabled=enabled)}"
+
+
+def menu_item(key: str, label: str, *, indent: str = "  ", enabled: bool | None = None) -> str:
+    return f"{indent}{menu_key(key, enabled=enabled)} {label}"
+
+
+def print_menu_item(key: str, label: str, *, indent: str = "  ") -> None:
+    print(menu_item(key, label, indent=indent))
+
+
+def print_menu_group(title: str) -> None:
+    print()
+    print(color(f"  ── {title} ──", "section"))
 
 
 # ─── 작은 유틸 ─────────────────────────────────────────
@@ -1061,10 +1081,16 @@ def show_hermes_integration_menu(cfg: dict[str, Any]) -> dict[str, Any]:
 def show_hermes_vllm_sync_menu(cfg: dict[str, Any]) -> dict[str, Any]:
     print("\n  ── Hermes vLLM sync ──")
     print("  latest vLLM run이 READY일 때만 Hermes endpoint 동기화를 준비합니다.")
-    print("  [1] preview")
-    print("  [2] write")
-    print("  [A] Show full redacted planned config")
+    print_menu_group("Plan")
+    print_menu_item("1", "preview")
+    print_menu_item("A", "Show full redacted planned config")
+    print_menu_group("Write")
+    print_menu_item("2", "write")
+    print_menu_group("Navigation")
+    print_menu_item("R", "return")
     choice = input("  선택 > ").strip()
+    if choice.upper() == "R":
+        return cfg
     if choice not in {"1", "2", "A", "a"}:
         print("  취소했습니다.")
         return cfg
@@ -1572,22 +1598,26 @@ def show_vllm_profile_menu(profile: Any, profile_id: str = "custom-draft", *, re
     print(f"  profile store root: {Path(default_vllm_profile_path()).parent}")
     print(f"  selected draft JSON path: {default_vllm_profile_path(profile_id)}")
     print(f"  selected model: {getattr(profile, 'model', '') or '(empty model)'}")
-    print("  Run / verify selected profile")
-    print("  [11] launch selected vLLM profile")
-    print("  [2] selected profile preview / dry-run / preflight")
-    print("  [9] selected profile script preview")
-    print("  [10] save selected profile script")
-    print("  Choose / import profile")
-    print("  [5] list saved custom profiles")
-    print("  [6] load saved custom profile from list")
-    print("  [8] profile JSON import/validate/preview")
-    print("  Edit selected profile")
-    print("  [3] edit selected profile draft")
-    print("  [4] save selected profile draft")
-    print("  [7] delete saved custom profile from list")
-    print("  Reference")
-    print("  [1] built-in profile preview")
+    print_menu_group("Run / verify selected profile")
+    print_menu_item("11", "launch selected vLLM profile")
+    print_menu_item("2", "selected profile preview / dry-run / preflight")
+    print_menu_item("9", "selected profile script preview")
+    print_menu_item("10", "save selected profile script")
+    print_menu_group("Choose / import profile")
+    print_menu_item("5", "list saved custom profiles")
+    print_menu_item("6", "load saved custom profile from list")
+    print_menu_item("8", "profile JSON import/validate/preview")
+    print_menu_group("Edit selected profile")
+    print_menu_item("3", "edit selected profile draft")
+    print_menu_item("4", "save selected profile draft")
+    print_menu_item("7", "delete saved custom profile from list")
+    print_menu_group("Reference")
+    print_menu_item("1", "built-in profile preview")
+    print_menu_group("Navigation")
+    print_menu_item("R", "return")
     choice = input("  선택 > ").strip()
+    if choice.upper() == "R":
+        return _vllm_profile_menu_return(profile, profile_id, return_profile_id)
 
     if choice == "1":
         for line in vllm_profile_preview_text().splitlines():
@@ -1648,11 +1678,17 @@ def show_vllm_profile_json_menu(profile: Any, profile_id: str) -> tuple[Any, str
     print(f"  small example JSON path: {Path('examples/vllm-profile.example.json')}")
     print(f"  local large example JSON path: {Path('examples/vllm-profile.local-large.example.json')}")
     print("  These files are safe to open in an editor; this menu does not launch an editor.")
-    print("  [1] profile JSON preview")
-    print("  [2] import profile JSON file")
-    print("  [3] validate profile JSON file")
-    print("  [4] copy built-in preset to custom draft")
+    print_menu_group("Profile JSON")
+    print_menu_item("1", "profile JSON preview")
+    print_menu_item("2", "import profile JSON file")
+    print_menu_item("3", "validate profile JSON file")
+    print_menu_group("Preset")
+    print_menu_item("4", "copy built-in preset to custom draft")
+    print_menu_group("Navigation")
+    print_menu_item("R", "return")
     choice = input("  선택 > ").strip()
+    if choice.upper() == "R":
+        return profile, profile_id
     if choice == "1":
         print_vllm_profile_json_preview(profile, profile_id)
         return profile, profile_id
@@ -1679,11 +1715,15 @@ def edit_vllm_custom_profile(profile: Any) -> Any:
             print(f"  {current_group}")
         current = getattr(profile, spec.name, "")
         display_value = str(current) if str(current) else "(empty)"
-        print(f"  [{index}] {spec.name}: {display_value}")
+        print(f"  {menu_key(str(index))} {spec.name}: {display_value}")
         print(f"      {spec.label} - {spec.help}")
         print(f"      hint: {spec.input_hint}")
         print(f"      example: {spec.example}")
+    print_menu_group("Navigation")
+    print_menu_item("R", "return")
     selected = input("  field 번호 또는 이름 > ").strip()
+    if selected.upper() == "R":
+        return profile
     field_name = selected
     if selected.isdigit():
         index = int(selected)
@@ -1725,7 +1765,11 @@ def load_vllm_profile_from_list(profile: Any, profile_id: str) -> tuple[Any, str
     if not result.profiles:
         return profile, profile_id
 
+    print_menu_group("Navigation")
+    print_menu_item("R", "return")
     raw = input("  load profile number > ").strip()
+    if raw.upper() == "R":
+        return profile, profile_id
     try:
         selected_index = int(raw)
     except ValueError:
@@ -1749,7 +1793,11 @@ def delete_vllm_profile_from_list(selected_profile_id: str = "custom-draft") -> 
     if not result.profiles:
         return None
 
+    print_menu_group("Navigation")
+    print_menu_item("R", "return")
     raw = input("  delete profile number > ").strip()
+    if raw.upper() == "R":
+        return None
     try:
         selected_index = int(raw)
     except ValueError:
@@ -1808,7 +1856,7 @@ def print_vllm_profile_list_result(result: Any, selected_profile_id: str | None 
     for index, profile in enumerate(result.profiles, 1):
         state = "valid" if not profile.validation_messages else "needs attention"
         marker = " *selected*" if selected_profile_id and profile.profile_id == selected_profile_id else ""
-        print(f"  [{index}] {profile.profile_id}: {profile.model or '(empty model)'} [{state}]{marker}")
+        print(f"  {menu_key(str(index))} {profile.profile_id}: {profile.model or '(empty model)'} [{state}]{marker}")
         print(f"    path: {profile.profile_path}")
         for message in profile.validation_messages:
             print(f"    validation: {message}")
@@ -1847,9 +1895,13 @@ def copy_vllm_builtin_preset_to_draft(profile: Any, profile_id: str) -> tuple[An
     presets = builtin_vllm_profile_presets()
     print("\n  vLLM built-in presets:")
     for index, preset in enumerate(presets, 1):
-        print(f"  [{index}] {preset.id}: {preset.label}")
+        print(f"  {menu_key(str(index))} {preset.id}: {preset.label}")
         print(f"      {preset.description}")
+    print_menu_group("Navigation")
+    print_menu_item("R", "return")
     raw = input("  copy preset number > ").strip()
+    if raw.upper() == "R":
+        return profile, profile_id
     try:
         selected_index = int(raw)
     except ValueError:
@@ -1955,21 +2007,27 @@ def show_vllm_selected_profile_settings(profile: Any, profile_id: str = "custom-
         print(f"  {field_name}: {format_vllm_profile_setting_value(field_name, value)}")
     print("  extra_args tokens:")
     print_vllm_extra_arg_tokens(profile)
-    print("\n  [1] model path 변경")
-    print("  [2] host / port 변경")
-    print("  [3] memory / context 변경")
-    print("  [4] extra_args raw edit (advanced)")
-    print("  [5] common vLLM option 추가")
-    print("  [6] option token 제거")
-    print("  [7] 저장")
-    print("  [8] vLLM default profile policy")
-    print("  [9] Import profile from model directory")
-    print("  [H] Save profile hint to model directory")
-    print("  [P] preflight")
-    print("  [L] launch")
-    print("  [R] return")
+    print_menu_group("Basic target")
+    print_menu_item("1", "model path 변경")
+    print_menu_item("2", "host / port 변경")
+    print_menu_group("vLLM runtime options")
+    print_menu_item("3", "memory / context 변경")
+    print_menu_item("4", "extra_args raw edit (advanced)")
+    print_menu_item("5", "common vLLM option 추가")
+    print_menu_item("6", "option token 제거")
+    print_menu_item("8", "vLLM default profile policy")
+    print_menu_group("Profile files")
+    print_menu_item("7", "저장")
+    print_menu_item("9", "Import profile from model directory")
+    print_menu_item("H", "Save profile hint to model directory")
+    print_menu_group("Verify / launch")
+    print_menu_item("P", "preflight")
+    print_menu_item("L", "launch")
+    print_menu_item("R", "return")
     choice = input("  선택 > ").strip()
     upper = choice.upper()
+    if upper == "R":
+        return profile, profile_id
     if choice == "1":
         return prompt_vllm_selected_profile_fields(profile, profile_id, ["model"])
     if choice == "2":
@@ -2117,7 +2175,7 @@ def print_vllm_extra_arg_tokens(profile: Any) -> None:
         print("    - none")
         return
     for index, token in enumerate(tokens, 1):
-        print(f"    [{index}] {token}")
+        print(f"    {menu_key(str(index))} {token}")
 
 
 def edit_vllm_extra_args_raw(profile: Any) -> Any:
@@ -2142,8 +2200,12 @@ def add_common_vllm_extra_arg_from_menu(profile: Any) -> Any:
     print("\n  common vLLM options:")
     for index, (option, requires_value) in enumerate(options, 1):
         suffix = " VALUE" if requires_value else ""
-        print(f"  [{index}] {option}{suffix}")
+        print(f"  {menu_key(str(index))} {option}{suffix}")
+    print_menu_group("Navigation")
+    print_menu_item("R", "return")
     raw = input("  option number > ").strip()
+    if raw.upper() == "R":
+        return profile
     try:
         selected_index = int(raw)
     except ValueError:
@@ -2164,7 +2226,11 @@ def add_common_vllm_extra_arg_from_menu(profile: Any) -> Any:
 
 def remove_vllm_extra_arg_from_menu(profile: Any) -> Any:
     print_vllm_extra_arg_tokens(profile)
+    print_menu_group("Navigation")
+    print_menu_item("R", "return")
     raw = input("  remove token number > ").strip()
+    if raw.upper() == "R":
+        return profile
     try:
         token_index = int(raw)
     except ValueError:
@@ -2180,24 +2246,30 @@ def remove_vllm_extra_arg_from_menu(profile: Any) -> Any:
 
 def show_vllm_default_profile_policy_menu(profile: Any, profile_id: str) -> Any:
     print("\n  ── vLLM default profile policy ──")
-    print("  [1] Hermes Desktop Strong 기본값 적용")
+    print_menu_group("Apply defaults")
+    print_menu_item("1", "Hermes Desktop Strong 기본값 적용")
     print("      gpu_memory_utilization=0.88, max_model_len=auto, max_num_batched_tokens=1024")
-    print("      max_num_seqs=3, tensor_parallel_size=2, kv_cache_dtype=fp8")
+    print("      max_num_seqs=3, GPU card count (tensor_parallel_size)=2, kv_cache_dtype=fp8")
     print("      max_model_len meaning: Auto Fit within gpu_memory_utilization budget")
     print("      visible thinking/reasoning output: off by default")
     print("      tool-call-parser: model family 기반 자동 선택")
-    print("  [2] Desktop Safe 기본값 적용")
+    print_menu_item("2", "Desktop Safe 기본값 적용")
     print("      gpu_memory_utilization=0.85, max_model_len=80000, max_num_batched_tokens=1024")
-    print("      max_num_seqs=3, tensor_parallel_size=2, kv_cache_dtype=fp8")
+    print("      max_num_seqs=3, GPU card count (tensor_parallel_size)=2, kv_cache_dtype=fp8")
     print("      max_model_len meaning: Pinned 80K")
+    print_menu_group("Meaning")
     print("  Auto Fit = vLLM chooses the largest context that fits inside the GPU memory budget.")
     print("  Model Default = leave max_model_len blank and trust model config.")
     print("  Pinned = explicit numeric context limit.")
-    print("  [3] tool-call-parser 직접 선택")
+    print_menu_group("Tool calls")
+    print_menu_item("3", "tool-call-parser 직접 선택")
     print("      gemma4 / qwen3_xml / hermes / llama3_json / none")
-    print("  [4] Preview Strong / Safe Defaults")
-    print("  [R] return")
+    print_menu_group("Preview / return")
+    print_menu_item("4", "Preview Strong / Safe Defaults")
+    print_menu_item("R", "return")
     choice = input("  선택 > ").strip().upper()
+    if choice == "R":
+        return profile
     if choice == "1":
         return apply_and_print_vllm_default_profile_policy(profile, profile_id, "hermes-desktop-strong")
     if choice == "2":
@@ -2223,8 +2295,12 @@ def choose_vllm_tool_call_parser(profile: Any) -> Any:
     print("\n  tool-call-parser:")
     for index, parser in enumerate(choices, 1):
         label = "none/manual" if parser == "none" else parser
-        print(f"  [{index}] {label}")
+        print_menu_item(str(index), label)
+    print_menu_group("Navigation")
+    print_menu_item("R", "return")
     raw = input("  parser number > ").strip()
+    if raw.upper() == "R":
+        return profile
     try:
         selected_index = int(raw)
     except ValueError:
@@ -2382,11 +2458,17 @@ def show_vllm_smoke_manage() -> None:
         for message in latest_result.messages:
             print(f"  - {message}")
         print("  latest.json이 없거나 유효하지 않으면 수동 입력으로 진행합니다.")
-    print("  [1] Check Status")
-    print("  [2] View Log")
-    print("  [3] Stop Server")
-    print("  [A] Advanced manual record/path")
+    print_menu_group("Latest llama-suite run")
+    print_menu_item("1", "Check Status")
+    print_menu_item("2", "View Log")
+    print_menu_item("3", "Stop Server")
+    print_menu_group("Manual debug")
+    print_menu_item("A", "Advanced manual record/path")
+    print_menu_group("Navigation")
+    print_menu_item("R", "return")
     choice = input("  선택 > ").strip()
+    if choice.upper() == "R":
+        return
 
     if choice == "1":
         if not latest_record:
@@ -2447,10 +2529,15 @@ def show_vllm_status_for_record(record: Any, latest_result: Any | None = None) -
 def show_vllm_smoke_manage_advanced() -> None:
     print("\n  ── Advanced manual record/path ──")
     print("  Use this only for debugging an older run record or a manually started vLLM process.")
-    print("  [1] Check manual status")
-    print("  [2] View manual log")
-    print("  [3] Stop manual server")
+    print_menu_group("Manual target")
+    print_menu_item("1", "Check manual status")
+    print_menu_item("2", "View manual log")
+    print_menu_item("3", "Stop manual server")
+    print_menu_group("Navigation")
+    print_menu_item("R", "return")
     choice = input("  선택 > ").strip()
+    if choice.upper() == "R":
+        return
 
     if choice == "1":
         record = prompt_vllm_run_record(None)
@@ -2695,18 +2782,24 @@ def show_vllm_model_readiness_detail(index_text: str, profile: Any | None = None
     if missing:
         print("  No launch action: this folder needs files first.")
         print("  Recovery: add missing config/tokenizer/weights files, then rescan this workspace.")
+        print_menu_group("Navigation")
+        print_menu_item("R", "Back")
     elif candidate.has_suite_profile:
-        print("  [1] Import suite profile")
-        print("  [2] Save current profile to model folder")
-        print("  [P] Preview launch command")
-        print("  [L] Launch this model")
-        print("  [R] Back")
+        print_menu_group("Suite profile")
+        print_menu_item("1", "Import suite profile")
+        print_menu_item("2", "Save current profile to model folder")
+        print_menu_group("Verify / launch")
+        print_menu_item("P", "Preview launch command")
+        print_menu_item("L", "Launch this model")
+        print_menu_item("R", "Back")
     else:
-        print("  [1] Use selected profile draft for this folder")
-        print("  [2] Apply safe defaults")
-        print("  [3] Save profile to model folder")
-        print("  [P] Preview")
-        print("  [R] Back")
+        print_menu_group("Profile setup")
+        print_menu_item("1", "Use selected profile draft for this folder")
+        print_menu_item("2", "Apply safe defaults")
+        print_menu_item("3", "Save profile to model folder")
+        print_menu_group("Verify")
+        print_menu_item("P", "Preview")
+        print_menu_item("R", "Back")
     print("  Model number selection only inspected readiness. It did not launch a model.")
 
     if missing:
@@ -2901,7 +2994,7 @@ def choose_vllm_menu_action(
     standalone: bool = False,
 ) -> str:
     cache = candidate_cache or scan_vllm_model_candidates([MODELS_DIR])
-    selectable_candidates = vllm_workspace_selectable_candidates(cache)
+    selectable_candidates = vllm_workspace_primary_candidates(cache)
     print("\n  ── vLLM engine ──")
     print("  This workspace operates local HF/AWQ-style vLLM model folders.")
     print()
@@ -2917,18 +3010,23 @@ def choose_vllm_menu_action(
     print_vllm_workspace_model_candidates(cache)
 
     print("\n  Choose a model number to inspect.")
-    print("  [F] Refresh / rescan vLLM model candidates")
-    print("  [P] Selected profile preview")
-    print("  [S] Server Check / Log / Stop")
-    print("  [C] API / Hermes checks")
-    print("  [D] Load Verified Gemma4 Profile")
-    print("  [T] vLLM Start Check")
-    print("  [E] Profile Settings")
-    print("  [A] Advanced Profile / JSON")
+    print_menu_group("Model scan")
+    print_menu_item("F", "Refresh / rescan vLLM model candidates")
+    print_menu_item("U", "구성을 확인할 수 없는 파일목록")
+    print_menu_group("Selected profile")
+    print_menu_item("P", "Selected profile preview")
+    print_menu_item("E", "Profile Settings")
+    print_menu_item("D", "Load Verified Gemma4 Profile")
+    print_menu_item("A", "Advanced Profile / JSON")
+    print_menu_group("Server / checks")
+    print_menu_item("S", "Server Check / Log / Stop")
+    print_menu_item("C", "API / Hermes checks")
+    print_menu_item("T", "vLLM Start Check")
+    print_menu_group("Navigation")
     if standalone:
-        print("  [Q] Quit")
+        print_menu_item("Q", "Quit")
     else:
-        print("  [R] Return")
+        print_menu_item("R", "Return")
     choice = input("  선택 > ").strip()
     if choice.isdigit() and 1 <= int(choice) <= len(selectable_candidates):
         return f"{VLLM_MODEL_DETAIL_ACTION_PREFIX}{choice}"
@@ -2941,6 +3039,8 @@ def choose_vllm_menu_action(
         "s": "Z",
         "C": "VLLM_CHECKS_MENU",
         "c": "VLLM_CHECKS_MENU",
+        "U": VLLM_UNCHECKED_FILES_ACTION,
+        "u": VLLM_UNCHECKED_FILES_ACTION,
         "D": "VLLM_SELECT_GEMMA4_BETA",
         "d": "VLLM_SELECT_GEMMA4_BETA",
         "T": "VLLM_DOCTOR",
@@ -2987,38 +3087,63 @@ def print_vllm_workspace_model_candidates(cache: Any) -> None:
     primary = vllm_workspace_primary_candidates(cache)
     incomplete = vllm_workspace_incomplete_candidates(cache)
     routed_gguf = vllm_workspace_routed_gguf_candidates(cache)
-    selectable = primary + incomplete
 
     print("\n  vLLM model candidates")
-    if not selectable:
+    if not primary:
         print("  상태: vLLM local HF-style 후보 없음")
     index = 1
     for candidate in primary:
         print_vllm_workspace_candidate_line(index, candidate)
         index += 1
 
-    if incomplete:
-        print("\n  vLLM 일반 후보 아님 / HF 필수 files 부족")
-        print("  이 항목들은 vLLM의 기본 HF 모델 폴더 형태가 아닙니다.")
-        print("  config / tokenizer / weights 같은 HF 필수 files가 필요합니다.")
-        print("  GGUF는 llama.cpp workspace가 기본 경로입니다.")
-        for candidate in incomplete[:6]:
-            print_vllm_workspace_candidate_line(index, candidate)
-            index += 1
-        if len(incomplete) > 6:
-            print(f"  {color('...', 'muted')} {len(incomplete) - 6} more incomplete folders hidden")
-
-    print("\n  Hidden / routed")
-    print(f"  - GGUF routed to llama.cpp: {len(routed_gguf)} hidden. Use llama.cpp workspace for GGUF.")
+    print("\n  구성 확인 별도 목록")
+    print(f"  - HF 필수 files 부족 / vLLM 구성 확인 불가: {len(incomplete)}")
+    print(f"  - GGUF routed to llama.cpp: {len(routed_gguf)}")
+    print("  - 자세히 보려면 [U] 구성을 확인할 수 없는 파일목록")
     if getattr(cache, "messages", []):
         for message in cache.messages:
             print(f"  - scan note: {message}")
 
 
+def show_vllm_unchecked_files_menu() -> None:
+    cache = scan_vllm_model_candidates([MODELS_DIR])
+    incomplete = vllm_workspace_incomplete_candidates(cache)
+    routed_gguf = vllm_workspace_routed_gguf_candidates(cache)
+
+    print("\n  ── 구성을 확인할 수 없는 파일목록 ──")
+    print(f"  scan root: {MODELS_DIR}")
+    print("  이 화면은 read-only입니다. 실행, 다운로드, 저장을 하지 않습니다.")
+    print("  vLLM은 기본적으로 local HF/safetensors 폴더에 config/tokenizer/weights files가 필요합니다.")
+    print("  GGUF는 널리 알려진 llama.cpp 형식이므로 llama.cpp workspace가 기본 경로입니다.")
+    print("  필요한 files가 채워지면 다음 스캔 때 메인 vLLM model candidates로 이동하고 이 목록에서는 사라집니다.")
+
+    print("\n  HF 필수 files 부족 / vLLM 구성 확인 불가")
+    if not incomplete:
+        print("  - 없음")
+    else:
+        for index, candidate in enumerate(incomplete, 1):
+            print_vllm_workspace_candidate_line(index, candidate)
+
+    print("\n  GGUF routed to llama.cpp")
+    if not routed_gguf:
+        print("  - 없음")
+    else:
+        for index, candidate in enumerate(routed_gguf, 1):
+            print(f"  {menu_key(str(index))} {candidate.source.original_name}")
+            print(f"      backend: llama.cpp")
+            print(f"      path: {candidate.source.path}")
+            print("      next: llama.cpp workspace에서 확인")
+
+    if getattr(cache, "messages", []):
+        print("\n  scan notes")
+        for message in cache.messages:
+            print(f"  - {message}")
+
+
 def print_vllm_workspace_candidate_line(index: int, candidate: Any) -> None:
     status, reason, can_launch = vllm_candidate_status(candidate)
     files = vllm_candidate_file_status(candidate)
-    print(f"  [{index}] {candidate.source.original_name}")
+    print(f"  {menu_key(str(index))} {candidate.source.original_name}")
     print(f"      {status_badge(status):<5}  {files}")
     print(f"      can launch: {can_launch}")
     print(f"      next: {reason}")
@@ -3057,6 +3182,7 @@ VLLM_WORKSPACE_ACTIONS = {
     "HERMES_VLLM_TOOL_AGENT_SMOKE",
     "VLLM_DOCTOR",
     "VLLM_REFRESH",
+    VLLM_UNCHECKED_FILES_ACTION,
 }
 
 
@@ -3127,17 +3253,29 @@ def handle_vllm_workspace_action(action: str, profile: Any, profile_id: str, cfg
     if upper == "VLLM_CHECKS_MENU":
         print("\n  ── API / Hermes checks ──")
         print_vllm_latest_run_target()
-        print("  [1] API Connection Test")
-        print("  [2] Hermes Config Sync for vLLM")
-        print("  [3] Hermes Chat Test")
-        print("  [4] Hermes Tool Test / Raw Markup Check")
+        print_menu_group("OpenAI-compatible endpoint")
+        print_menu_item("1", "API Connection Test")
+        print_menu_group("Hermes")
+        print_menu_item("2", "Hermes Config Sync for vLLM")
+        print_menu_item("3", "Hermes Chat Test")
+        print_menu_item("4", "Hermes Tool Test / Raw Markup Check")
         print("  OpenClaw vLLM sync is not implemented yet.")
         print("  This menu only routes to existing checks; it does not launch a model.")
+        print_menu_group("Navigation")
+        print_menu_item("R", "return")
         sub = input("  선택 > ").strip()
+        if sub.upper() == "R":
+            pause()
+            return profile, profile_id, cfg, True
         mapped = {"1": "W", "2": "HERMES_VLLM_SYNC", "3": "HERMES_VLLM_CHAT_SMOKE", "4": "HERMES_VLLM_TOOL_AGENT_SMOKE"}.get(sub, "")
         if mapped:
             return handle_vllm_workspace_action(mapped, profile, profile_id, cfg)
         print("  취소했습니다.")
+        pause()
+        return profile, profile_id, cfg, True
+
+    if upper == VLLM_UNCHECKED_FILES_ACTION:
+        show_vllm_unchecked_files_menu()
         pause()
         return profile, profile_id, cfg, True
 
@@ -3315,6 +3453,7 @@ def vllm_skin_menu(profile: Any, profile_id: str, run_summary: Any) -> dict[str,
             {"id": "VLLM_SELECTED_PREVIEW", "label": "Selected profile preview", "kind": "view"},
             {"id": "Z", "label": "Server check / log / stop", "kind": "menu"},
             {"id": "VLLM_CHECKS_MENU", "label": "API / Hermes checks", "kind": "menu"},
+            {"id": VLLM_UNCHECKED_FILES_ACTION, "label": "Unchecked file list", "kind": "view"},
             {"id": "VLLM_SELECT_GEMMA4_BETA", "label": "Load verified Gemma4 profile", "kind": "action"},
             {"id": "VLLM_DOCTOR", "label": "vLLM start check", "kind": "view"},
             {"id": "VLLM_SELECTED_SETTINGS", "label": "Profile settings", "kind": "menu"},
