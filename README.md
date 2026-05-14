@@ -5,6 +5,10 @@
 
 [Operations log](OPERATIONS.md)
 
+[Engine separation patch notes](docs/PATCH_NOTES_2026-05-14.md)
+
+[vLLM standalone patch list](docs/VLLM_STANDALONE_PATCH_LIST.md)
+
 ---
 
 ## 현재 상태
@@ -14,25 +18,71 @@
 아직 public release가 아니며, 일반 사용자를 위한 설치/배포/호환성 보장을 하지 않는다.
 v0.4-scope-freeze 이후에는 새 기능보다 안정화, 검증, 문서 정리를 우선한다.
 
+### Current Direction - Read First
+
+2026-05-14 기준 이 프로젝트의 중심 방향은 **llama.cpp와 vLLM을 완전히 독립 엔진으로 분리**하는 것이다.
+
+이전에는 두 기능을 하나의 launcher 안에서 관리하려 했지만, 실제 운용 의미가 달라서 잘못된 결합으로 판단했다. 지금 방향은 다음과 같다.
+
+- `llama.cpp` 유저는 `llama.cpp` 도구만 받아서 GGUF/llama-server 흐름만 쓴다.
+- `vLLM` 유저는 `vLLM` 도구만 받아서 HF/safetensors/AWQ/GPTQ profile/run-record 흐름만 쓴다.
+- 두 엔진을 모두 테스트하는 사용자는 둘 다 받되, 각 엔진은 따로 실행 가능해야 한다.
+- 나중의 Rust skin은 두 엔진을 import하거나 내부 함수에 묶이지 않고, 각 엔진 실행 파일의 JSON skin contract를 읽어서 모듈처럼 끼운다.
+- 스킨이 메뉴를 소유하지 않는다. 스킨 설정에 따라 엔진이 `manifest`, `menu`, `actions`, `status` 값을 반환하고, 스킨은 그 반환값으로 UI를 그린다.
+
+중요한 금지사항:
+
+- 코드 줄 수를 줄이기 위해 합치거나 압축하지 않는다.
+- `llama.cpp`와 `vLLM`의 profile/config/schema/command builder/run semantics를 공유하지 않는다.
+- 공통 UI 표현은 가능하지만 실행 의미는 backend-specific으로 유지한다.
+- `tmux`/`WezTerm` 기반 실행은 기본 흐름에서 제거됐다. 기본 실행은 백그라운드 프로세스와 로그 파일이다.
+- 이전 import 경로의 shim은 호환용이다. 새 코드의 실제 소유 경로는 `modules/llama_cpp/`와 `modules/vllm/`이다.
+
 ### 실행
 
-repo root에서 짧은 래퍼로 실행한다.
+통합 legacy launcher는 repo root에서 짧은 래퍼로 실행한다.
 
 ```sh
 ./llama-suite
+```
+
+엔진을 독립적으로 사용할 때는 전용 래퍼를 실행한다.
+
+```sh
+./llama-cpp-suite
+./vllm-suite
+```
+
+Rust skin 같은 상위 조작판은 각 엔진의 JSON 계약을 읽는다.
+
+```sh
+./llama-cpp-suite --skin manifest
+./llama-cpp-suite --skin menu
+./llama-cpp-suite --skin actions
+./llama-cpp-suite --skin status
+
+./vllm-suite --skin manifest
+./vllm-suite --skin menu
+./vllm-suite --skin actions
+./vllm-suite --skin status
 ```
 
 직접 Python 파일을 실행할 수도 있다.
 
 ```sh
 python3 llama-launcher-complete.py
+python3 llama-launcher-complete.py --engine llama.cpp
+python3 llama-launcher-complete.py --engine vllm
 ```
 
 ### Implemented
 
 - 로컬 launcher 기본 흐름
-- 모듈 분리 구조
+- 독립 엔진 래퍼: `./llama-cpp-suite`, `./vllm-suite`
+- Rust skin 대비 JSON contract: `manifest`, `menu`, `actions`, `status`
+- 물리적 엔진 모듈 분리: `modules/llama_cpp/`, `modules/vllm/`
 - llama.cpp backend 탐지/검사 계열
+- vLLM profile / launch / run record / API smoke 계열
 - 모델/시스템 정보 확인 메뉴
 - 일부 probe와 실행 보조 루틴
 - 아이디어 parking lot과 scope freeze 기록
@@ -68,7 +118,7 @@ bash scripts/smoke-check.sh
 
 `llama-suite`는 로컬 LLM 운용을 위한 작고 투박하지만 강한 도구 상자다.
 
-이 프로젝트는 `llama.cpp`, `Hermes Agent`, `tmux`, `Tailscale`, 로컬 모델 프로파일, 테스트 루틴을 하나의 운용 흐름으로 묶는 것을 목표로 한다.
+이 프로젝트는 `llama.cpp`, `Hermes Agent`, `Tailscale`, 로컬 모델 프로파일, 테스트 루틴을 하나의 운용 흐름으로 묶는 것을 목표로 한다.
 
 화려한 UI나 무거운 프레임워크가 목적이 아니다.  
 목적은 명확하다.
@@ -111,13 +161,18 @@ Core는 다음 일만 한다.
 
 각 기능은 독립 모듈로 분리한다.
 
-예상 모듈:
+현재 엔진 모듈:
 
-- `model_scan`
-- `runner_tmux`
-- `probes`
-- `hermes_sync`
-- `profiles`
+- `modules/llama_cpp/`
+- `modules/vllm/`
+
+공유/통합 모듈:
+
+- `hermes_integration`
+- `hermes_runner`
+- `model_registry`
+- `system_info`
+- root-level legacy import shims such as `modules/vllm_runner.py` and `modules/script_builder.py`
 - `local_search`
 - `clean_search`
 - `web_sidecar`
@@ -136,7 +191,7 @@ GUI가 죽어도, 웹 패널이 망가져도, 브라우저가 꼬여도, CLI는 
 
 - 모델 선택
 - 서버 시작/중지
-- tmux 로그 확인
+- 백그라운드 실행 로그 확인
 - `/health` 확인
 - `/v1/models` 확인
 - no-thinking 테스트

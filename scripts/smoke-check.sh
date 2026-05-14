@@ -12,6 +12,9 @@ python3 -m unittest discover -v
 
 test -f README.md
 test -f IDEAS.md
+test -x llama-suite
+test -x llama-cpp-suite
+test -x vllm-suite
 test -f llama-launcher-complete.py
 test -d modules
 
@@ -19,21 +22,21 @@ python3 - <<'PY'
 import importlib
 
 modules = [
-    "modules.config_store",
-    "modules.model_scan",
+    "modules.llama_cpp.config_store",
+    "modules.llama_cpp.model_scan",
     "modules.model_registry",
-    "modules.probes",
-    "modules.runner_tmux",
-    "modules.script_builder",
+    "modules.llama_cpp.probes",
+    "modules.llama_cpp.runner_background",
+    "modules.llama_cpp.script_builder",
     "modules.system_info",
-    "modules.backend_inspector",
-    "modules.vllm_doctor",
-    "modules.vllm_model_scan",
-    "modules.vllm_profile_store",
-    "modules.vllm_profiles",
-    "modules.vllm_api_probe",
-    "modules.vllm_runner",
-    "modules.vllm_script_builder",
+    "modules.llama_cpp.backend_inspector",
+    "modules.vllm.doctor",
+    "modules.vllm.model_scan",
+    "modules.vllm.profile_store",
+    "modules.vllm.profiles",
+    "modules.vllm.api_probe",
+    "modules.vllm.runner",
+    "modules.vllm.script_builder",
     "modules.hermes_integration",
     "modules.hermes_runner",
     "modules.hermes_smoke_evidence",

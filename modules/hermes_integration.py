@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from modules.vllm_runner import VllmRunRecord, latest_vllm_run_record, latest_vllm_run_summary
+from modules.vllm.runner import VllmRunRecord, latest_vllm_run_record, latest_vllm_run_summary
 
 
 HERMES_MIN_CONTEXT_LENGTH = 64000

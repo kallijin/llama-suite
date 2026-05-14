@@ -475,6 +475,7 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("Hermes Config Sync for vLLM", output)
         self.assertIn("Hermes Chat Test", output)
         self.assertIn("Hermes Tool Test / Raw Markup Check", output)
+        self.assertIn("Target: latest vLLM run record", output)
         self.assertIn("OpenClaw vLLM sync is not implemented yet.", output)
 
     def test_vllm_workspace_stays_open_after_submenu_action(self) -> None:
@@ -989,6 +990,7 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("[1] Check Status", output)
         self.assertIn("[2] View Log", output)
         self.assertIn("[3] Stop Server", output)
+        self.assertIn("[A] Advanced manual record/path", output)
 
     def test_vllm_server_check_runs_model_response_check_when_port_ready(self) -> None:
         launcher = load_launcher_module()
@@ -1020,7 +1022,7 @@ class BeginnerFlowTests(unittest.TestCase):
             patch.object(launcher, "latest_vllm_run_record", return_value=latest),
             patch.object(launcher, "check_vllm_run_status", mocked_status),
             patch.object(launcher, "run_vllm_api_smoke", mocked_api),
-            patch("builtins.input", side_effect=["1", ""]),
+            patch("builtins.input", side_effect=["1"]),
             contextlib.redirect_stdout(stdout),
         ):
             launcher.show_vllm_smoke_manage()
@@ -1059,7 +1061,7 @@ class BeginnerFlowTests(unittest.TestCase):
             patch.object(launcher, "latest_vllm_run_record", return_value=latest),
             patch.object(launcher, "check_vllm_run_status", mocked_status),
             patch.object(launcher, "run_vllm_api_smoke", mocked_api),
-            patch("builtins.input", side_effect=["1", ""]),
+            patch("builtins.input", side_effect=["1"]),
             contextlib.redirect_stdout(stdout),
         ):
             launcher.show_vllm_smoke_manage()
@@ -1263,6 +1265,86 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn(VERIFIED_GEMMA4_26B_AWQ_MODEL_PATH, output)
         self.assertIn("Recent vLLM run:", output)
         self.assertIn("READY", output)
+        self.assertIn("Selected profile: used for next launch", output)
+        self.assertIn("Latest run: used for status/log/API smoke", output)
+
+    def test_vllm_workspace_warns_when_selected_profile_differs_from_latest_run(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from modules.vllm_profiles import VllmProfile
+        from modules.vllm_runner import VllmLatestRunSummary
+        from unittest.mock import patch
+
+        stdout = StringIO()
+        with patch("builtins.input", side_effect=["R"]), contextlib.redirect_stdout(stdout):
+            action = launcher.choose_vllm_menu_action(
+                VllmProfile(model="/models/gemma4", host="127.0.0.1", port=8000),
+                "gemma4",
+                VllmLatestRunSummary(True, "qwen3", "/models/qwen3", "http://127.0.0.1:8001/v1", "STOPPED", []),
+            )
+
+        output = stdout.getvalue()
+        self.assertEqual(action, "")
+        self.assertIn("Selected profile and latest run are different. Status/API checks use latest run.", output)
+
+    def test_vllm_standalone_menu_uses_quit_wording(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from unittest.mock import patch
+        from modules.vllm_model_scan import scan_vllm_model_candidates
+
+        stdout = StringIO()
+        with TemporaryDirectory() as directory:
+            empty_cache = scan_vllm_model_candidates([directory])
+            with patch("builtins.input", side_effect=["q"]), contextlib.redirect_stdout(stdout):
+                action = launcher.choose_vllm_menu_action(candidate_cache=empty_cache, standalone=True)
+
+        output = stdout.getvalue()
+        self.assertEqual(action, "")
+        self.assertIn("[Q] Quit", output)
+        self.assertNotIn("[R] Return", output)
+
+    def test_vllm_suite_workspace_keeps_return_wording(self) -> None:
+        launcher = load_launcher_module()
+        from io import StringIO
+        import contextlib
+        from unittest.mock import patch
+        from modules.vllm_model_scan import scan_vllm_model_candidates
+
+        stdout = StringIO()
+        with TemporaryDirectory() as directory:
+            empty_cache = scan_vllm_model_candidates([directory])
+            with patch("builtins.input", side_effect=["r"]), contextlib.redirect_stdout(stdout):
+                action = launcher.choose_vllm_menu_action(candidate_cache=empty_cache)
+
+        output = stdout.getvalue()
+        self.assertEqual(action, "")
+        self.assertIn("[R] Return", output)
+        self.assertNotIn("[Q] Quit", output)
+
+    def test_vllm_standalone_first_screen_does_not_duplicate_status_blocks(self) -> None:
+        with TemporaryDirectory() as home:
+            model_dir = Path(home) / "models"
+            model_dir.mkdir()
+            env = dict(os.environ)
+            env["HOME"] = home
+            env["LLAMA_MODELS_DIR"] = str(model_dir)
+            completed = subprocess.run(
+                [sys.executable, "llama-launcher-complete.py", "--engine", "vllm"],
+                cwd=ROOT,
+                input="q\n",
+                text=True,
+                capture_output=True,
+                check=False,
+                env=env,
+            )
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(completed.stdout.count("Selected vLLM profile:"), 1)
+        self.assertEqual(completed.stdout.count("Recent vLLM run:"), 1)
+        self.assertIn("[Q] Quit", completed.stdout)
 
     def test_vllm_api_smoke_get_models_and_chat_success(self) -> None:
         from modules.vllm_api_probe import run_vllm_api_smoke
@@ -2220,6 +2302,35 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertIn("단일 파일 GGUF", text)
         self.assertIn("llama.cpp 백엔드", text)
         self.assertIn("tokenizer", text)
+
+    def test_vllm_doctor_pass_stderr_is_presented_as_non_blocking_warning(self) -> None:
+        from modules.vllm_doctor import DoctorCheck, VllmDoctorReport, format_vllm_doctor_report
+
+        report = VllmDoctorReport(
+            wrapper_path="/tmp/vllm-rocm",
+            python_path="/tmp/python",
+            checks=[
+                DoctorCheck(
+                    "vLLM wrapper version",
+                    True,
+                    "0.20.2+rocm721",
+                    stderr="\n".join(
+                        [
+                            "UserWarning: Failed to load image Python extension: torchvision.io image functionality may be unavailable",
+                            "Traceback-like detail line that should stay collapsed",
+                            "Another low-level dependency warning detail",
+                        ]
+                    ),
+                )
+            ],
+        )
+
+        text = format_vllm_doctor_report(report)
+
+        self.assertIn("[PASS] vLLM wrapper version", text)
+        self.assertIn("warning: non-blocking stderr:", text)
+        self.assertIn("2 stderr line(s) hidden", text)
+        self.assertNotIn("Traceback-like detail line that should stay collapsed", text)
 
     def test_vllm_profile_defaults_are_separate_and_conservative(self) -> None:
         from modules.vllm_profiles import default_vllm_profile, validate_vllm_profile
@@ -5046,7 +5157,7 @@ class BeginnerFlowTests(unittest.TestCase):
 
     def test_vllm_popen_is_confined_to_runner_module(self) -> None:
         launcher_source = (ROOT / "llama-launcher-complete.py").read_text()
-        runner_source = (ROOT / "modules" / "vllm_runner.py").read_text()
+        runner_source = (ROOT / "modules" / "vllm" / "runner.py").read_text()
 
         self.assertNotIn("subprocess", launcher_source)
         self.assertNotIn("Popen", launcher_source)
@@ -5261,11 +5372,12 @@ class BeginnerFlowTests(unittest.TestCase):
         mocked_status = Mock(return_value=type("Status", (), {"ok": True, "preset_id": "smoke-qwen-0.5b", "pid": 1234, "run_id": "run-latest", "log_path": "/tmp/latest.log", "alive": True, "log_exists": False, "port_listening": None, "messages": []})())
         stdout = StringIO()
 
-        with patch.object(launcher, "latest_vllm_run_record", return_value=latest), patch.object(launcher, "check_vllm_run_status", mocked_status), patch("builtins.input", side_effect=["1", ""]), contextlib.redirect_stdout(stdout):
+        with patch.object(launcher, "latest_vllm_run_record", return_value=latest), patch.object(launcher, "check_vllm_run_status", mocked_status), patch("builtins.input", side_effect=["1"]), contextlib.redirect_stdout(stdout):
             launcher.show_vllm_smoke_manage()
 
         mocked_status.assert_called_once_with(pid="1234", run_id="run-latest", log_path="/tmp/latest.log", preset_id="smoke-qwen-0.5b", host="100.68.40.87", port=8010)
         self.assertIn("latest run record", stdout.getvalue())
+        self.assertNotIn("record_path [Enter=latest", stdout.getvalue())
 
     def test_vllm_smoke_manage_uses_latest_record_preset_id_for_status(self) -> None:
         launcher = load_launcher_module()
@@ -5290,7 +5402,7 @@ class BeginnerFlowTests(unittest.TestCase):
         latest = VllmRunRecordResult(True, record, "/tmp/latest.json", [])
         mocked_status = Mock(return_value=type("Status", (), {"ok": True, "preset_id": "custom-draft", "pid": 1234, "run_id": "run-custom", "log_path": "/tmp/custom.log", "alive": True, "log_exists": True, "port_listening": True, "messages": []})())
 
-        with patch.object(launcher, "latest_vllm_run_record", return_value=latest), patch.object(launcher, "check_vllm_run_status", mocked_status), patch("builtins.input", side_effect=["1", ""]), contextlib.redirect_stdout(StringIO()):
+        with patch.object(launcher, "latest_vllm_run_record", return_value=latest), patch.object(launcher, "check_vllm_run_status", mocked_status), patch("builtins.input", side_effect=["1"]), contextlib.redirect_stdout(StringIO()):
             launcher.show_vllm_smoke_manage()
 
         mocked_status.assert_called_once_with(pid="1234", run_id="run-custom", log_path="/tmp/custom.log", preset_id="custom-draft", host="127.0.0.1", port=8000)
@@ -5306,11 +5418,11 @@ class BeginnerFlowTests(unittest.TestCase):
         mocked_status = Mock(return_value=type("Status", (), {"ok": True, "preset_id": "smoke-qwen-0.5b", "pid": 1234, "run_id": "manual-run", "log_path": "/tmp/manual.log", "alive": True, "log_exists": False, "port_listening": None, "messages": []})())
         stdout = StringIO()
 
-        with patch.object(launcher, "latest_vllm_run_record", return_value=latest), patch.object(launcher, "check_vllm_run_status", mocked_status), patch("builtins.input", side_effect=["1", "", "1234", "manual-run", "/tmp/manual.log", "127.0.0.1", "8000"]), contextlib.redirect_stdout(stdout):
+        with patch.object(launcher, "latest_vllm_run_record", return_value=latest), patch.object(launcher, "check_vllm_run_status", mocked_status), patch("builtins.input", side_effect=["A", "1", "", "1234", "manual-run", "/tmp/manual.log", "127.0.0.1", "8000"]), contextlib.redirect_stdout(stdout):
             launcher.show_vllm_smoke_manage()
 
         mocked_status.assert_called_once_with(pid="1234", run_id="manual-run", log_path="/tmp/manual.log", preset_id="smoke-qwen-0.5b", host="127.0.0.1", port="8000")
-        self.assertIn("latest.json이 없거나 유효하지 않으면", stdout.getvalue())
+        self.assertIn("Advanced manual record/path", stdout.getvalue())
 
     def test_vllm_smoke_manage_manual_override_still_works_with_latest_record(self) -> None:
         launcher = load_launcher_module()
@@ -5335,7 +5447,7 @@ class BeginnerFlowTests(unittest.TestCase):
         latest = VllmRunRecordResult(True, record, "/tmp/latest.json", [])
         mocked_status = Mock(return_value=type("Status", (), {"ok": True, "preset_id": "smoke-qwen-0.5b", "pid": 2222, "run_id": "manual-run", "log_path": "/tmp/manual.log", "alive": True, "log_exists": False, "port_listening": None, "messages": []})())
 
-        with patch.object(launcher, "latest_vllm_run_record", return_value=latest), patch.object(launcher, "check_vllm_run_status", mocked_status), patch("builtins.input", side_effect=["1", "-", "2222", "manual-run", "/tmp/manual.log", "0.0.0.0", "8020"]), contextlib.redirect_stdout(StringIO()):
+        with patch.object(launcher, "latest_vllm_run_record", return_value=latest), patch.object(launcher, "check_vllm_run_status", mocked_status), patch("builtins.input", side_effect=["A", "1", "", "2222", "manual-run", "/tmp/manual.log", "0.0.0.0", "8020"]), contextlib.redirect_stdout(StringIO()):
             launcher.show_vllm_smoke_manage()
 
         mocked_status.assert_called_once_with(pid="2222", run_id="manual-run", log_path="/tmp/manual.log", preset_id="smoke-qwen-0.5b", host="0.0.0.0", port="8020")
@@ -5363,7 +5475,7 @@ class BeginnerFlowTests(unittest.TestCase):
         latest = VllmRunRecordResult(True, record, "/tmp/latest.json", [])
         mocked_stop = Mock(return_value=type("Stop", (), {"ok": False, "preset_id": "smoke-qwen-0.5b", "pid": 1234, "run_id": "run-latest", "messages": ["cancelled"]})())
 
-        with patch.object(launcher, "latest_vllm_run_record", return_value=latest), patch.object(launcher, "stop_vllm_run", mocked_stop), patch("builtins.input", side_effect=["3", "", "no"]), contextlib.redirect_stdout(StringIO()):
+        with patch.object(launcher, "latest_vllm_run_record", return_value=latest), patch.object(launcher, "stop_vllm_run", mocked_stop), patch("builtins.input", side_effect=["3", "no"]), contextlib.redirect_stdout(StringIO()):
             launcher.show_vllm_smoke_manage()
 
         mocked_stop.assert_called_once_with(pid="1234", run_id="run-latest", preset_id="smoke-qwen-0.5b", confirmed=False)
@@ -5391,7 +5503,7 @@ class BeginnerFlowTests(unittest.TestCase):
         latest = VllmRunRecordResult(True, record, "/tmp/latest.json", [])
         mocked_stop = Mock(return_value=type("Stop", (), {"ok": True, "preset_id": "custom-draft", "pid": 1234, "run_id": "run-custom", "messages": ["stopped"]})())
 
-        with patch.object(launcher, "latest_vllm_run_record", return_value=latest), patch.object(launcher, "stop_vllm_run", mocked_stop), patch("builtins.input", side_effect=["3", "", "stop"]), contextlib.redirect_stdout(StringIO()):
+        with patch.object(launcher, "latest_vllm_run_record", return_value=latest), patch.object(launcher, "stop_vllm_run", mocked_stop), patch("builtins.input", side_effect=["3", "stop"]), contextlib.redirect_stdout(StringIO()):
             launcher.show_vllm_smoke_manage()
 
         mocked_stop.assert_called_once_with(pid="1234", run_id="run-custom", preset_id="custom-draft", confirmed=True)
@@ -5571,6 +5683,94 @@ class BeginnerFlowTests(unittest.TestCase):
         self.assertEqual(restored["port"], 8080)
         self.assertEqual(restored["reasoning_budget"], 0)
         self.assertEqual(restored["param_sources"], {})
+
+    def test_llama_cpp_runner_uses_background_bash_without_tmux(self) -> None:
+        from io import StringIO
+        import contextlib
+        from unittest.mock import patch
+        from modules import runner_background
+
+        class FakeProcess:
+            pid = 12345
+
+        with TemporaryDirectory() as directory:
+            script_path = Path(directory) / "run.sh"
+            script_path.write_text("#!/usr/bin/env sh\n")
+            calls = []
+
+            def fake_popen(args, **kwargs):
+                calls.append((args, kwargs))
+                return FakeProcess()
+
+            stdout = StringIO()
+            with (
+                patch.object(runner_background, "get_running_model", return_value=None),
+                patch.object(runner_background.subprocess, "Popen", side_effect=fake_popen),
+                contextlib.redirect_stdout(stdout),
+            ):
+                runner_background.run_script(str(script_path), model_name="Dummy-7B")
+
+        self.assertEqual(calls[0][0], ["bash", str(script_path)])
+        self.assertTrue(calls[0][1]["start_new_session"])
+        self.assertIn("PID: 12345", stdout.getvalue())
+        self.assertNotIn("tmux", stdout.getvalue().lower())
+
+    def test_standalone_engine_wrappers_exist(self) -> None:
+        llama_wrapper = ROOT / "llama-cpp-suite"
+        vllm_wrapper = ROOT / "vllm-suite"
+
+        self.assertTrue(llama_wrapper.exists())
+        self.assertTrue(os.access(llama_wrapper, os.X_OK))
+        self.assertTrue(vllm_wrapper.exists())
+        self.assertTrue(os.access(vllm_wrapper, os.X_OK))
+
+    def test_skin_manifest_returns_engine_specific_contracts(self) -> None:
+        llama_result = subprocess.run(
+            [str(ROOT / "llama-cpp-suite"), "--skin", "manifest"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        vllm_result = subprocess.run(
+            [str(ROOT / "vllm-suite"), "--skin", "manifest"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+        llama_payload = json.loads(llama_result.stdout)
+        vllm_payload = json.loads(vllm_result.stdout)
+
+        self.assertEqual(llama_payload["schema"], "llama-suite.skin-response.v1")
+        self.assertEqual(llama_payload["engine"], "llama.cpp")
+        self.assertIn("LLAMA_CPP_REFRESH", llama_payload["data"]["actions"])
+        self.assertNotIn("VLLM_SELECTED_LAUNCH", llama_payload["data"]["actions"])
+
+        self.assertEqual(vllm_payload["engine"], "vllm")
+        self.assertIn("VLLM_SELECTED_LAUNCH", vllm_payload["data"]["actions"])
+        self.assertNotIn("LLAMA_CPP_REFRESH", vllm_payload["data"]["actions"])
+
+    def test_llama_cpp_standalone_main_does_not_load_vllm_profile(self) -> None:
+        from io import StringIO
+        import contextlib
+        from unittest.mock import patch
+
+        launcher = load_launcher_module()
+        stdout = StringIO()
+        with (
+            patch.object(launcher, "load_config", return_value=self.sample_cfg("/bin/echo")),
+            patch.object(launcher, "get_model_list", return_value={}),
+            patch.object(launcher, "get_running_model", return_value=None),
+            patch.object(launcher, "choose_llama_cpp_menu_action", return_value=""),
+            patch.object(launcher, "initial_vllm_profile_selection_with_messages") as mocked_vllm_init,
+            contextlib.redirect_stdout(stdout),
+        ):
+            launcher.main("llama.cpp")
+
+        mocked_vllm_init.assert_not_called()
+        self.assertIn("llama.cpp standalone engine control", stdout.getvalue())
 
 
 if __name__ == "__main__":

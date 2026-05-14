@@ -63,8 +63,8 @@ caller still requires the correct exact word.
 ### Command Preview Formatting
 
 Current shape:
-- llama.cpp command preview comes from `modules/script_builder.py`.
-- vLLM command preview comes from `modules/vllm_profiles.py`.
+- llama.cpp command preview comes from `modules/llama_cpp/script_builder.py`.
+- vLLM command preview comes from `modules/vllm/profiles.py`.
 - UI screens format command lists with shell quoting for human preview.
 
 Possible future helper:
@@ -95,8 +95,8 @@ well-covered by tests.
 
 ### llama.cpp Launch Flow
 
-The llama.cpp path uses GGUF selection, generated shell scripts, tmux/background
-execution, ctx/KV/cache options, and existing script management.
+The llama.cpp path uses GGUF selection, generated shell scripts, background
+execution with log files, ctx/KV/cache options, and existing script management.
 
 Do not merge this with vLLM launch just because both start a local server.
 
@@ -109,7 +109,7 @@ Do not collapse this into llama.cpp script execution.
 
 ### llama.cpp Script Generation
 
-`modules/script_builder.py` builds llama.cpp scripts and command previews around
+`modules/llama_cpp/script_builder.py` builds llama.cpp scripts and command previews around
 GGUF and llama-server semantics.
 
 Keep it separate from vLLM profile hints and vLLM server command preview.

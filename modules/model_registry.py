@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from modules.vllm_model_scan import (
+from modules.vllm.model_scan import (
     ModelReadiness,
     VllmModelCandidate,
     render_readiness_text,

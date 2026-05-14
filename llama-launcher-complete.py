@@ -23,7 +23,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from modules.config_store import (
+from modules.llama_cpp.config_store import (
     detect_tailscale_ip,
     expand_path,
     get_option_value,
@@ -35,19 +35,19 @@ from modules.config_store import (
 from modules.hermes_integration import build_hermes_vllm_sync_plan, format_hermes_vllm_sync_plan, write_hermes_vllm_sync_plan
 from modules.hermes_runner import build_hermes_vllm_smoke_plan, build_hermes_vllm_tool_agent_smoke_plan, run_hermes_vllm_smoke, run_hermes_vllm_tool_agent_smoke
 from modules.hermes_smoke_evidence import write_hermes_smoke_evidence
-from modules.model_scan import get_model_list
-from modules.profiles import default_model_profile, get_model_profile, load_profiles, save_profiles
-from modules.probes import quick_no_think_test, show_status
-from modules.runner_tmux import get_running_model, get_running_servers, run_script
-from modules.script_builder import command_preview, generate_script, parse_generated_script, resolve_ctx_size
+from modules.llama_cpp.model_scan import get_model_list
+from modules.llama_cpp.profiles import default_model_profile, get_model_profile, load_profiles, save_profiles
+from modules.llama_cpp.probes import quick_no_think_test, show_status
+from modules.llama_cpp.runner_background import get_running_model, get_running_servers, run_script
+from modules.llama_cpp.script_builder import command_preview, generate_script, parse_generated_script, resolve_ctx_size
 from modules.system_info import collect_system_info
-from modules.vllm_api_probe import run_vllm_api_smoke
-from modules.vllm_doctor import format_vllm_doctor_report, run_vllm_doctor
-from modules.vllm_model_scan import render_vllm_model_candidate_lines, scan_vllm_model_candidates
-from modules.vllm_profile_store import backup_vllm_profile_draft, default_vllm_profile_path, delete_vllm_profile_draft, format_vllm_profile_draft_json, import_vllm_model_profile_hint, list_vllm_profile_drafts, load_selected_vllm_profile_draft, load_vllm_model_profile_hint, load_vllm_profile_draft, load_vllm_profile_json_file, save_selected_vllm_profile_id, save_verified_gemma4_26b_awq_beta_profile, save_vllm_model_profile_hint, save_vllm_profile_draft, validate_vllm_profile_json_file, vllm_model_profile_hint_path
-from modules.vllm_profiles import add_vllm_extra_arg, apply_vllm_default_profile_policy, apply_vllm_tool_call_parser, build_vllm_command, builtin_vllm_profile_presets, common_vllm_extra_arg_options, default_vllm_profile, default_vllm_profile_policies, editable_vllm_profile_field_specs, editable_vllm_profile_fields, format_vllm_profile_report, future_launch_preset_id, host_guidance_lines, infer_vllm_tool_call_parser, large_model_guidance_lines, launch_confirmation_guidance_lines, remove_vllm_extra_arg_token, run_vllm_preflight, tokenize_vllm_extra_args, update_vllm_profile_field, validate_vllm_profile, vllm_port_conflict_guidance_lines, vllm_tool_call_parser_choices
-from modules.vllm_runner import check_vllm_run_status, latest_vllm_run_record, latest_vllm_run_summary, launch_vllm_profile_once, launch_vllm_smoke_once, read_vllm_run_log, read_vllm_run_record, stop_vllm_run
-from modules.vllm_script_builder import build_vllm_script_preview, save_vllm_script
+from modules.vllm.api_probe import run_vllm_api_smoke
+from modules.vllm.doctor import format_vllm_doctor_report, run_vllm_doctor
+from modules.vllm.model_scan import render_vllm_model_candidate_lines, scan_vllm_model_candidates
+from modules.vllm.profile_store import backup_vllm_profile_draft, default_vllm_profile_path, delete_vllm_profile_draft, format_vllm_profile_draft_json, import_vllm_model_profile_hint, list_vllm_profile_drafts, load_selected_vllm_profile_draft, load_vllm_model_profile_hint, load_vllm_profile_draft, load_vllm_profile_json_file, save_selected_vllm_profile_id, save_verified_gemma4_26b_awq_beta_profile, save_vllm_model_profile_hint, save_vllm_profile_draft, validate_vllm_profile_json_file, vllm_model_profile_hint_path
+from modules.vllm.profiles import add_vllm_extra_arg, apply_vllm_default_profile_policy, apply_vllm_tool_call_parser, build_vllm_command, builtin_vllm_profile_presets, common_vllm_extra_arg_options, default_vllm_profile, default_vllm_profile_policies, editable_vllm_profile_field_specs, editable_vllm_profile_fields, format_vllm_profile_report, future_launch_preset_id, host_guidance_lines, infer_vllm_tool_call_parser, large_model_guidance_lines, launch_confirmation_guidance_lines, remove_vllm_extra_arg_token, run_vllm_preflight, tokenize_vllm_extra_args, update_vllm_profile_field, validate_vllm_profile, vllm_port_conflict_guidance_lines, vllm_tool_call_parser_choices
+from modules.vllm.runner import check_vllm_run_status, latest_vllm_run_record, latest_vllm_run_summary, launch_vllm_profile_once, launch_vllm_smoke_once, read_vllm_run_log, read_vllm_run_record, stop_vllm_run
+from modules.vllm.script_builder import build_vllm_script_preview, save_vllm_script
 
 
 # ─── 설정 ──────────────────────────────────────────────
@@ -693,6 +693,26 @@ def print_recent_vllm_run_summary(summary: Any = None) -> None:
     print(recent_vllm_run_summary_line(summary))
 
 
+def vllm_selected_latest_scope_lines(profile: Any | None, profile_id: str, summary: Any = None) -> list[str]:
+    value = summary or latest_vllm_run_summary()
+    lines = [
+        "  Selected profile: used for next launch",
+        "  Latest run: used for status/log/API smoke",
+    ]
+    if not getattr(value, "ok", False):
+        lines.append("  Latest run record is not available. Status/API checks need a latest run record.")
+        return lines
+    selected_model = str(getattr(profile, "model", "") or "")
+    latest_model = str(getattr(value, "model", "") or "")
+    selected_id = str(profile_id or "")
+    latest_id = str(getattr(value, "preset_id", "") or "")
+    if selected_model and latest_model and (selected_model != latest_model or selected_id != latest_id):
+        lines.append("  Selected profile and latest run are different. Status/API checks use latest run.")
+    else:
+        lines.append("  Selected profile and latest run appear to match. Status/API checks still use latest run.")
+    return lines
+
+
 def selected_vllm_profile_summary_line(profile: Any, profile_id: str = "custom-draft") -> str:
     served_name = served_model_name_from_vllm_profile(profile, fallback=profile_id)
     model = getattr(profile, "model", "") or "(empty model)"
@@ -720,6 +740,36 @@ def selected_vllm_profile_path_line(profile_id: str = "custom-draft") -> str:
 def print_selected_vllm_profile_summary(profile: Any, profile_id: str = "custom-draft") -> None:
     print(selected_vllm_profile_summary_line(profile, profile_id))
     print(selected_vllm_profile_path_line(profile_id))
+
+
+def vllm_record_model_label(record: Any) -> str:
+    profile_snapshot = getattr(record, "profile_snapshot", None)
+    if isinstance(profile_snapshot, dict) and profile_snapshot.get("model"):
+        return str(profile_snapshot["model"])
+    command = list(getattr(record, "command", []) or [])
+    try:
+        serve_index = command.index("serve")
+    except ValueError:
+        return "-"
+    if serve_index + 1 >= len(command):
+        return "-"
+    return str(command[serve_index + 1])
+
+
+def print_vllm_latest_run_target(latest_result: Any | None = None) -> None:
+    latest = latest_result or latest_vllm_run_record()
+    print("  Target: latest vLLM run record")
+    record = getattr(latest, "record", None)
+    if not getattr(latest, "ok", False) or record is None:
+        print("  Model: -")
+        print("  Endpoint: -")
+        for message in getattr(latest, "messages", []) or []:
+            print(f"  - {message}")
+        return
+    endpoint = f"http://{record.host}:{record.port}/v1" if getattr(record, "host", None) and getattr(record, "port", None) else "-"
+    print(f"  Model: {vllm_record_model_label(record)}")
+    print(f"  Endpoint: {endpoint}")
+    print(f"  Profile: {getattr(record, 'preset_id', '-') or '-'}")
 
 
 def served_model_name_from_vllm_profile(profile: Any, *, fallback: str) -> str:
@@ -2335,31 +2385,91 @@ def show_vllm_smoke_manage() -> None:
     print("  [1] Check Status")
     print("  [2] View Log")
     print("  [3] Stop Server")
+    print("  [A] Advanced manual record/path")
     choice = input("  선택 > ").strip()
 
     if choice == "1":
-        record = prompt_vllm_run_record(latest_record)
-        if record:
-            pid = str(record.pid)
-            run_id = record.run_id
-            log_path = record.log_path
-            preset_id = record.preset_id
-            host = record.host
-            port = record.port
-        else:
-            pid = input("  pid > ").strip()
-            run_id = input("  run_id > ").strip()
-            log_path = input("  log_path > ").strip()
-            preset_id = future_launch_preset_id()
-            host = input("  host [127.0.0.1] > ").strip() or "127.0.0.1"
-            port = input("  port [8000] > ").strip() or "8000"
-        result = check_vllm_run_status(pid=pid, run_id=run_id, log_path=log_path, preset_id=preset_id, host=host, port=port)
-        print_vllm_status_result(result)
-        print_vllm_model_response_check(result, latest_result if record is latest_record else None)
+        if not latest_record:
+            print("  latest run record is not available. Use [A] Advanced manual record/path for manual status checks.")
+            return
+        show_vllm_status_for_record(latest_record, latest_result)
         return
 
     if choice == "2":
-        record = prompt_vllm_run_record(latest_record)
+        if not latest_record:
+            print("  latest run record is not available. Use [A] Advanced manual record/path for manual log checks.")
+            return
+        log_path = latest_record.log_path
+        raw_lines = input("  last N lines [80] > ").strip()
+        try:
+            last_lines = int(raw_lines) if raw_lines else 80
+        except ValueError:
+            last_lines = 80
+        result = read_vllm_run_log(log_path, last_lines=last_lines)
+        print_vllm_log_result(result)
+        return
+
+    if choice == "3":
+        if not latest_record:
+            print("  latest run record is not available. Use [A] Advanced manual record/path for manual stop.")
+            return
+        print("  계속하려면 stop 또는 STOP 를 정확히 입력하세요.")
+        confirm = input("  confirmation > ").strip()
+        result = stop_vllm_run(
+            pid=str(latest_record.pid),
+            run_id=latest_record.run_id,
+            preset_id=latest_record.preset_id,
+            confirmed=(confirm.lower() == "stop"),
+        )
+        print_vllm_stop_result(result)
+        return
+
+    if choice.upper() == "A":
+        show_vllm_smoke_manage_advanced()
+        return
+
+    print("  취소했습니다.")
+
+
+def show_vllm_status_for_record(record: Any, latest_result: Any | None = None) -> None:
+    result = check_vllm_run_status(
+        pid=str(record.pid),
+        run_id=record.run_id,
+        log_path=record.log_path,
+        preset_id=record.preset_id,
+        host=record.host,
+        port=record.port,
+    )
+    print_vllm_status_result(result)
+    print_vllm_model_response_check(result, latest_result)
+
+
+def show_vllm_smoke_manage_advanced() -> None:
+    print("\n  ── Advanced manual record/path ──")
+    print("  Use this only for debugging an older run record or a manually started vLLM process.")
+    print("  [1] Check manual status")
+    print("  [2] View manual log")
+    print("  [3] Stop manual server")
+    choice = input("  선택 > ").strip()
+
+    if choice == "1":
+        record = prompt_vllm_run_record(None)
+        if record:
+            show_vllm_status_for_record(record, None)
+            return
+        pid = input("  pid > ").strip()
+        run_id = input("  run_id > ").strip()
+        log_path = input("  log_path > ").strip()
+        preset_id = future_launch_preset_id()
+        host = input("  host [127.0.0.1] > ").strip() or "127.0.0.1"
+        port = input("  port [8000] > ").strip() or "8000"
+        result = check_vllm_run_status(pid=pid, run_id=run_id, log_path=log_path, preset_id=preset_id, host=host, port=port)
+        print_vllm_status_result(result)
+        print_vllm_model_response_check(result, None)
+        return
+
+    if choice == "2":
+        record = prompt_vllm_run_record(None)
         log_path = record.log_path if record else input("  log_path > ").strip()
         raw_lines = input("  last N lines [80] > ").strip()
         try:
@@ -2371,7 +2481,7 @@ def show_vllm_smoke_manage() -> None:
         return
 
     if choice == "3":
-        record = prompt_vllm_run_record(latest_record)
+        record = prompt_vllm_run_record(None)
         if record:
             pid = str(record.pid)
             run_id = record.run_id
@@ -2488,7 +2598,9 @@ def show_vllm_api_smoke() -> None:
     print("\n  ── API Connection Test ──")
     print("  Checks the OpenAI-compatible endpoint. This is separate from Hermes tests.")
     print("  Hermes와 무관한 OpenAI-compatible endpoint를 read-only로 확인합니다.")
-    result = run_vllm_api_smoke()
+    latest = latest_vllm_run_record()
+    print_vllm_latest_run_target(latest)
+    result = run_vllm_api_smoke(latest_record=latest)
     print_vllm_readiness_summary(
         api_status="PASS" if result.ok else "FAIL",
         hermes_chat_status="UNKNOWN",
@@ -2781,11 +2893,20 @@ def show_llama_cpp_integration_menu(cfg: dict[str, Any], draft: dict[str, Any]) 
     print("  No vLLM profile or latest vLLM run record is used here.")
 
 
-def choose_vllm_menu_action(profile: Any = None, profile_id: str = "custom-draft", run_summary: Any = None, candidate_cache: Any = None) -> str:
+def choose_vllm_menu_action(
+    profile: Any = None,
+    profile_id: str = "custom-draft",
+    run_summary: Any = None,
+    candidate_cache: Any = None,
+    standalone: bool = False,
+) -> str:
     cache = candidate_cache or scan_vllm_model_candidates([MODELS_DIR])
     selectable_candidates = vllm_workspace_selectable_candidates(cache)
     print("\n  ── vLLM engine ──")
     print("  This workspace operates local HF/AWQ-style vLLM model folders.")
+    print()
+    for line in vllm_selected_latest_scope_lines(profile, profile_id, run_summary):
+        print(line)
     if profile is not None:
         print("\n  Current vLLM status")
         print(selected_vllm_profile_summary_line(profile, profile_id))
@@ -2804,7 +2925,10 @@ def choose_vllm_menu_action(profile: Any = None, profile_id: str = "custom-draft
     print("  [T] vLLM Start Check")
     print("  [E] Profile Settings")
     print("  [A] Advanced Profile / JSON")
-    print("  [R] Return")
+    if standalone:
+        print("  [Q] Quit")
+    else:
+        print("  [R] Return")
     choice = input("  선택 > ").strip()
     if choice.isdigit() and 1 <= int(choice) <= len(selectable_candidates):
         return f"{VLLM_MODEL_DETAIL_ACTION_PREFIX}{choice}"
@@ -2825,6 +2949,10 @@ def choose_vllm_menu_action(profile: Any = None, profile_id: str = "custom-draft
         "e": "VLLM_SELECTED_SETTINGS",
         "A": "B",
         "a": "B",
+        "Q": "",
+        "q": "",
+        "R": "",
+        "r": "",
     }.get(choice, "")
 
 
@@ -2998,6 +3126,7 @@ def handle_vllm_workspace_action(action: str, profile: Any, profile_id: str, cfg
 
     if upper == "VLLM_CHECKS_MENU":
         print("\n  ── API / Hermes checks ──")
+        print_vllm_latest_run_target()
         print("  [1] API Connection Test")
         print("  [2] Hermes Config Sync for vLLM")
         print("  [3] Hermes Chat Test")
@@ -3115,68 +3244,310 @@ def run_top_level_no_thinking_test(draft: dict[str, Any], running_servers: list[
     print("  실행 중인 서버가 없습니다. llama.cpp 또는 vLLM workspace에서 먼저 실행하세요.")
 
 
+SKIN_RESPONSE_SCHEMA = "llama-suite.skin-response.v1"
+SKIN_MENU_SCHEMA = "llama-suite.skin-menu.v1"
+SKIN_MANIFEST_SCHEMA = "llama-suite.skin-manifest.v1"
+
+
+def normalize_engine_mode(engine_mode: str) -> str:
+    value = (engine_mode or "suite").strip().lower()
+    if value in {"llama", "llama-cpp", "llama_cpp"}:
+        return "llama.cpp"
+    if value in {"suite", "vllm"}:
+        return value
+    return value
+
+
+def skin_response(engine: str, command: str, ok: bool, data: dict[str, Any] | None = None, messages: list[str] | None = None) -> dict[str, Any]:
+    return {
+        "schema": SKIN_RESPONSE_SCHEMA,
+        "engine": engine,
+        "command": command,
+        "ok": ok,
+        "messages": messages or [],
+        "data": data or {},
+    }
+
+
+def llama_cpp_skin_menu(models: dict[str, str], draft: dict[str, Any], running: str | None) -> dict[str, Any]:
+    return {
+        "schema": SKIN_MENU_SCHEMA,
+        "engine": "llama.cpp",
+        "title": "llama.cpp",
+        "state": {
+            "model_count": len(models),
+            "selected_model": draft.get("model_name"),
+            "selected_model_path": draft.get("model_path"),
+            "running_model": running,
+            "endpoint": f"http://{draft.get('host')}:{draft.get('port')}/v1",
+        },
+        "items": [
+            {"id": "LOAD", "label": "Load profile/config/script", "kind": "menu"},
+            {"id": "M", "label": "Select GGUF model", "kind": "menu"},
+            {"id": "A", "label": "Edit llama.cpp settings", "kind": "menu"},
+            {"id": "K", "label": "Edit llama.cpp parameters", "kind": "menu"},
+            {"id": "P", "label": "Preview command", "kind": "view"},
+            {"id": "O", "label": "One-time run", "kind": "action", "confirmation": "y"},
+            {"id": "G", "label": "Generate script", "kind": "action"},
+            {"id": "LLAMA_CPP_SCRIPTS", "label": "Manage scripts", "kind": "menu"},
+            {"id": "LLAMA_CPP_INTEGRATION", "label": "Hermes/OpenClaw integration", "kind": "view"},
+            {"id": "LLAMA_CPP_REFRESH", "label": "Refresh GGUF model list", "kind": "action"},
+            {"id": "H", "label": "Server status", "kind": "view"},
+            {"id": "T", "label": "No-thinking test", "kind": "action"},
+        ],
+    }
+
+
+def vllm_skin_menu(profile: Any, profile_id: str, run_summary: Any) -> dict[str, Any]:
+    return {
+        "schema": SKIN_MENU_SCHEMA,
+        "engine": "vllm",
+        "title": "vLLM",
+        "state": {
+            "selected_profile_id": profile_id,
+            "selected_model": getattr(profile, "model", None),
+            "latest_run_status": getattr(run_summary, "status", "UNKNOWN"),
+            "latest_run_model": getattr(run_summary, "model", None),
+            "latest_endpoint": getattr(run_summary, "endpoint", None),
+        },
+        "items": [
+            {"id": "VLLM_REFRESH", "label": "Refresh / rescan model candidates", "kind": "action"},
+            {"id": "VLLM_SELECTED_PREVIEW", "label": "Selected profile preview", "kind": "view"},
+            {"id": "Z", "label": "Server check / log / stop", "kind": "menu"},
+            {"id": "VLLM_CHECKS_MENU", "label": "API / Hermes checks", "kind": "menu"},
+            {"id": "VLLM_SELECT_GEMMA4_BETA", "label": "Load verified Gemma4 profile", "kind": "action"},
+            {"id": "VLLM_DOCTOR", "label": "vLLM start check", "kind": "view"},
+            {"id": "VLLM_SELECTED_SETTINGS", "label": "Profile settings", "kind": "menu"},
+            {"id": "B", "label": "Advanced profile / JSON", "kind": "menu"},
+            {"id": "VLLM_SELECTED_LAUNCH", "label": "Launch selected profile", "kind": "action", "confirmation": "launch"},
+            {"id": "W", "label": "API connection test", "kind": "action"},
+            {"id": "HERMES_VLLM_SYNC", "label": "Hermes config sync", "kind": "action", "confirmation": "write"},
+            {"id": "HERMES_VLLM_CHAT_SMOKE", "label": "Hermes chat test", "kind": "action", "confirmation": "smoke"},
+            {"id": "HERMES_VLLM_TOOL_AGENT_SMOKE", "label": "Hermes tool test / raw markup check", "kind": "action"},
+        ],
+    }
+
+
+def skin_manifest(engine_mode: str) -> dict[str, Any]:
+    engine = normalize_engine_mode(engine_mode)
+    if engine == "llama.cpp":
+        return {
+            "schema": SKIN_MANIFEST_SCHEMA,
+            "engine": "llama.cpp",
+            "standalone_command": "./llama-cpp-suite",
+            "skin_commands": {
+                "manifest": "./llama-cpp-suite --skin manifest",
+                "menu": "./llama-cpp-suite --skin menu",
+                "actions": "./llama-cpp-suite --skin actions",
+                "status": "./llama-cpp-suite --skin status",
+            },
+            "model_kinds": ["gguf"],
+            "actions": [item["id"] for item in llama_cpp_skin_menu({}, {}, None)["items"]],
+        }
+    if engine == "vllm":
+        return {
+            "schema": SKIN_MANIFEST_SCHEMA,
+            "engine": "vllm",
+            "standalone_command": "./vllm-suite",
+            "skin_commands": {
+                "manifest": "./vllm-suite --skin manifest",
+                "menu": "./vllm-suite --skin menu",
+                "actions": "./vllm-suite --skin actions",
+                "status": "./vllm-suite --skin status",
+            },
+            "model_kinds": ["local_hf_directory", "awq", "gptq", "safetensors"],
+            "actions": [item["id"] for item in vllm_skin_menu(default_vllm_profile(), "custom-draft", None)["items"]],
+        }
+    return {
+        "schema": SKIN_MANIFEST_SCHEMA,
+        "engine": "suite",
+        "standalone_command": "./llama-suite",
+        "children": ["llama.cpp", "vllm"],
+    }
+
+
+def skin_status(engine_mode: str) -> dict[str, Any]:
+    engine = normalize_engine_mode(engine_mode)
+    if engine == "llama.cpp":
+        cfg = load_config()
+        models = get_model_list(MODELS_DIR)
+        draft = draft_from_config(cfg, models)
+        running = get_running_model()
+        return {
+            "engine": "llama.cpp",
+            "status": "RUNNING" if running else "STOPPED",
+            "running_model": running,
+            "model_count": len(models),
+            "selected_model": draft.get("model_name"),
+            "endpoint": f"http://{draft.get('host')}:{draft.get('port')}/v1",
+        }
+    if engine == "vllm":
+        summary = latest_vllm_run_summary()
+        profile, profile_id, messages = initial_vllm_profile_selection_with_messages()
+        return {
+            "engine": "vllm",
+            "status": getattr(summary, "status", "UNKNOWN"),
+            "selected_profile_id": profile_id,
+            "selected_model": getattr(profile, "model", None),
+            "latest_model": getattr(summary, "model", None),
+            "latest_endpoint": getattr(summary, "endpoint", None),
+            "messages": messages + list(getattr(summary, "messages", []) or []),
+        }
+    return {"engine": "suite", "status": "READY", "children": ["llama.cpp", "vllm"]}
+
+
+def build_skin_response(engine_mode: str, skin_command: str) -> dict[str, Any]:
+    engine = normalize_engine_mode(engine_mode)
+    command = (skin_command or "").strip().lower()
+    if command == "manifest":
+        return skin_response(engine, command, True, skin_manifest(engine))
+    if command == "status":
+        return skin_response(engine, command, True, skin_status(engine))
+    if command == "menu":
+        if engine == "llama.cpp":
+            cfg = load_config()
+            models = get_model_list(MODELS_DIR)
+            draft = draft_from_config(cfg, models)
+            return skin_response(engine, command, True, llama_cpp_skin_menu(models, draft, get_running_model()))
+        if engine == "vllm":
+            profile, profile_id, messages = initial_vllm_profile_selection_with_messages()
+            data = vllm_skin_menu(profile, profile_id, latest_vllm_run_summary())
+            return skin_response(engine, command, True, data, messages)
+        return skin_response(engine, command, True, {"children": ["llama.cpp", "vllm"]})
+    if command == "actions":
+        manifest = skin_manifest(engine)
+        return skin_response(engine, command, True, {"actions": manifest.get("actions", []), "children": manifest.get("children", [])})
+    return skin_response(engine, command, False, messages=[f"unknown skin command: {skin_command}"])
+
+
+def parse_cli_args(argv: list[str]) -> tuple[str, str | None]:
+    engine = "suite"
+    skin_command: str | None = None
+    index = 0
+    while index < len(argv):
+        arg = argv[index]
+        if arg == "--engine" and index + 1 < len(argv):
+            engine = argv[index + 1]
+            index += 2
+            continue
+        if arg.startswith("--engine="):
+            engine = arg.split("=", 1)[1]
+            index += 1
+            continue
+        if arg == "--skin" and index + 1 < len(argv):
+            skin_command = argv[index + 1]
+            index += 2
+            continue
+        if arg.startswith("--skin="):
+            skin_command = arg.split("=", 1)[1]
+            index += 1
+            continue
+        index += 1
+    return engine, skin_command
+
+
 # ─── 메인 루프 ─────────────────────────────────────────
 
-def main() -> None:
+def main(engine_mode: str = "suite") -> None:
+    engine_mode = normalize_engine_mode(engine_mode)
+    if engine_mode not in {"suite", "llama.cpp", "vllm"}:
+        print(f"unknown engine mode: {engine_mode}", file=sys.stderr)
+        sys.exit(2)
+
     cfg = load_config()
     models = get_model_list(MODELS_DIR)
     draft = draft_from_config(cfg, models)
-    vllm_profile_draft, vllm_profile_draft_id, startup_warnings = initial_vllm_profile_selection_with_messages()
+    if engine_mode in {"suite", "vllm"}:
+        vllm_profile_draft, vllm_profile_draft_id, startup_warnings = initial_vllm_profile_selection_with_messages()
+    else:
+        vllm_profile_draft, vllm_profile_draft_id, startup_warnings = None, "custom-draft", []
 
     while True:
         print_header()
-        print("  llama-suite local AI engine control")
+        if engine_mode == "llama.cpp":
+            print("  llama.cpp standalone engine control")
+        elif engine_mode == "vllm":
+            print("  vLLM standalone engine control")
+        else:
+            print("  llama-suite local AI engine control")
         print(f"  모델 디렉터리: {MODELS_DIR}")
         running = get_running_model()
-        vllm_run_summary = latest_vllm_run_summary()
-        print_top_level_selected_model(draft, running, vllm_run_summary)
-        print_planned_run_summary(draft, running)
-        print_recent_vllm_run_summary(vllm_run_summary)
-        print_selected_vllm_profile_summary(vllm_profile_draft, vllm_profile_draft_id)
-        print_llama_cpp_model_summary(models, draft)
-        print_startup_warnings(startup_warnings + recent_vllm_run_startup_warnings(vllm_run_summary))
-        if not models:
-            print(f"\n  ⚠️  {MODELS_DIR} 에서 GGUF 파일을 찾을 수 없습니다.")
-            print("     그래도 [L] llama.cpp workspace, [V] vLLM workspace, [U] Shared tools / integrations는 사용할 수 있습니다.")
+        vllm_run_summary = latest_vllm_run_summary() if engine_mode in {"suite", "vllm"} else None
 
-        if running:
-            print(f"  🔴 실행 중: {running}\n")
-
-        numbered = list(enumerate(models.items(), 1))
-
-        print("\n  ──────────────────────────── 빠른 행동 ────────────────────────────")
-        print("  [L] llama.cpp GGUF 모델 선택 / 실행")
-        print("  [V] vLLM Profile 관리 / 실행")
-        print("  [H] 서버 상태 확인")
-        print("  [T] no-thinking 테스트 채팅")
-        print()
-        print("  [A] llama.cpp 설정 변경")
-        print("  [W] llama.cpp 현재 설정 저장")
-        print("  [U] Shared tools / integrations")
-        print("  [I] 시스템 정보")
-        print("  [Q] 종료\n")
-
-        try:
-            choice = input("  선택 > ").strip()
-        except EOFError:
-            print("\n👋 안녕!\n")
-            break
-
-        if not choice:
+        if engine_mode == "vllm":
+            print_startup_warnings(startup_warnings + recent_vllm_run_startup_warnings(vllm_run_summary))
+            action = choose_vllm_menu_action(vllm_profile_draft, vllm_profile_draft_id, vllm_run_summary, standalone=True)
+            if not action:
+                print("\n👋 안녕!\n")
+                break
+            vllm_profile_draft, vllm_profile_draft_id, cfg, _handled = handle_vllm_workspace_action(
+                action,
+                vllm_profile_draft,
+                vllm_profile_draft_id,
+                cfg,
+            )
             continue
 
-        upper = choice.upper()
-
-        if upper == "Q":
-            print("\n👋 안녕!\n")
-            break
-
-        if upper == "L":
+        if engine_mode == "llama.cpp":
+            print_llama_cpp_model_summary(models, draft)
+            print_planned_run_summary(draft, running)
+            print_startup_warnings(startup_warnings)
             upper = choose_llama_cpp_menu_action(models, draft, running)
             if not upper:
-                print("  취소했습니다.")
-                pause()
+                print("\n👋 안녕!\n")
+                break
+            choice = ""
+            numbered = list(enumerate(models.items(), 1))
+        else:
+            print_top_level_selected_model(draft, running, vllm_run_summary)
+            print_planned_run_summary(draft, running)
+            print_recent_vllm_run_summary(vllm_run_summary)
+            print_selected_vllm_profile_summary(vllm_profile_draft, vllm_profile_draft_id)
+            print_llama_cpp_model_summary(models, draft)
+            print_startup_warnings(startup_warnings + recent_vllm_run_startup_warnings(vllm_run_summary))
+
+            if not models:
+                print(f"\n  ⚠️  {MODELS_DIR} 에서 GGUF 파일을 찾을 수 없습니다.")
+                print("     그래도 [L] llama.cpp workspace, [V] vLLM workspace, [U] Shared tools / integrations는 사용할 수 있습니다.")
+
+            if running:
+                print(f"  🔴 실행 중: {running}\n")
+
+            numbered = list(enumerate(models.items(), 1))
+
+            print("\n  ──────────────────────────── 빠른 행동 ────────────────────────────")
+            print("  [L] llama.cpp GGUF 모델 선택 / 실행")
+            print("  [V] vLLM Profile 관리 / 실행")
+            print("  [H] 서버 상태 확인")
+            print("  [T] no-thinking 테스트 채팅")
+            print()
+            print("  [A] llama.cpp 설정 변경")
+            print("  [W] llama.cpp 현재 설정 저장")
+            print("  [U] Shared tools / integrations")
+            print("  [I] 시스템 정보")
+            print("  [Q] 종료\n")
+
+            try:
+                choice = input("  선택 > ").strip()
+            except EOFError:
+                print("\n👋 안녕!\n")
+                break
+
+            if not choice:
                 continue
+
+            upper = choice.upper()
+
+            if upper == "Q":
+                print("\n👋 안녕!\n")
+                break
+
+            if upper == "L":
+                upper = choose_llama_cpp_menu_action(models, draft, running)
+                if not upper:
+                    print("  취소했습니다.")
+                    pause()
+                    continue
 
         if upper == "V":
             while True:
@@ -3396,4 +3767,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    selected_engine, selected_skin_command = parse_cli_args(sys.argv[1:])
+    if selected_skin_command:
+        print(json.dumps(build_skin_response(selected_engine, selected_skin_command), ensure_ascii=False, indent=2))
+    else:
+        main(selected_engine)

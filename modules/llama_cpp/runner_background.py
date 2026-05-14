@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import os
 import shlex
-import shutil
 import signal
 import subprocess
 import time
-from datetime import datetime
 from pathlib import Path
 
 
@@ -16,21 +14,6 @@ def run_capture(args: list[str], timeout: int = 5) -> str:
         return (r.stdout or "").strip()
     except Exception:
         return ""
-
-
-def command_exists(cmd: str) -> bool:
-    return shutil.which(cmd) is not None
-
-
-def safe_tmux_session_name(text: str, limit: int = 48) -> str:
-    allowed = []
-    for c in text[:limit]:
-        if c.isalnum() or c in ("-", "_", "."):
-            allowed.append(c)
-        else:
-            allowed.append("_")
-    name = "".join(allowed).strip("_")
-    return name or "model"
 
 
 def get_running_servers() -> list[str]:
@@ -104,10 +87,6 @@ def kill_running_servers() -> None:
             pass
 
 
-def tmux_session_name(model_name: str) -> str:
-    return "llama_" + safe_tmux_session_name(model_name, limit=32)
-
-
 def run_script(script_path: str, model_name: str | None = None) -> None:
     running = get_running_model()
     if running:
@@ -118,28 +97,9 @@ def run_script(script_path: str, model_name: str | None = None) -> None:
         else:
             return
 
-    session = tmux_session_name(model_name or Path(script_path).stem)
-
-    if command_exists("tmux"):
-        # 세션 이름 충돌 방지
-        existing = run_capture(["tmux", "list-sessions", "-F", "#{session_name}"])
-        if session in existing.splitlines():
-            session = f"{session}_{datetime.now().strftime('%H%M%S')}"
-
-        result = subprocess.run(
-            ["tmux", "new-session", "-d", "-s", session, "bash", script_path],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode == 0:
-            print(f"  ✅ tmux 세션에서 실행됨: {session}")
-            print(f"     접속: tmux attach -t {session}")
-            return
-        print(f"  ⚠️  tmux 실행 실패: {result.stderr.strip()}")
-
-    # tmux가 없으면 백그라운드 실행 + 로그 파일
     log_path = str(script_path) + ".log"
     with open(log_path, "ab") as log:
-        subprocess.Popen(["bash", script_path], stdout=log, stderr=log)
+        process = subprocess.Popen(["bash", script_path], stdout=log, stderr=log, start_new_session=True)
     print(f"  ✅ 백그라운드 실행됨: {script_path}")
+    print(f"     PID: {process.pid}")
     print(f"     로그: {log_path}")

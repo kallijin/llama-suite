@@ -1,5 +1,265 @@
 # llama-suite Operations Log
 
+## 2026-05-14 KST - Engine Separation Baseline And Memory Notes
+
+### 2026-05-14 KST Update - vLLM Beginner-First Standalone Direction
+
+The vLLM standalone app should now be designed for a beginner user.
+
+Assume this user built or installed vLLM by following a manual and is trying it
+because other people are using it. They may not understand profile schemas,
+run records, parser settings, PID/log handling, or OpenAI-compatible endpoint
+language.
+
+Menu and screen priority for `./vllm-suite`:
+
+```text
+1. Which model will start?
+2. Is a server already running?
+3. What should I press next?
+4. If something failed, what is the simplest safe fix?
+5. Where are the advanced controls, and how do I return to defaults?
+```
+
+Advanced controls are not hidden. They should be visible, but every advanced
+setting must show a recommended default and an obvious escape key such as
+`[D] Use default`, `[C] Cancel / do not save`, and explicit `[S] Save`.
+
+The important beginner safety rule is reversibility. Do not design advanced
+settings as one-way dangerous edits. Design them as visible options with a
+default restore path first.
+
+Do not hide controls or rename widely known technical concepts just to make the
+UI look simple. Keep names such as `preflight`, `profile schema`,
+`OpenAI-compatible endpoint`, and `tool-call parser`, then explain each one in
+plain language next to the real name.
+
+Patch list tracking this direction:
+
+```text
+docs/VLLM_STANDALONE_PATCH_LIST.md
+```
+
+The Rust skin should eventually receive the same hierarchy from the process/JSON
+contract: beginner actions first, advanced actions visible, and reset-to-default
+actions available.
+
+### Context
+
+The project direction changed after reviewing the actual runtime meaning of
+llama.cpp and vLLM.
+
+The old premise was that one combined launcher could manage both engines for
+code-management convenience. That was rejected.
+
+Current premise:
+
+```text
+llama.cpp and vLLM are independent engines.
+Standalone engine operation is mandatory.
+Rust skin integration is a later process/JSON control surface.
+The skin plugs engines in like modules; it does not own backend internals.
+```
+
+The user explicitly required:
+
+```text
+독립적으로 사용하는데 문제가 없어야 한다.
+스킨에 불려 들어갔을 때 스킨의 메뉴 설정에 따라 값을 반환해야 한다.
+```
+
+### Change
+
+Added standalone wrappers:
+
+```sh
+./llama-cpp-suite
+./vllm-suite
+```
+
+Kept legacy combined wrapper:
+
+```sh
+./llama-suite
+```
+
+Added direct engine modes:
+
+```sh
+python3 llama-launcher-complete.py --engine llama.cpp
+python3 llama-launcher-complete.py --engine vllm
+```
+
+Added Rust-skin-facing JSON commands for both standalone engine wrappers:
+
+```sh
+./llama-cpp-suite --skin manifest
+./llama-cpp-suite --skin menu
+./llama-cpp-suite --skin actions
+./llama-cpp-suite --skin status
+
+./vllm-suite --skin manifest
+./vllm-suite --skin menu
+./vllm-suite --skin actions
+./vllm-suite --skin status
+```
+
+Current JSON envelope:
+
+```json
+{
+  "schema": "llama-suite.skin-response.v1",
+  "engine": "llama.cpp",
+  "command": "status",
+  "ok": true,
+  "messages": [],
+  "data": {}
+}
+```
+
+Physical module split:
+
+```text
+modules/llama_cpp/
+  backend_inspector.py
+  backends.py
+  config_store.py
+  model_scan.py
+  probes.py
+  profiles.py
+  runner_background.py
+  script_builder.py
+
+modules/vllm/
+  api_probe.py
+  doctor.py
+  model_scan.py
+  profile_store.py
+  profiles.py
+  runner.py
+  script_builder.py
+```
+
+Root-level compatibility shims remain for old imports such as:
+
+```text
+modules.script_builder
+modules.config_store
+modules.vllm_runner
+modules.vllm_profiles
+```
+
+These shims use `sys.modules[__name__] = _impl` so old monkeypatch paths still
+patch the real implementation module. They are not the preferred import path
+for new code.
+
+New code should import from:
+
+```python
+modules.llama_cpp.*
+modules.vllm.*
+```
+
+### tmux Removal
+
+Removed tmux/WezTerm from default llama.cpp execution.
+
+Reason:
+
+- terminal link values were not returned in a useful way;
+- mouse wheel behavior required complicated terminal-specific handling;
+- the result was not reliable enough for the engine foundation.
+
+Current llama.cpp execution path:
+
+- generated shell script
+- `bash script.sh`
+- `start_new_session=True`
+- stdout/stderr redirected to `.log`
+- PID and log path printed
+
+Current implementation:
+
+```text
+modules/llama_cpp/runner_background.py
+```
+
+The old `modules/runner_tmux.py` was removed.
+
+### Safety Rules Recorded
+
+Documented in `README.md`, `IDEAS.md`, `docs/REFACTOR_MAP.md`, and
+`docs/PATCH_NOTES_2026-05-14.md`:
+
+- do not combine llama.cpp and vLLM runtime semantics;
+- do not compress code just to reduce line count;
+- add code when explicit boundary structure is needed;
+- delete code when it belongs to the old wrong boundary;
+- keep exact confirmations for launch/switch/stop/write/import/save/delete;
+- Rust skin must call engine executables and parse JSON, not import Python internals;
+- GGUF remains llama.cpp-first;
+- local HF/safetensors/AWQ/GPTQ remains vLLM-first;
+- root-level shim modules are compatibility only.
+
+### Files To Read First
+
+Future AI/human maintainers should read these before continuing separation work:
+
+```text
+README.md
+IDEAS.md
+docs/PATCH_NOTES_2026-05-14.md
+docs/REFACTOR_MAP.md
+OPERATIONS.md
+```
+
+Useful commands:
+
+```sh
+./llama-cpp-suite --skin manifest | python3 -m json.tool
+./vllm-suite --skin manifest | python3 -m json.tool
+./llama-cpp-suite --skin status | python3 -m json.tool
+./vllm-suite --skin status | python3 -m json.tool
+bash scripts/smoke-check.sh
+```
+
+### Recommended Next Work
+
+Most advantageous next patch:
+
+1. Add `modules/control_schema.py`.
+2. Move skin response constants and envelope helpers out of
+   `llama-launcher-complete.py`.
+3. Add `modules/llama_cpp/control.py` and `modules/vllm/control.py`.
+4. Move `manifest/menu/actions/status` builders into engine-owned control
+   modules.
+5. Preserve JSON output shape exactly.
+6. Run smoke-check.
+
+Do not remove compatibility shims in the same patch. Shim deletion should happen
+only after tests and scripts no longer use old import paths.
+
+### Verification
+
+```sh
+./llama-cpp-suite --skin status | python3 -m json.tool
+./vllm-suite --skin status | python3 -m json.tool
+bash scripts/smoke-check.sh
+```
+
+Result:
+
+```text
+Ran 229 tests
+OK
+SMOKE CHECK OK
+```
+
+### Dirty Tree Note
+
+`docs/hermes-requests/` was already untracked and unrelated. It was left
+untouched.
+
 ## 2026-05-13 KST - Main menu engine routing cleanup
 
 ### Context

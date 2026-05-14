@@ -16,11 +16,11 @@
 Do not split files just to reduce line count.
 Split only when responsibilities diverge.
 
-Current vLLM boundaries:
+Current engine boundaries:
 
 - `llama-launcher-complete.py`: thin TUI shell only
-- `modules/vllm_doctor.py`: wrapper/version/Torch HIP checks
-- `modules/vllm_profiles.py`: profile schema, validation, preset registry, command preview, launch preflight
+- `modules/llama_cpp/`: GGUF scan, llama.cpp config, backend discovery, script generation, background runner, llama.cpp probes
+- `modules/vllm/`: wrapper/version/Torch HIP checks, profile schema, validation, preset registry, command preview, launch preflight, run records, process lifecycle
 
 Split out only when adding:
 
@@ -33,8 +33,8 @@ Split out only when adding:
 
 Future modules:
 
-- `modules/vllm_runner.py`: launch/stop/status/log/process lifecycle
-- `modules/vllm_control.py`: CLI/MCP-facing control surface
+- `modules/vllm/control.py`: CLI/MCP-facing control surface
+- `modules/llama_cpp/control.py`: CLI/MCP-facing control surface
 - `modules/control_schema.py`: shared structured result/JSON schema
 
 ## Agent-facing orientation help rule
@@ -59,6 +59,32 @@ The goal is directional help for files whose overall flow is otherwise hard to i
 
 Common-looking actions must have a backend owner.
 
+Current separation baseline as of 2026-05-14:
+
+- `./llama-cpp-suite` is the standalone llama.cpp/GGUF entrypoint.
+- `./vllm-suite` is the standalone vLLM/HF-style entrypoint.
+- `./llama-suite` remains as a legacy combined launcher during transition.
+- `modules/llama_cpp/` owns llama.cpp code.
+- `modules/vllm/` owns vLLM code.
+- old root module names such as `modules.vllm_runner` and `modules.script_builder` are compatibility shims only.
+- Rust skin integration must use process/JSON boundaries, not Python imports.
+
+The skin-facing contract currently lives in `llama-launcher-complete.py`:
+
+- `--skin manifest`
+- `--skin menu`
+- `--skin actions`
+- `--skin status`
+
+This is acceptable as a transition step, but the better final shape is:
+
+- `modules/control_schema.py` for response envelopes and schema constants;
+- `modules/llama_cpp/control.py` for llama.cpp skin/control responses;
+- `modules/vllm/control.py` for vLLM skin/control responses;
+- thin wrappers that call the engine control module and print JSON.
+
+Do not remove the old import shims until tests and scripts have been moved deliberately. The shims exist because old monkeypatch paths still need to hit the real implementation module.
+
 Current llama.cpp-owned actions:
 
 - `[K] llama.cpp parameters`
@@ -77,6 +103,55 @@ Current vLLM-owned actions:
 Future shared actions should be backend-aware and dispatch to backend-specific handlers.
 Do not mix llama.cpp profile/config fields with vLLM profile/config fields.
 The UI shell may share menu patterns, but backend parameters and command generation must remain separate.
+
+## vLLM beginner-first standalone direction
+
+`./vllm-suite` is no longer designed for someone who already understands vLLM internals.
+
+Default assumption:
+
+- the user can follow a build/install manual;
+- the user may not understand vLLM profile schemas, run records, parser settings, PID/log files, or OpenAI-compatible API details;
+- the user wants to choose a model, start it, confirm it works, and copy the server address into another app.
+
+Default vLLM screens should be beginner-first:
+
+- show the selected model and the next safe action before implementation details;
+- show whether a server is running and which model it belongs to;
+- explain selected profile vs latest run in plain language;
+- expose record paths, PIDs, JSON paths, raw command editing, parser settings, and cache env as visible advanced controls;
+- pair every advanced setting with a recommended default and a reset key;
+- keep exact confirmations for launch/stop/write/delete even if the flow is beginner-friendly;
+- treat defaults as the escape route, not as hidden magic;
+- make `[D] Use default`, `[C] Cancel / do not save`, and explicit `[S] Save` patterns consistent across vLLM settings screens.
+- do not hide controls in the name of simplicity;
+- do not rename established technical terms to make the UI look easier. Keep names like `preflight`, `profile schema`, `OpenAI-compatible endpoint`, and `tool-call parser`, then add a short explanation beside the real name.
+
+The menu should feel like:
+
+```text
+1. Pick model
+2. Start model
+3. Check server
+4. Connect client
+5. Advanced settings with defaults
+```
+
+Not like:
+
+```text
+profile schema / run record / raw args / PID / JSON / command line with no explanation and no default escape path
+```
+
+This direction applies first to vLLM standalone. The later Rust skin should receive the same beginner-friendly hierarchy from the engine contract while still exposing advanced actions and reset-to-default actions for power users.
+
+When splitting code:
+
+- add code when the new boundary needs explicit structure;
+- delete code when it belongs to the old wrong boundary;
+- do not reduce code merely to make it shorter;
+- do not hide behavior behind a generic helper unless tests prove it is a display-only or schema-only helper;
+- preserve exact confirmations for launch, switch, stop, write, import, save, and delete flows.
 
 ## AI-first model registry flow
 
@@ -197,6 +272,20 @@ This boundary marks where the project moved from vLLM foundation MVP into custom
 ### Small safe next
 기능 가치를 높이지만 backend 경계를 크게 흔들지 않는 것.
 
+- vLLM standalone UX patch list lives in `docs/VLLM_STANDALONE_PATCH_LIST.md`.
+  Work it one patch at a time. The first high-value patches are:
+  1. standalone exit wording;
+  2. duplicate first-screen status removal;
+  3. selected profile vs latest run distinction;
+  4. server check default simplification;
+  5. doctor warning presentation.
+- Current engine separation priority:
+  1. Move skin response helpers out of `llama-launcher-complete.py` into `modules/control_schema.py`.
+  2. Add `modules/llama_cpp/control.py` and `modules/vllm/control.py`.
+  3. Make `./llama-cpp-suite --skin ...` and `./vllm-suite --skin ...` call those control modules.
+  4. Keep the same JSON output shape while moving code.
+  5. Only after tests pass, migrate tests from old shim imports to new package imports gradually.
+  6. Delete shim modules in a separate patch after old imports are quiet.
 - Current vLLM beta priority:
   1. vLLM selected profile editor
   2. port conflict diagnostics / existing server reuse guidance
@@ -215,7 +304,7 @@ This boundary marks where the project moved from vLLM foundation MVP into custom
 
 - 공통 action layer를 backend-aware로 정리한다. parameters, preview, script generation, run은 backend-specific handler로 dispatch되어야 한다.
 - Future cleanup: centralize model source classification.
-  Context: `_looks_like_hf_model_id()` was added in `modules/vllm_profile_store.py`
+  Context: `_looks_like_hf_model_id()` was added in `modules/vllm/profile_store.py`
   for saving vLLM model-directory profile hints. Similar checks already exist
   or may grow in vLLM profile inspection, model scan, preflight, and UI code.
   If each module decides independently whether a model string is a Hugging Face
@@ -223,7 +312,7 @@ This boundary marks where the project moved from vLLM foundation MVP into custom
   source, the launcher can show inconsistent guidance.
 
   Desired direction: create one shared classifier for model source strings,
-  possibly `modules/model_source_classifier.py` or `modules/vllm_model_source.py`.
+  possibly `modules/model_source_classifier.py` or `modules/vllm/model_source.py`.
   The structured result should include `kind`, `original`, `resolved_path`,
   `messages`, `warnings`, and `blocking`.
 
@@ -231,7 +320,7 @@ This boundary marks where the project moved from vLLM foundation MVP into custom
   `hf_model_id`, `local_hf_directory`, `local_gguf_file`,
   `missing_local_path`, `invalid`, `unknown`.
 
-  Use it from `modules/vllm_profile_store.py`, `modules/vllm_profiles.py`,
+  Use it from `modules/vllm/profile_store.py`, `modules/vllm/profiles.py`,
   vLLM preflight, vLLM import/export profile hint UI, and future
   model registry/discovery work.
 
@@ -252,7 +341,7 @@ This boundary marks where the project moved from vLLM foundation MVP into custom
 좋지만 기동과 운영 안정화 이후로 미룬다.
 
 - 언어장벽을 넘기 위한 광범위한 유니코드화.
-- tmux/WezTerm layout generator. 프로세스와 로그 관리 표준화가 먼저이고, terminal workspace 생성은 선택적 편의 기능이다.
+- Terminal workspace generator는 제외한다. 기본 실행은 백그라운드 프로세스와 로그 파일로 표준화한다.
 - Rust shell. Python core가 안정된 뒤 조종석 역할로 검토한다.
 
 ### Dangerous / manual approval

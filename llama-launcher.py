@@ -150,20 +150,17 @@ def get_latest_script(model_name):
 
 
 def run_existing_script(script_path):
-    """기존 스크립트 파일 실행 (wezterm + tmux)"""
-    try:
-        subprocess.run(
-            ["wezterm", "start", "--", "tmux", "new-session", "-d", "bash", script_path],
-            capture_output=True, text=True
-        )
-        print(f"  ✅ 기존 스크립트 실행됨! ({script_path})")
-    except FileNotFoundError:
-        subprocess.Popen(["bash", script_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        print(f"  ✅ 백그라운드 실행됨 ({script_path})")
+    """기존 스크립트 파일을 백그라운드에서 실행"""
+    log_path = str(script_path) + ".log"
+    with open(log_path, "ab") as log:
+        process = subprocess.Popen(["bash", script_path], stdout=log, stderr=log, start_new_session=True)
+    print(f"  ✅ 백그라운드 실행됨 ({script_path})")
+    print(f"     PID: {process.pid}")
+    print(f"     로그: {log_path}")
 
 
 def run_script(script_path):
-    """스크립트 백그라운드 실행 (wezterm + tmux)"""
+    """스크립트 백그라운드 실행"""
     # 기존 서버 종료 확인
     running = get_running_model()
     if running:
@@ -178,17 +175,12 @@ def run_script(script_path):
         else:
             return
 
-    # wezterm에서 실행
-    try:
-        result = subprocess.run(
-            ["wezterm", "start", "--", "tmux", "new-session", "-d", "bash", script_path],
-            capture_output=True, text=True
-        )
-        print(f"  ✅ 스크립트 실행됨! ({script_path})")
-    except FileNotFoundError:
-        # wezterm 없으면 직접 백그라운드 실행
-        subprocess.Popen(["bash", script_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        print(f"  ✅ 백그라운드 실행됨 ({script_path})")
+    log_path = str(script_path) + ".log"
+    with open(log_path, "ab") as log:
+        process = subprocess.Popen(["bash", script_path], stdout=log, stderr=log, start_new_session=True)
+    print(f"  ✅ 백그라운드 실행됨 ({script_path})")
+    print(f"     PID: {process.pid}")
+    print(f"     로그: {log_path}")
 
 
 def show_scripts():

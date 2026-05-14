@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from modules.hermes_integration import served_model_id_from_vllm_record
-from modules.vllm_runner import latest_vllm_run_record, latest_vllm_run_summary
+from modules.vllm.runner import latest_vllm_run_record, latest_vllm_run_summary
 
 
 DEFAULT_HERMES_BIN = "~/.local/bin/hermes"
